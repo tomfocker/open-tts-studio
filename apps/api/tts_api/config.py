@@ -30,6 +30,7 @@ class Settings(BaseModel):
     app_name: str = "Open TTS Desktop API"
     api_host: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_API_HOST", "127.0.0.1"))
     api_port: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_API_PORT", "8765")))
+    api_access_key: str | None = Field(default_factory=lambda: os.environ.get("OPEN_TTS_API_KEY") or None)
     workspace_root: Path = WORKSPACE_ROOT
     output_dir: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_OUTPUT_DIR", str(WORKSPACE_ROOT / "data" / "outputs"))))
     model_registry_path: Path = WORKSPACE_ROOT / "model-registry" / "models.json"
@@ -74,6 +75,7 @@ def serialize_settings(settings: Settings) -> dict:
     return {
         "api_host": settings.api_host,
         "api_port": settings.api_port,
+        "api_access_key_required": bool(settings.api_access_key),
         "output_dir": str(settings.output_dir),
         "indextts2_root": str(settings.indextts2_root),
         "indextts2_idle_timeout_seconds": settings.indextts2_idle_timeout_seconds,

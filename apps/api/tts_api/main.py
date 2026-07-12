@@ -1,7 +1,8 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from tts_api.adapters.gptsovits import shutdown_gptsovits_services
 from tts_api.adapters.indextts2_worker import shutdown_indextts2_workers
@@ -28,6 +29,16 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def require_optional_api_key(request: Request, call_next):
+        if not settings.api_access_key or request.method == "OPTIONS" or request.url.path in {"/v1/health", "/docs", "/openapi.json"}:
+            return await call_next(request)
+        bearer_token = request.headers.get("authorization", "").removeprefix("Bearer ")
+        provided_key = request.headers.get("x-opentts-key") or request.headers.get("x-open-tts-key") or bearer_token
+        if provided_key != settings.api_access_key:
+            return JSONResponse(status_code=401, content={"detail": "Missing or invalid OpenTTS API key."})
+        return await call_next(request)
     app.include_router(health.router)
     app.include_router(models.router)
     app.include_router(speech.router)
