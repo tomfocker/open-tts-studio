@@ -4,7 +4,8 @@ import json
 from fastapi import APIRouter, HTTPException, status
 
 from tts_api.config import get_settings
-from tts_api.schemas import CreateVoiceRequest, VoiceInfo
+from tts_api.schemas import CreateVoiceRequest, VoiceInfo, VoiceQualityReport
+from tts_api.voice_quality import inspect_voice_quality
 
 router = APIRouter()
 
@@ -13,6 +14,7 @@ BUILTIN_VOICES: dict[str, VoiceInfo] = {
         id="default",
         name="Default",
         authorization_status="built_in",
+        source_type="built_in",
     )
 }
 
@@ -65,10 +67,22 @@ def create_voice(request: CreateVoiceRequest) -> VoiceInfo:
         reference_audio=request.reference_audio,
         reference_text=request.reference_text,
         authorization_status=request.authorization_status,
+        source_type=request.source_type,
+        source_url=request.source_url,
     )
     custom_voices[voice.id] = voice
     save_custom_voices(custom_voices)
     return voice
+
+
+@router.get("/v1/tts/voices/{voice_id}/quality", response_model=VoiceQualityReport)
+def inspect_voice(voice_id: str) -> VoiceQualityReport:
+    if voice_id in BUILTIN_VOICES:
+        return inspect_voice_quality(BUILTIN_VOICES[voice_id])
+    voice = load_custom_voices().get(voice_id)
+    if voice is None:
+        raise HTTPException(status_code=404, detail="Voice not found.")
+    return inspect_voice_quality(voice)
 
 
 @router.delete("/v1/tts/voices/{voice_id}", status_code=status.HTTP_204_NO_CONTENT)

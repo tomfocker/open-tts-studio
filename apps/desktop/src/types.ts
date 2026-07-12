@@ -85,6 +85,8 @@ export type VoiceInfo = {
   reference_audio?: string | null;
   reference_text?: string | null;
   authorization_status: string;
+  source_type: string;
+  source_url?: string | null;
 };
 
 export type CreateVoiceRequest = {
@@ -92,6 +94,26 @@ export type CreateVoiceRequest = {
   reference_audio?: string | null;
   reference_text?: string | null;
   authorization_status: string;
+  source_type?: string;
+  source_url?: string | null;
+};
+
+export type VoiceQualityStatus = "ready" | "warning" | "error" | "unknown";
+
+export type VoiceQualityReport = {
+  voice_id: string;
+  reference_audio?: string | null;
+  exists: boolean;
+  readable?: boolean | null;
+  format?: string | null;
+  file_size_bytes?: number | null;
+  duration_seconds?: number | null;
+  sample_rate?: number | null;
+  channels?: number | null;
+  analyzed_seconds?: number | null;
+  silence_ratio?: number | null;
+  status: VoiceQualityStatus;
+  warnings: string[];
 };
 
 export type IpcResponse<T = unknown> = {

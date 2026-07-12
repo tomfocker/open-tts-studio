@@ -16,6 +16,7 @@ import type {
   ModelRuntimeActionResult,
   SpeechResult,
   SystemStatus,
+  VoiceQualityReport,
   VoiceInfo
 } from "./types";
 
@@ -75,6 +76,15 @@ export async function deleteVoice(voiceId: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`Failed to delete voice: ${response.status}`);
   }
+}
+
+export async function fetchVoiceQuality(voiceId: string): Promise<VoiceQualityReport> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}/quality`);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to inspect voice quality: ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function generateSpeech(

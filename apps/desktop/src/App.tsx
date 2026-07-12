@@ -44,6 +44,7 @@ import {
   fetchModelInstances,
   fetchModels,
   fetchSystemStatus,
+  fetchVoiceQuality,
   fetchVoices,
   generateSpeech,
   getApiBase,
@@ -76,6 +77,7 @@ import type {
   SpeechResult,
   SystemStatus,
   VoiceInfo,
+  VoiceQualityReport,
   WorkerStatus
 } from "./types";
 
@@ -114,6 +116,8 @@ type VoicePreset = {
   referenceAudio?: string;
   referenceText?: string;
   authorizationStatus?: string;
+  sourceType?: string;
+  sourceUrl?: string;
 };
 
 type GenerationProgress = {
@@ -327,6 +331,32 @@ function batchSegmentStatusLabel(status: BatchProject["segments"][number]["statu
   }
 }
 
+function voiceQualityLabel(report: VoiceQualityReport) {
+  if (report.status === "ready") {
+    return "参考音频合格";
+  }
+  if (report.status === "warning") {
+    return "建议处理后使用";
+  }
+  if (report.status === "error") {
+    return "参考音频不可用";
+  }
+  return "尚未检查";
+}
+
+function voiceSourceLabel(sourceType: string | undefined) {
+  if (sourceType === "bilibili") {
+    return "B 站取样";
+  }
+  if (sourceType === "generated") {
+    return "本地生成";
+  }
+  if (sourceType === "built_in") {
+    return "内置样例";
+  }
+  return "本地导入";
+}
+
 function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
   return {
     api_host: settings?.api_host ?? "127.0.0.1",
@@ -373,7 +403,9 @@ function createImportedVoicePreset(voice: VoiceInfo): VoicePreset | null {
     background: voiceColorFromId(voice.id),
     referenceAudio: voice.reference_audio,
     referenceText: voice.reference_text ?? undefined,
-    authorizationStatus: voice.authorization_status
+    authorizationStatus: voice.authorization_status,
+    sourceType: voice.source_type,
+    sourceUrl: voice.source_url ?? undefined
   };
 }
 
@@ -822,6 +854,8 @@ export function App() {
   const [voiceImporting, setVoiceImporting] = useState(false);
   const [voiceSaving, setVoiceSaving] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
+  const [voiceQuality, setVoiceQuality] = useState<VoiceQualityReport | null>(null);
+  const [voiceQualityLoading, setVoiceQualityLoading] = useState(false);
   const [samplerOpen, setSamplerOpen] = useState(false);
   const [samplerState, setSamplerState] = useState<BilibiliSamplerState>(() => createDefaultBilibiliSamplerState());
   const [samplerLink, setSamplerLink] = useState("");
@@ -1004,6 +1038,18 @@ export function App() {
       );
     } catch {
       setCustomVoices([]);
+    }
+  }
+
+  async function loadVoiceQuality(voiceId: string) {
+    setVoiceQualityLoading(true);
+    try {
+      const report = await fetchVoiceQuality(voiceId);
+      setVoiceQuality(report);
+    } catch {
+      setVoiceQuality(null);
+    } finally {
+      setVoiceQualityLoading(false);
     }
   }
 
@@ -1411,7 +1457,9 @@ export function App() {
         name: voiceName,
         reference_audio: response.data.audioPath,
         reference_text: samplerReferenceText.trim() || undefined,
-        authorization_status: "source_bilibili_authorized"
+        authorization_status: "source_bilibili_authorized",
+        source_type: "bilibili",
+        source_url: samplerLink.trim() || undefined
       });
       const preset = createImportedVoicePreset(voice);
       if (!preset) {
@@ -1475,7 +1523,8 @@ export function App() {
         name: getFileBaseName(audioPath),
         reference_audio: audioPath,
         reference_text: referenceText.trim() || undefined,
-        authorization_status: "authorized"
+        authorization_status: "authorized",
+        source_type: "local_import"
       });
       const preset = createImportedVoicePreset(createdVoice);
       if (preset) {
@@ -1505,7 +1554,8 @@ export function App() {
         name: createGeneratedVoiceName(resultModelName || selectedModelInfo?.display_name || result.model, resultVoiceName || selectedVoiceInfo.name),
         reference_audio: result.file_path,
         reference_text: resultReferenceText || input.trim() || undefined,
-        authorization_status: "generated_local"
+        authorization_status: "generated_local",
+        source_type: "generated"
       });
       const preset = createImportedVoicePreset(voice);
       if (preset) {
@@ -1831,6 +1881,16 @@ export function App() {
   }, [selectedVoiceInfo.id]);
 
   useEffect(() => {
+    const importedVoice = customVoices.find((voice) => voice.id === selectedVoice);
+    if (!importedVoice?.referenceAudio) {
+      setVoiceQuality(null);
+      setVoiceQualityLoading(false);
+      return;
+    }
+    void loadVoiceQuality(importedVoice.id);
+  }, [customVoices, selectedVoice]);
+
+  useEffect(() => {
     let disposed = false;
     if (!samplerQrPayload?.qrUrl) {
       setSamplerQrCodeUrl(null);
@@ -1984,6 +2044,27 @@ export function App() {
               </div>
             )}
             {voiceMessage && <div className="voiceNotice">{voiceMessage}</div>}
+            {voiceQualityLoading && (
+              <div className="voiceQualityNotice loading">
+                <Loader2 className="spin" size={15} />
+                <span>正在检查参考音频</span>
+              </div>
+            )}
+            {voiceQuality && (
+              <div className={`voiceQualityNotice ${voiceQuality.status}`}>
+                <Gauge size={16} strokeWidth={1.9} />
+                <div>
+                  <strong>{voiceQualityLabel(voiceQuality)}</strong>
+                  <span>
+                    {voiceSourceLabel(selectedVoiceInfo.sourceType)}
+                    {voiceQuality.duration_seconds ? ` · ${formatDuration(voiceQuality.duration_seconds)}` : ""}
+                    {voiceQuality.sample_rate ? ` · ${voiceQuality.sample_rate} Hz` : ""}
+                    {typeof voiceQuality.silence_ratio === "number" ? ` · 静音 ${Math.round(voiceQuality.silence_ratio * 100)}%` : ""}
+                  </span>
+                  {voiceQuality.warnings[0] && <em>{voiceQuality.warnings[0]}</em>}
+                </div>
+              </div>
+            )}
           </section>
 
           <section className="softPanel controlPanel">

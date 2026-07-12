@@ -272,7 +272,7 @@ button:disabled {
 
 .voicePanel {
   padding: 14px;
-  max-height: 292px;
+  max-height: 380px;
   overflow: hidden;
   display: grid;
   gap: 12px;
@@ -406,6 +406,72 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.voiceQualityNotice {
+  min-width: 0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #718093;
+  background: rgba(224, 233, 241, 0.54);
+  box-shadow: var(--inner);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.voiceQualityNotice.loading {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: #657584;
+  font-size: 12px;
+}
+
+.voiceQualityNotice.ready {
+  color: #2f7a51;
+  background: rgba(230, 247, 237, 0.78);
+}
+
+.voiceQualityNotice.warning {
+  color: #8a5a38;
+  background: rgba(255, 246, 232, 0.78);
+}
+
+.voiceQualityNotice.error {
+  color: #9f3d3d;
+  background: rgba(255, 245, 245, 0.82);
+}
+
+.voiceQualityNotice div {
+  min-width: 0;
+}
+
+.voiceQualityNotice strong,
+.voiceQualityNotice span,
+.voiceQualityNotice em {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.voiceQualityNotice strong {
+  color: currentColor;
+  font-size: 12px;
+}
+
+.voiceQualityNotice span,
+.voiceQualityNotice em {
+  margin-top: 3px;
+  color: #718093;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.35;
+}
+
+.voiceQualityNotice em {
+  white-space: normal;
 }
 
 .voiceEmptyState,

@@ -69,6 +69,8 @@ class VoiceInfo(BaseModel):
     reference_audio: str | None = None
     reference_text: str | None = None
     authorization_status: str
+    source_type: str = "local_import"
+    source_url: str | None = None
 
 
 class CreateVoiceRequest(BaseModel):
@@ -76,6 +78,31 @@ class CreateVoiceRequest(BaseModel):
     reference_audio: str | None = None
     reference_text: str | None = None
     authorization_status: str
+    source_type: str = Field(default="local_import", max_length=80)
+    source_url: str | None = Field(default=None, max_length=2000)
+
+
+class VoiceQualityStatus(StrEnum):
+    ready = "ready"
+    warning = "warning"
+    error = "error"
+    unknown = "unknown"
+
+
+class VoiceQualityReport(BaseModel):
+    voice_id: str
+    reference_audio: str | None = None
+    exists: bool = False
+    readable: bool | None = None
+    format: str | None = None
+    file_size_bytes: int | None = None
+    duration_seconds: float | None = None
+    sample_rate: int | None = None
+    channels: int | None = None
+    analyzed_seconds: float | None = None
+    silence_ratio: float | None = None
+    status: VoiceQualityStatus = VoiceQualityStatus.unknown
+    warnings: list[str] = Field(default_factory=list)
 
 
 class BatchProjectStatus(StrEnum):
