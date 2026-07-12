@@ -16,6 +16,7 @@ data/inputs/bilibili/*
 data/config/user-settings.json
 data/config/voices.json
 data/config/projects.json
+data/config/model-packages.json
 *.wav
 *.mp3
 *.m4a

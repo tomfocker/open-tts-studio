@@ -9,6 +9,7 @@ from tts_api.main import create_app
 def make_settings_client(tmp_path: Path, monkeypatch):
     settings_file = tmp_path / "user-settings.json"
     monkeypatch.setenv("OPEN_TTS_SETTINGS_FILE", str(settings_file))
+    monkeypatch.setenv("OPEN_TTS_MODEL_PACKAGES_FILE", str(tmp_path / "model-packages.json"))
     get_settings.cache_clear()
     return TestClient(create_app()), settings_file
 
@@ -151,6 +152,7 @@ def test_settings_export_contains_only_safe_versioned_migration_data(tmp_path: P
     assert body["schema"] == "open-tts-studio-settings"
     assert body["version"] == 1
     assert body["settings"]["indextts2_idle_timeout_seconds"] == 600
+    assert {package["model_id"] for package in body["model_packages"]} == {"indextts2", "voxcpm2", "gptsovits"}
     assert body["model_instances"]["indextts2"] == {
         "enabled": True,
         "root_path": str(stable_root),

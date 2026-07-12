@@ -12,6 +12,7 @@ const {
   resolveFfmpegPath,
   saveSettingsBackup,
   selectDirectory,
+  selectModelArchive,
   selectSettingsBackup,
   selectReferenceAudio,
   spawnBackendProcess,
@@ -90,6 +91,8 @@ ipcMain.handle("file:open-path", (_event, targetPath) => openLocalPath(targetPat
 ipcMain.handle("file:select-reference-audio", () => selectReferenceAudio(dialog));
 
 ipcMain.handle("file:select-directory", () => selectDirectory(dialog));
+
+ipcMain.handle("file:select-model-archive", () => selectModelArchive(dialog));
 
 ipcMain.handle("file:save-settings-backup", (_event, content) => {
   const date = new Date().toISOString().slice(0, 10);

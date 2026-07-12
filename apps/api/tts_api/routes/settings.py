@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from tts_api.config import get_settings, save_user_settings, serialize_settings
 from tts_api.model_instances import list_model_instances
+from tts_api.model_packages import ModelPackageRecord, list_model_packages, replace_model_packages
 
 router = APIRouter()
 
@@ -59,6 +60,7 @@ class SettingsBackup(BaseModel):
     created_at: datetime
     settings: SettingsBackupValues
     model_instances: dict[str, SettingsBackupModelInstance] = Field(default_factory=dict)
+    model_packages: list[ModelPackageRecord] | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -99,6 +101,7 @@ def build_settings_backup(settings) -> SettingsBackup:
             local_api_idle_timeout_seconds=settings.local_api_idle_timeout_seconds,
         ),
         model_instances=model_instances,
+        model_packages=list_model_packages(settings),
     )
 
 
@@ -154,7 +157,8 @@ def import_runtime_settings(backup: SettingsBackup) -> dict:
 
     settings = get_settings()
     known_model_ids = {instance.model_id for instance in list_model_instances(settings)}
-    unknown_model_ids = sorted(set(backup.model_instances) - known_model_ids)
+    package_model_ids = {package.model_id for package in backup.model_packages or []}
+    unknown_model_ids = sorted((set(backup.model_instances) | package_model_ids) - known_model_ids)
     if unknown_model_ids:
         unknown_labels = "、".join(unknown_model_ids)
         raise HTTPException(status_code=422, detail=f"当前版本无法导入未识别的模型档案：{unknown_labels}")
@@ -166,4 +170,7 @@ def import_runtime_settings(backup: SettingsBackup) -> dict:
     }
     save_user_settings(settings.settings_file, payload)
     get_settings.cache_clear()
-    return serialize_settings(get_settings())
+    imported_settings = get_settings()
+    if backup.model_packages is not None:
+        replace_model_packages(backup.model_packages, imported_settings)
+    return serialize_settings(imported_settings)

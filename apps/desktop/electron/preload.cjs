@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("desktopConfig", {
 contextBridge.exposeInMainWorld("desktopFiles", {
   openPath: (targetPath) => ipcRenderer.invoke("file:open-path", targetPath),
   selectDirectory: () => ipcRenderer.invoke("file:select-directory"),
+  selectModelArchive: () => ipcRenderer.invoke("file:select-model-archive"),
   selectReferenceAudio: () => ipcRenderer.invoke("file:select-reference-audio"),
   saveSettingsBackup: (content) => ipcRenderer.invoke("file:save-settings-backup", content),
   selectSettingsBackup: () => ipcRenderer.invoke("file:select-settings-backup")

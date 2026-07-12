@@ -36,12 +36,14 @@ import QRCode from "qrcode";
 import { CSSProperties, ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  activateModelPackage,
   checkModelInstance,
   createVoice,
   createBatchProject,
   fetchAppSettings,
   fetchBatchProjects,
   fetchModelInstances,
+  fetchModelPackages,
   fetchModels,
   fetchSystemStatus,
   fetchVoiceQuality,
@@ -50,6 +52,8 @@ import {
   generateSpeech,
   getApiBase,
   importSettingsBackup,
+  inspectModelPackage,
+  registerModelPackage,
   retryBatchProject,
   runBatchProject,
   saveAppSettings,
@@ -57,6 +61,7 @@ import {
   stopModelRuntime,
   toAudioUrl,
   updateBatchProject,
+  updateModelPackage,
   updateModelInstance
 } from "./api";
 import type {
@@ -75,6 +80,7 @@ import type {
   ModelHealthResult,
   ModelInfo,
   ModelInstanceProfile,
+  ModelPackageRecord,
   IpcResponse,
   SpeechResult,
   SettingsBackup,
@@ -94,6 +100,7 @@ declare global {
     desktopFiles?: {
       openPath: (targetPath: string) => Promise<string>;
       selectDirectory: () => Promise<string | null>;
+      selectModelArchive: () => Promise<string | null>;
       selectReferenceAudio: () => Promise<string | null>;
       saveSettingsBackup: (content: string) => Promise<string | null>;
       selectSettingsBackup: () => Promise<{ path: string; content: string } | null>;
@@ -634,6 +641,48 @@ function runtimeTypeLabel(runtimeType: string) {
   return "预留";
 }
 
+function modelPackageStateLabel(state: ModelPackageRecord["state"]) {
+  if (state === "stable") {
+    return "当前稳定包";
+  }
+  if (state === "archived") {
+    return "已归档";
+  }
+  return "候选包";
+}
+
+function modelPackageSourceLabel(sourceKind: ModelPackageRecord["source_kind"]) {
+  return sourceKind === "archive" ? "压缩包" : "目录包";
+}
+
+function modelPackageAdapterLabel(status: ModelPackageRecord["inspection"]["adapter_status"]) {
+  if (status === "ready") {
+    return "适配就绪";
+  }
+  if (status === "reserved") {
+    return "适配器预留";
+  }
+  if (status === "archive") {
+    return "等待解压";
+  }
+  return "结构待修复";
+}
+
+function formatPackageSize(sizeBytes: number | null | undefined, scanComplete: boolean) {
+  if (sizeBytes === null || sizeBytes === undefined) {
+    return "体积未统计";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = sizeBytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const rendered = `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+  return scanComplete ? rendered : `至少 ${rendered}`;
+}
+
 function isModelInstanceUsable(instance: ModelInstanceProfile | undefined) {
   return Boolean(instance?.enabled) && instance?.status !== "missing" && instance?.status !== "broken" && instance?.status !== "disabled";
 }
@@ -846,6 +895,7 @@ export function App() {
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [modelInstances, setModelInstances] = useState<ModelInstanceProfile[]>([]);
+  const [modelPackages, setModelPackages] = useState<ModelPackageRecord[]>([]);
   const [modelProfileDrafts, setModelProfileDrafts] = useState<Record<string, ModelProfileDraft>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>(() => createSettingsDraft(null));
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -857,6 +907,10 @@ export function App() {
   const [savingProfileModelId, setSavingProfileModelId] = useState<string | null>(null);
   const [runtimeActionModelId, setRuntimeActionModelId] = useState<string | null>(null);
   const [modelHealthResults, setModelHealthResults] = useState<Record<string, ModelHealthResult>>({});
+  const [modelPackageModelId, setModelPackageModelId] = useState("indextts2");
+  const [modelPackageLabel, setModelPackageLabel] = useState("");
+  const [modelPackageNote, setModelPackageNote] = useState("");
+  const [modelPackageAction, setModelPackageAction] = useState<string | null>(null);
   const [voiceImporting, setVoiceImporting] = useState(false);
   const [voiceSaving, setVoiceSaving] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
@@ -1218,6 +1272,14 @@ export function App() {
       });
     } catch {
       setModelInstances([]);
+    }
+  }
+
+  async function loadModelPackages() {
+    try {
+      setModelPackages(await fetchModelPackages());
+    } catch {
+      setModelPackages([]);
     }
   }
 
@@ -1585,6 +1647,7 @@ export function App() {
     setSettingsError(null);
     setSettingsMessage(null);
     void loadModelInstances();
+    void loadModelPackages();
     setSettingsOpen(true);
   }
 
@@ -1613,6 +1676,7 @@ export function App() {
       setSettingsMessage("设置已保存");
       void loadSystemStatus();
       void loadModelInstances();
+      void loadModelPackages();
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "保存失败");
     } finally {
@@ -1665,7 +1729,7 @@ export function App() {
       const importedSettings = await importSettingsBackup(backup);
       setAppSettings(importedSettings);
       setSettingsDraft(createSettingsDraft(importedSettings));
-      await Promise.all([loadModelInstances(), loadSystemStatus()]);
+      await Promise.all([loadModelInstances(), loadModelPackages(), loadSystemStatus()]);
       setSettingsMessage(`已导入设置备份：${selectedBackup.path}。如修改了 API 地址或端口，请重启软件。`);
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "导入设置备份失败");
@@ -1720,6 +1784,7 @@ export function App() {
       }
       const updated = await updateModelInstance(instance.model_id, { root_path: directoryPath });
       setModelInstances((items) => items.map((item) => (item.model_id === updated.model_id ? updated : item)));
+      void loadModelPackages();
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "选择目录失败");
     }
@@ -1752,6 +1817,7 @@ export function App() {
         [updated.model_id]: createModelProfileDraft(updated)
       }));
       setSettingsMessage(`${updated.display_name} 档案已保存`);
+      void loadModelPackages();
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "保存模型档案失败");
     } finally {
@@ -1780,6 +1846,86 @@ export function App() {
       setModelInstances((items) => items.map((item) => (item.model_id === updated.model_id ? updated : item)));
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "切换模型状态失败");
+    }
+  }
+
+  async function onRegisterModelPackage(source: "directory" | "archive") {
+    const desktopFiles = window.desktopFiles;
+    if (!desktopFiles) {
+      setSettingsError("请在桌面软件中登记模型包");
+      return;
+    }
+    if (source === "archive" && !desktopFiles.selectModelArchive) {
+      setSettingsError("当前预览环境不支持选择模型压缩包");
+      return;
+    }
+    setModelPackageAction(`register-${source}`);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const selectedPath = source === "directory"
+        ? await desktopFiles.selectDirectory()
+        : await desktopFiles.selectModelArchive();
+      if (!selectedPath) {
+        return;
+      }
+      const registered = await registerModelPackage({
+        model_id: modelPackageModelId,
+        path: selectedPath,
+        package_label: modelPackageLabel.trim() || null,
+        user_note: modelPackageNote.trim() || null
+      });
+      setModelPackageLabel("");
+      setModelPackageNote("");
+      await loadModelPackages();
+      setSettingsMessage(`${registered.path} 已登记为 ${modelPackageStateLabel(registered.state)}。`);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "登记模型包失败");
+    } finally {
+      setModelPackageAction(null);
+    }
+  }
+
+  async function onInspectModelPackage(modelPackage: ModelPackageRecord) {
+    setModelPackageAction(`inspect-${modelPackage.id}`);
+    setSettingsError(null);
+    try {
+      const inspected = await inspectModelPackage(modelPackage.id);
+      setModelPackages((items) => items.map((item) => (item.id === inspected.id ? inspected : item)));
+      setSettingsMessage(`${modelPackage.path} 已完成只读预检。`);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "模型包预检失败");
+    } finally {
+      setModelPackageAction(null);
+    }
+  }
+
+  async function onActivateModelPackage(modelPackage: ModelPackageRecord) {
+    setModelPackageAction(`activate-${modelPackage.id}`);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const activated = await activateModelPackage(modelPackage.id);
+      await Promise.all([loadModelPackages(), loadModelInstances(), loadSystemStatus()]);
+      setSettingsMessage(`${activated.instance.display_name} 已切换到稳定包：${activated.package.path}`);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "切换稳定模型包失败");
+    } finally {
+      setModelPackageAction(null);
+    }
+  }
+
+  async function onArchiveModelPackage(modelPackage: ModelPackageRecord) {
+    setModelPackageAction(`archive-${modelPackage.id}`);
+    setSettingsError(null);
+    try {
+      const updated = await updateModelPackage(modelPackage.id, { state: "archived" });
+      setModelPackages((items) => items.map((item) => (item.id === updated.id ? updated : item)));
+      setSettingsMessage(`已归档模型包：${modelPackage.path}`);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "归档模型包失败");
+    } finally {
+      setModelPackageAction(null);
     }
   }
 
@@ -1895,6 +2041,7 @@ export function App() {
     loadSystemStatus();
     loadAppSettings();
     loadModelInstances();
+    loadModelPackages();
     void loadBatchProjects();
     void refreshSamplerSession(false);
   }, []);
@@ -2025,6 +2172,7 @@ export function App() {
             void loadModels();
             void loadSystemStatus();
             void loadModelInstances();
+            void loadModelPackages();
           }}>
             <RefreshCw size={17} strokeWidth={1.9} />
           </button>
@@ -2543,6 +2691,154 @@ export function App() {
                   <span>当前音色</span>
                   <strong>{selectedVoiceInfo.name}</strong>
                   <em>{selectedVoiceInfo.referenceAudio ? "会随项目保存参考音频" : "未配置参考音频"}</em>
+                </div>
+              </div>
+
+              <div className="settingsGroup modelPackageGroup">
+                <div className="settingsGroupTitle">
+                  <Library size={16} strokeWidth={1.9} />
+                  <span>模型包资产</span>
+                  <em>{modelPackages.length} 个已登记</em>
+                </div>
+                <p className="modelPackageIntro">
+                  登记目录或压缩包并保留版本档案。检查仅读取路径、文件大小和适配器所需标记，不加载权重、不占用显存；压缩包不会自动解压。
+                </p>
+                <div className="modelPackageComposer">
+                  <label className="settingsField">
+                    <span>目标模型</span>
+                    <select value={modelPackageModelId} onChange={(event) => setModelPackageModelId(event.target.value)}>
+                      {modelInstances.map((instance) => (
+                        <option key={instance.model_id} value={instance.model_id}>{instance.display_name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="settingsField">
+                    <span>版本标记</span>
+                    <input
+                      value={modelPackageLabel}
+                      maxLength={120}
+                      placeholder="例如 v2pro 20250604"
+                      onChange={(event) => setModelPackageLabel(event.target.value)}
+                    />
+                  </label>
+                  <label className="settingsField modelPackageNoteField">
+                    <span>登记备注</span>
+                    <input
+                      value={modelPackageNote}
+                      maxLength={500}
+                      placeholder="可选，例如来源、版本或待验证事项"
+                      onChange={(event) => setModelPackageNote(event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="modelPackageRegisterActions">
+                  <button
+                    className="secondaryAction settingsAction"
+                    disabled={modelPackageAction !== null || modelInstances.length === 0}
+                    onClick={() => void onRegisterModelPackage("directory")}
+                  >
+                    {modelPackageAction === "register-directory" ? <Loader2 className="spin" size={16} /> : <FolderOpen size={16} strokeWidth={1.9} />}
+                    <span>{modelPackageAction === "register-directory" ? "登记中" : "登记目录包"}</span>
+                  </button>
+                  <button
+                    className="secondaryAction settingsAction"
+                    disabled={modelPackageAction !== null || modelInstances.length === 0}
+                    onClick={() => void onRegisterModelPackage("archive")}
+                  >
+                    {modelPackageAction === "register-archive" ? <Loader2 className="spin" size={16} /> : <Upload size={16} strokeWidth={1.9} />}
+                    <span>{modelPackageAction === "register-archive" ? "登记中" : "登记压缩包"}</span>
+                  </button>
+                </div>
+                <div className="modelPackageList">
+                  {modelPackages.length === 0 ? (
+                    <div className="modelPackageEmpty">
+                      <strong>尚未发现可管理的模型包</strong>
+                      <span>先登记现有目录或本地压缩包；当前已配置目录会在后端可用时自动入库。</span>
+                    </div>
+                  ) : (
+                    modelPackages.map((modelPackage) => {
+                      const packageModel = modelInstances.find((instance) => instance.model_id === modelPackage.model_id);
+                      const inspectionPending = modelPackageAction === `inspect-${modelPackage.id}`;
+                      const activationPending = modelPackageAction === `activate-${modelPackage.id}`;
+                      const archivePending = modelPackageAction === `archive-${modelPackage.id}`;
+                      const actionPending = inspectionPending || activationPending || archivePending;
+                      const canActivate = modelPackage.source_kind === "directory"
+                        && modelPackage.inspection.ready_for_activation
+                        && modelPackage.state !== "stable";
+                      return (
+                        <div key={modelPackage.id} className={`modelPackageCard ${modelPackage.state}`}>
+                          <div className="modelPackageHeader">
+                            <div>
+                              <strong>{packageModel?.display_name ?? modelPackage.model_id}</strong>
+                              <span>{modelPackage.package_label || "未标记版本"}</span>
+                            </div>
+                            <span className={`modelPackageState ${modelPackage.state}`}>{modelPackageStateLabel(modelPackage.state)}</span>
+                          </div>
+                          <div className="modelPackagePath"><span>{modelPackage.path}</span></div>
+                          <div className="modelPackageMeta">
+                            <span>{modelPackageSourceLabel(modelPackage.source_kind)}</span>
+                            <span>{formatPackageSize(modelPackage.inspection.size_bytes, modelPackage.inspection.scan_complete)}</span>
+                            {modelPackage.inspection.file_count !== null && modelPackage.inspection.file_count !== undefined && (
+                              <span>{modelPackage.inspection.scan_complete ? "文件" : "已扫"} {modelPackage.inspection.file_count}</span>
+                            )}
+                            <span className={`modelPackageAdapter ${modelPackage.inspection.adapter_status}`}>{modelPackageAdapterLabel(modelPackage.inspection.adapter_status)}</span>
+                          </div>
+                          <p className="modelPackageSummary">{modelPackage.inspection.summary}</p>
+                          {modelPackage.user_note && <p className="modelPackageNote">{modelPackage.user_note}</p>}
+                          {modelPackage.inspection.checks.length > 0 && (
+                            <div className="modelPackageChecks">
+                              {modelPackage.inspection.checks.map((check) => (
+                                <span key={check.id} className={check.passed ? "checkItem passed" : "checkItem failed"}>{check.label}</span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="modelPackageActions">
+                            <button
+                              className="pathPickButton"
+                              disabled={modelPackageAction !== null}
+                              onClick={() => void onInspectModelPackage(modelPackage)}
+                            >
+                              {inspectionPending ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
+                              <span>预检</span>
+                            </button>
+                            <button
+                              className="pathPickButton"
+                              disabled={!modelPackage.inspection.exists || modelPackageAction !== null}
+                              onClick={() =>
+                                void openModelDirectory({
+                                  id: modelPackage.id,
+                                  display_name: modelPackage.package_label || packageModel?.display_name || modelPackage.model_id,
+                                  path: modelPackage.path,
+                                  exists: modelPackage.inspection.exists,
+                                  kind: "model_package"
+                                })
+                              }
+                            >
+                              <FolderOpen size={15} strokeWidth={1.9} />
+                              <span>打开</span>
+                            </button>
+                            <button
+                              className="pathPickButton modelPackageActivateButton"
+                              title="切换会更新当前模型目录和稳定包标记，不会启动模型。"
+                              disabled={!canActivate || modelPackageAction !== null}
+                              onClick={() => void onActivateModelPackage(modelPackage)}
+                            >
+                              {activationPending ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} strokeWidth={1.9} />}
+                              <span>启用稳定包</span>
+                            </button>
+                            <button
+                              className="pathPickButton"
+                              disabled={modelPackage.state === "stable" || modelPackageAction !== null || actionPending}
+                              onClick={() => void onArchiveModelPackage(modelPackage)}
+                            >
+                              {archivePending ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
+                              <span>归档</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 

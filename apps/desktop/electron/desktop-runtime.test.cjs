@@ -13,6 +13,7 @@ const {
   resolveFfmpegPath,
   saveSettingsBackup,
   selectDirectory,
+  selectModelArchive,
   selectSettingsBackup,
   selectReferenceAudio,
   terminateProcessTree
@@ -161,6 +162,27 @@ test("selectDirectory returns the chosen directory path", async () => {
 
 test("selectDirectory returns null when selection is cancelled", async () => {
   const selectedPath = await selectDirectory({
+    showOpenDialog: async () => ({ canceled: true, filePaths: [] })
+  });
+
+  assert.equal(selectedPath, null);
+});
+
+test("selectModelArchive returns an archive chosen through the native file dialog", async () => {
+  const selectedPath = await selectModelArchive({
+    showOpenDialog: async (options) => {
+      assert.equal(options.title, "选择模型压缩包");
+      assert.deepEqual(options.properties, ["openFile"]);
+      assert.ok(options.filters[0].extensions.includes("7z"));
+      return { canceled: false, filePaths: ["D:/downloads/VoxCPM2-full.zip"] };
+    }
+  });
+
+  assert.equal(selectedPath, "D:/downloads/VoxCPM2-full.zip");
+});
+
+test("selectModelArchive returns null when selection is cancelled", async () => {
+  const selectedPath = await selectModelArchive({
     showOpenDialog: async () => ({ canceled: true, filePaths: [] })
   });
 

@@ -418,6 +418,7 @@ export type SettingsBackup = {
     | "local_api_idle_timeout_seconds"
   >;
   model_instances: Record<string, SettingsBackupModelInstance>;
+  model_packages?: ModelPackageRecord[];
 };
 
 export type ModelDirectory = {
@@ -430,4 +431,61 @@ export type ModelDirectory = {
 
 export type ModelDirectoriesResponse = {
   directories: ModelDirectory[];
+};
+
+export type ModelPackageSourceKind = "directory" | "archive";
+
+export type ModelPackageState = "candidate" | "stable" | "archived";
+
+export type ModelPackageAdapterStatus = "ready" | "incomplete" | "reserved" | "archive";
+
+export type ModelPackageCheck = {
+  id: string;
+  label: string;
+  passed: boolean;
+  detail?: string | null;
+};
+
+export type ModelPackageInspection = {
+  exists: boolean;
+  path_type: string;
+  size_bytes?: number | null;
+  file_count?: number | null;
+  scan_complete: boolean;
+  checks: ModelPackageCheck[];
+  adapter_status: ModelPackageAdapterStatus;
+  ready_for_activation: boolean;
+  summary: string;
+  inspected_at: string;
+};
+
+export type ModelPackageRecord = {
+  id: string;
+  model_id: string;
+  path: string;
+  source_kind: ModelPackageSourceKind;
+  package_label?: string | null;
+  user_note?: string | null;
+  state: ModelPackageState;
+  inspection: ModelPackageInspection;
+  registered_at: string;
+  updated_at: string;
+};
+
+export type ModelPackageCreate = {
+  model_id: string;
+  path: string;
+  package_label?: string | null;
+  user_note?: string | null;
+};
+
+export type ModelPackageUpdate = {
+  package_label?: string | null;
+  user_note?: string | null;
+  state?: Exclude<ModelPackageState, "stable">;
+};
+
+export type ModelPackageActivation = {
+  package: ModelPackageRecord;
+  instance: ModelInstanceProfile;
 };

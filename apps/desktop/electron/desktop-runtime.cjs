@@ -249,6 +249,23 @@ async function selectDirectory(dialogImpl) {
   return result.filePaths[0];
 }
 
+async function selectModelArchive(dialogImpl) {
+  const result = await dialogImpl.showOpenDialog({
+    title: "选择模型压缩包",
+    properties: ["openFile"],
+    filters: [
+      {
+        name: "Model archives",
+        extensions: ["zip", "7z", "rar", "tar", "gz", "bz2", "xz"]
+      }
+    ]
+  });
+  if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+}
+
 async function saveSettingsBackup(dialogImpl, fsPromises, content, defaultPath) {
   if (typeof content !== "string" || !content.trim()) {
     throw new Error("Backup content is required");
@@ -301,6 +318,7 @@ module.exports = {
   resolveFfmpegPath,
   saveSettingsBackup,
   selectDirectory,
+  selectModelArchive,
   selectSettingsBackup,
   selectReferenceAudio,
   spawnBackendProcess,

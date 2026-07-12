@@ -13,6 +13,10 @@ import type {
   ModelInstanceProfile,
   ModelInstancesResponse,
   ModelInstanceUpdate,
+  ModelPackageActivation,
+  ModelPackageCreate,
+  ModelPackageRecord,
+  ModelPackageUpdate,
   ModelRuntimeActionResult,
   SettingsBackup,
   SpeechResult,
@@ -194,6 +198,44 @@ export async function checkModelInstance(modelId: string): Promise<ModelHealthRe
     throw new Error(`Failed to check model instance: ${response.status}`);
   }
   return response.json();
+}
+
+async function modelPackageRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${getApiBase()}${path}`, init);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Model package request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function fetchModelPackages(): Promise<ModelPackageRecord[]> {
+  const payload = await modelPackageRequest<{ packages: ModelPackageRecord[] }>("/v1/model-packages");
+  return payload.packages;
+}
+
+export function registerModelPackage(payload: ModelPackageCreate): Promise<ModelPackageRecord> {
+  return modelPackageRequest<ModelPackageRecord>("/v1/model-packages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateModelPackage(packageId: string, payload: ModelPackageUpdate): Promise<ModelPackageRecord> {
+  return modelPackageRequest<ModelPackageRecord>(`/v1/model-packages/${packageId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function inspectModelPackage(packageId: string): Promise<ModelPackageRecord> {
+  return modelPackageRequest<ModelPackageRecord>(`/v1/model-packages/${packageId}/inspect`, { method: "POST" });
+}
+
+export function activateModelPackage(packageId: string): Promise<ModelPackageActivation> {
+  return modelPackageRequest<ModelPackageActivation>(`/v1/model-packages/${packageId}/activate`, { method: "POST" });
 }
 
 export async function startModelRuntime(modelId: string): Promise<ModelRuntimeActionResult> {

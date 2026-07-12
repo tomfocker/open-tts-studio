@@ -125,3 +125,26 @@ Invoke-RestMethod `
 ```
 
 Imports are validated against the versioned schema and the models known to the installed application. If the backup changes the desktop API address or port, restart OpenTTS Studio after importing.
+
+## Model Package Assets
+
+The model package API tracks local directories and archives without loading a model. Directory inspection is bounded and reads only paths, metadata, and adapter-required marker files; archive registration never extracts the archive. Activating a ready directory updates the active model profile and archives the previous stable package. A loaded runtime must be stopped before switching.
+
+```powershell
+$package = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8765/v1/model-packages `
+  -ContentType "application/json" `
+  -Body (@{
+    model_id = "gptsovits"
+    path = "D:\AI\GPT-SoVITS-v2pro"
+    package_label = "v2pro stable"
+    user_note = "用于正式项目的本地稳定包"
+  } | ConvertTo-Json)
+
+Invoke-RestMethod "http://127.0.0.1:8765/v1/model-packages"
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/model-packages/$($package.id)/inspect"
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/model-packages/$($package.id)/activate"
+```
+
+Archives such as `.zip` and `.7z` can be recorded for traceability but must be extracted and re-registered as a directory before activation.

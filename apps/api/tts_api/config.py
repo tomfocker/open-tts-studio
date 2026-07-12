@@ -37,6 +37,7 @@ class Settings(BaseModel):
     settings_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_SETTINGS_FILE", str(DEFAULT_SETTINGS_FILE))))
     voice_library_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_VOICE_LIBRARY_FILE", str(WORKSPACE_ROOT / "data" / "config" / "voices.json"))))
     projects_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_PROJECTS_FILE", str(WORKSPACE_ROOT / "data" / "config" / "projects.json"))))
+    model_packages_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_MODEL_PACKAGES_FILE", str(WORKSPACE_ROOT / "data" / "config" / "model-packages.json"))))
     indextts2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_INDEXTTS2_ROOT", r"D:\AI\IndexTTS2")))
     indextts2_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_INDEXTTS2_IDLE_SECONDS", "600")))
     local_api_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_LOCAL_API_IDLE_SECONDS", "600")))
