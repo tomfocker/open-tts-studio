@@ -15,6 +15,7 @@ data/inputs/bilibili/*
 !data/inputs/bilibili/.gitkeep
 data/config/user-settings.json
 data/config/voices.json
+data/config/projects.json
 *.wav
 *.mp3
 *.m4a

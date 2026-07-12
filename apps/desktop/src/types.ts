@@ -20,6 +20,65 @@ export type SpeechResult = {
   duration_seconds: number;
 };
 
+export type BatchProjectStatus = "draft" | "queued" | "running" | "completed" | "failed";
+
+export type BatchSegmentStatus = "pending" | "running" | "succeeded" | "failed";
+
+export type BatchSegmentDraft = {
+  text: string;
+};
+
+export type BatchSegment = BatchSegmentDraft & {
+  id: string;
+  position: number;
+  status: BatchSegmentStatus;
+  attempts: number;
+  result?: SpeechResult | null;
+  error?: string | null;
+};
+
+export type BatchProject = {
+  id: string;
+  title: string;
+  model: string;
+  segments: BatchSegment[];
+  reference_audio?: string | null;
+  reference_text?: string | null;
+  emotion?: string | null;
+  speed: number;
+  status: BatchProjectStatus;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+};
+
+export type BatchProjectCreate = {
+  title: string;
+  model: string;
+  segments: BatchSegmentDraft[];
+  reference_audio?: string;
+  reference_text?: string;
+  emotion?: string;
+  speed?: number;
+};
+
+export type BatchProjectUpdate = Partial<BatchProjectCreate>;
+
+export type BatchProjectExport = {
+  project_id: string;
+  title: string;
+  status: BatchProjectStatus;
+  items: Array<{
+    position: number;
+    text: string;
+    status: BatchSegmentStatus;
+    audio_url?: string | null;
+    file_path?: string | null;
+    error?: string | null;
+  }>;
+};
+
 export type VoiceInfo = {
   id: string;
   name: string;

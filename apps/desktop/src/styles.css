@@ -160,6 +160,7 @@ button:disabled {
   .pathPickButton,
   .voiceImportButton,
   .voiceSaveButton,
+  .batchProjectSelect,
   .modalClose {
   border: 0;
   color: inherit;
@@ -196,6 +197,7 @@ button:disabled {
   .pathPickButton:active,
   .voiceImportButton:active,
   .voiceSaveButton:active,
+  .batchProjectSelect:active,
   .modalClose:active {
   transform: translateY(1px) scale(0.99);
 }
@@ -1473,6 +1475,257 @@ audio {
 
 .samplerDialog {
   width: min(880px, 100%);
+}
+
+.batchProjectDialog {
+  width: min(1040px, 100%);
+}
+
+.batchProjectBody {
+  gap: 12px;
+}
+
+.batchProjectConfigGrid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
+  gap: 12px;
+}
+
+.batchProjectReference,
+.batchProjectImportRow,
+.batchProjectRow,
+.batchProjectRowActions,
+.batchSegmentItem {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.batchProjectReference {
+  flex-wrap: wrap;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #718093;
+  background: rgba(224, 233, 241, 0.54);
+  box-shadow: var(--inner);
+  font-size: 12px;
+}
+
+.batchProjectReference strong {
+  color: #33475a;
+}
+
+.batchProjectReference em {
+  color: #718093;
+  font-style: normal;
+}
+
+.batchProjectImportRow {
+  flex-wrap: wrap;
+}
+
+.batchProjectImportRow > span {
+  margin-left: auto;
+  color: #718093;
+  font-size: 12px;
+}
+
+.batchProjectEmpty {
+  min-height: 132px;
+  border-radius: 8px;
+  padding: 16px;
+  color: #718093;
+  background: rgba(224, 233, 241, 0.42);
+  box-shadow: var(--inner);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 7px;
+  text-align: center;
+}
+
+.batchProjectEmpty strong {
+  color: #33475a;
+  font-size: 13px;
+}
+
+.batchProjectEmpty span {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.batchProjectEmpty.compact {
+  min-height: 76px;
+}
+
+.batchSegmentList,
+.batchProjectList {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.batchSegmentList {
+  max-height: 300px;
+  overflow: auto;
+  padding-right: 3px;
+}
+
+.batchSegmentItem {
+  align-items: stretch;
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(248, 251, 253, 0.58);
+  box-shadow: var(--inner);
+}
+
+.batchSegmentItem > span {
+  width: 26px;
+  flex: 0 0 auto;
+  color: #718093;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+}
+
+.batchSegmentItem textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #33475a;
+  background: rgba(222, 231, 239, 0.62);
+  box-shadow: var(--inner);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.batchSegmentItem textarea:focus {
+  box-shadow: var(--inner), 0 0 0 2px rgba(79, 186, 111, 0.18);
+}
+
+.batchSegmentRemove {
+  width: 38px;
+  min-width: 38px;
+  align-self: center;
+  justify-content: center;
+}
+
+.batchSegmentState {
+  flex: 0 0 auto;
+  align-self: center;
+  border-radius: 7px;
+  padding: 4px 6px;
+  color: #718093;
+  background: rgba(226, 234, 241, 0.78);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 740;
+}
+
+.batchSegmentState.succeeded {
+  color: #2f7a51;
+  background: rgba(230, 247, 237, 0.86);
+}
+
+.batchSegmentState.failed {
+  color: #9d6240;
+  background: rgba(255, 242, 230, 0.86);
+}
+
+.batchSegmentState.running {
+  color: #3e7185;
+  background: rgba(224, 238, 244, 0.86);
+}
+
+.batchProjectRow {
+  border-radius: 8px;
+  padding: 7px;
+  background: rgba(248, 251, 253, 0.54);
+  box-shadow: var(--inner);
+}
+
+.batchProjectRow.active {
+  background: rgba(230, 247, 237, 0.54);
+}
+
+.batchProjectSelect {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 4px 6px;
+  background: transparent;
+  text-align: left;
+}
+
+.batchProjectSelect div {
+  min-width: 0;
+}
+
+.batchProjectSelect strong,
+.batchProjectSelect span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batchProjectSelect strong {
+  color: #33475a;
+  font-size: 13px;
+}
+
+.batchProjectSelect span {
+  margin-top: 3px;
+  color: #718093;
+  font-size: 11px;
+}
+
+.batchProjectSelect em {
+  display: inline-block;
+  margin-top: 5px;
+  border-radius: 7px;
+  padding: 3px 6px;
+  color: #718093;
+  background: rgba(226, 234, 241, 0.78);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 740;
+}
+
+.batchProjectSelect em.completed {
+  color: #2f7a51;
+  background: rgba(230, 247, 237, 0.86);
+}
+
+.batchProjectSelect em.failed {
+  color: #9d6240;
+  background: rgba(255, 242, 230, 0.86);
+}
+
+.batchProjectSelect em.running,
+.batchProjectSelect em.queued {
+  color: #3e7185;
+  background: rgba(224, 238, 244, 0.86);
+}
+
+.batchProjectRowActions {
+  flex: 0 0 auto;
+}
+
+.batchProjectFooter {
+  justify-content: space-between;
+}
+
+.batchProjectFooter .settingsAction:first-child {
+  margin-right: auto;
 }
 
 .samplerBody {

@@ -1,6 +1,10 @@
 import type {
   AppSettings,
   AppSettingsUpdate,
+  BatchProject,
+  BatchProjectCreate,
+  BatchProjectExport,
+  BatchProjectUpdate,
   CreateVoiceRequest,
   ModelHealthResult,
   ModelDirectoriesResponse,
@@ -95,6 +99,47 @@ export async function generateSpeech(
     throw new Error(`Failed to generate speech: ${response.status}`);
   }
   return response.json();
+}
+
+async function projectRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${getApiBase()}${path}`, init);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Project request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export function fetchBatchProjects(): Promise<BatchProject[]> {
+  return projectRequest<BatchProject[]>("/v1/projects");
+}
+
+export function createBatchProject(payload: BatchProjectCreate): Promise<BatchProject> {
+  return projectRequest<BatchProject>("/v1/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function updateBatchProject(projectId: string, payload: BatchProjectUpdate): Promise<BatchProject> {
+  return projectRequest<BatchProject>(`/v1/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+export function runBatchProject(projectId: string): Promise<BatchProject> {
+  return projectRequest<BatchProject>(`/v1/projects/${projectId}/run`, { method: "POST" });
+}
+
+export function retryBatchProject(projectId: string): Promise<BatchProject> {
+  return projectRequest<BatchProject>(`/v1/projects/${projectId}/retry`, { method: "POST" });
+}
+
+export function fetchBatchProjectExport(projectId: string): Promise<BatchProjectExport> {
+  return projectRequest<BatchProjectExport>(`/v1/projects/${projectId}/export`);
 }
 
 export async function fetchModelDirectories(): Promise<ModelDirectory[]> {

@@ -7,7 +7,7 @@ from tts_api.adapters.gptsovits import shutdown_gptsovits_services
 from tts_api.adapters.indextts2_worker import shutdown_indextts2_workers
 from tts_api.adapters.voxcpm2 import shutdown_voxcpm2_services
 from tts_api.config import get_settings
-from tts_api.routes import health, jobs, model_directories, model_instances, models, outputs, runtime, settings as settings_routes, speech, system, voices
+from tts_api.routes import health, jobs, model_directories, model_instances, models, outputs, projects, runtime, settings as settings_routes, speech, system, voices
 
 
 def create_app() -> FastAPI:
@@ -33,6 +33,7 @@ def create_app() -> FastAPI:
     app.include_router(speech.router)
     app.include_router(outputs.router)
     app.include_router(jobs.router)
+    app.include_router(projects.router)
     app.include_router(voices.router)
     app.include_router(system.router)
     app.include_router(runtime.router)

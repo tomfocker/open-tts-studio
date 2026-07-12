@@ -38,21 +38,27 @@ import { CSSProperties, ChangeEvent, useEffect, useMemo, useRef, useState } from
 import {
   checkModelInstance,
   createVoice,
+  createBatchProject,
   fetchAppSettings,
+  fetchBatchProjects,
   fetchModelInstances,
   fetchModels,
   fetchSystemStatus,
   fetchVoices,
   generateSpeech,
   getApiBase,
+  retryBatchProject,
+  runBatchProject,
   saveAppSettings,
   startModelRuntime,
   stopModelRuntime,
   toAudioUrl,
+  updateBatchProject,
   updateModelInstance
 } from "./api";
 import type {
   AppSettings,
+  BatchProject,
   BilibiliAudioOptionsResult,
   BilibiliExtractSampleRequest,
   BilibiliExtractSampleResult,
@@ -264,6 +270,61 @@ function parseOptionalSeconds(value: string): number | null {
   }
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function parseBatchSegments(source: string, fileName = "") {
+  const normalized = source.replace(/\r\n?/g, "\n").trim();
+  if (!normalized) {
+    return [];
+  }
+  const looksLikeSubtitle = /\.(srt|vtt)$/i.test(fileName) || /\d{1,2}:\d{2}:\d{2}[,.]\d{3}\s+-->/.test(normalized);
+  const blocks = looksLikeSubtitle ? normalized.split(/\n\s*\n+/) : normalized.split(/\n\s*\n+|\n+/);
+  return blocks
+    .map((block) =>
+      block
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line && !/^\d+$/.test(line) && !/-->/.test(line) && !/^WEBVTT/i.test(line))
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim()
+    )
+    .filter(Boolean)
+    .slice(0, 500);
+}
+
+function batchProjectStatusLabel(status: BatchProject["status"]) {
+  switch (status) {
+    case "queued":
+      return "队列中";
+    case "running":
+      return "生成中";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "有失败项";
+    default:
+      return "草稿";
+  }
+}
+
+function batchProjectProgress(project: BatchProject) {
+  const completed = project.segments.filter((segment) => segment.status === "succeeded").length;
+  const failed = project.segments.filter((segment) => segment.status === "failed").length;
+  return { completed, failed, total: project.segments.length };
+}
+
+function batchSegmentStatusLabel(status: BatchProject["segments"][number]["status"]) {
+  switch (status) {
+    case "running":
+      return "生成中";
+    case "succeeded":
+      return "完成";
+    case "failed":
+      return "失败";
+    default:
+      return "待生成";
+  }
 }
 
 function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
@@ -772,12 +833,22 @@ export function App() {
   const [samplerName, setSamplerName] = useState("");
   const [samplerReferenceText, setSamplerReferenceText] = useState("");
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
+  const [batchProjectOpen, setBatchProjectOpen] = useState(false);
+  const [batchProjects, setBatchProjects] = useState<BatchProject[]>([]);
+  const [editingBatchProjectId, setEditingBatchProjectId] = useState<string | null>(null);
+  const [batchProjectTitle, setBatchProjectTitle] = useState("未命名配音项目");
+  const [batchProjectModel, setBatchProjectModel] = useState(selectedModel);
+  const [batchProjectSegments, setBatchProjectSegments] = useState<string[]>([]);
+  const [batchProjectMessage, setBatchProjectMessage] = useState<string | null>(null);
+  const [batchProjectError, setBatchProjectError] = useState<string | null>(null);
+  const [batchProjectAction, setBatchProjectAction] = useState<"save" | "run" | "retry" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackTime, setPlaybackTime] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const batchFileInputRef = useRef<HTMLInputElement | null>(null);
   const lastSamplerDefaultNameRef = useRef("");
 
   const selectedModelInfo = useMemo(
@@ -799,6 +870,12 @@ export function App() {
     () => availableVoices.find((voice) => voice.id === selectedVoice && voice.id !== "custom") ?? availableVoices[0] ?? voicePresets[0],
     [availableVoices, selectedVoice]
   );
+  const editingBatchProject = useMemo(
+    () => batchProjects.find((project) => project.id === editingBatchProjectId) ?? null,
+    [batchProjects, editingBatchProjectId]
+  );
+  const batchProjectLocked = editingBatchProject?.status === "queued" || editingBatchProject?.status === "running";
+  const batchProjectSegmentCount = batchProjectSegments.filter((segment) => segment.trim()).length;
 
   const supportedCloneModes = useMemo(() => getSupportedCloneModes(selectedModelInfo), [selectedModelInfo]);
   const supportedCloneModeKey = supportedCloneModes.join("|");
@@ -927,6 +1004,133 @@ export function App() {
       );
     } catch {
       setCustomVoices([]);
+    }
+  }
+
+  async function loadBatchProjects() {
+    try {
+      const projects = await fetchBatchProjects();
+      setBatchProjects(projects);
+    } catch (err) {
+      setBatchProjectError(err instanceof Error ? err.message : "无法读取批量项目");
+    }
+  }
+
+  function openBatchProjectWorkspace() {
+    setBatchProjectOpen(true);
+    setBatchProjectError(null);
+    setBatchProjectMessage(null);
+    setEditingBatchProjectId(null);
+    setBatchProjectTitle(`配音项目 ${new Date().toLocaleDateString()}`);
+    setBatchProjectModel(selectedModel);
+    setBatchProjectSegments(parseBatchSegments(input));
+    void loadBatchProjects();
+  }
+
+  function editBatchProject(project: BatchProject) {
+    setEditingBatchProjectId(project.id);
+    setBatchProjectTitle(project.title);
+    setBatchProjectModel(project.model);
+    setBatchProjectSegments(project.segments.map((segment) => segment.text));
+    setBatchProjectError(null);
+    setBatchProjectMessage(`正在编辑：${project.title}`);
+  }
+
+  function updateBatchSegment(index: number, value: string) {
+    setBatchProjectSegments((segments) => segments.map((segment, segmentIndex) => (segmentIndex === index ? value : segment)));
+  }
+
+  function removeBatchSegment(index: number) {
+    setBatchProjectSegments((segments) => segments.filter((_, segmentIndex) => segmentIndex !== index));
+  }
+
+  function onImportBatchSource(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const imported = parseBatchSegments(String(reader.result ?? ""), file.name);
+      if (imported.length === 0) {
+        setBatchProjectError("未从该文件识别到可生成的文本片段");
+        return;
+      }
+      setBatchProjectSegments(imported);
+      setBatchProjectMessage(`已导入 ${imported.length} 个片段：${file.name}`);
+      setBatchProjectError(null);
+    };
+    reader.onerror = () => setBatchProjectError("读取文本文件失败");
+    reader.readAsText(file, "utf-8");
+    event.target.value = "";
+  }
+
+  async function saveBatchProject(shouldRun: boolean) {
+    const segments = batchProjectSegments.map((segment) => segment.trim()).filter(Boolean);
+    if (!batchProjectTitle.trim()) {
+      setBatchProjectError("请填写项目名称");
+      return;
+    }
+    if (segments.length === 0) {
+      setBatchProjectError("请至少保留一个文本片段");
+      return;
+    }
+    setBatchProjectAction(shouldRun ? "run" : "save");
+    setBatchProjectError(null);
+    try {
+      const payload = {
+        title: batchProjectTitle.trim(),
+        model: batchProjectModel,
+        segments: segments.map((text) => ({ text })),
+        reference_audio: selectedVoiceInfo.referenceAudio,
+        reference_text: effectiveReferenceText.trim() || undefined,
+        emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
+        speed: showSpeedControl ? speed : 1
+      };
+      const project = editingBatchProjectId
+        ? await updateBatchProject(editingBatchProjectId, payload)
+        : await createBatchProject(payload);
+      setEditingBatchProjectId(project.id);
+      if (shouldRun) {
+        await runBatchProject(project.id);
+        setBatchProjectMessage(`${project.title} 已加入串行生成队列`);
+      } else {
+        setBatchProjectMessage(`${project.title} 已保存为草稿`);
+      }
+      await loadBatchProjects();
+    } catch (err) {
+      setBatchProjectError(err instanceof Error ? err.message : "保存批量项目失败");
+    } finally {
+      setBatchProjectAction(null);
+    }
+  }
+
+  async function onRunExistingBatchProject(project: BatchProject, retry = false) {
+    setBatchProjectAction(retry ? "retry" : "run");
+    setBatchProjectError(null);
+    try {
+      await (retry ? retryBatchProject(project.id) : runBatchProject(project.id));
+      setBatchProjectMessage(`${project.title} 已加入串行生成队列`);
+      await loadBatchProjects();
+    } catch (err) {
+      setBatchProjectError(err instanceof Error ? err.message : "启动批量项目失败");
+    } finally {
+      setBatchProjectAction(null);
+    }
+  }
+
+  async function openBatchOutputDirectory() {
+    if (!appSettings?.output_dir || !window.desktopFiles?.openPath) {
+      setBatchProjectError("请在桌面软件中打开输出目录");
+      return;
+    }
+    try {
+      const errorMessage = await window.desktopFiles.openPath(appSettings.output_dir);
+      if (errorMessage) {
+        throw new Error(errorMessage);
+      }
+    } catch (err) {
+      setBatchProjectError(err instanceof Error ? err.message : "打开输出目录失败");
     }
   }
 
@@ -1581,6 +1785,7 @@ export function App() {
     loadSystemStatus();
     loadAppSettings();
     loadModelInstances();
+    void loadBatchProjects();
     void refreshSamplerSession(false);
   }, []);
 
@@ -1599,6 +1804,20 @@ export function App() {
     }, 3000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!batchProjectOpen) {
+      return undefined;
+    }
+    const hasActiveProject = batchProjects.some((project) => project.status === "queued" || project.status === "running");
+    if (!hasActiveProject) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      void loadBatchProjects();
+    }, 1600);
+    return () => window.clearInterval(timer);
+  }, [batchProjectOpen, batchProjects]);
 
   useEffect(() => {
     setIsPlaying(false);
@@ -1688,6 +1907,9 @@ export function App() {
             void loadModelInstances();
           }}>
             <RefreshCw size={17} strokeWidth={1.9} />
+          </button>
+          <button className="toolButton" title="批量项目" onClick={openBatchProjectWorkspace}>
+            <FileText size={17} strokeWidth={1.9} />
           </button>
           <button className="toolButton" title="设置" onClick={openSettings}>
             <Settings size={17} strokeWidth={1.9} />
@@ -2144,6 +2366,162 @@ export function App() {
           )}
         </aside>
       </section>
+
+      {batchProjectOpen && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="批量项目">
+          <section className="settingsDialog batchProjectDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>批量项目</strong>
+                <span>TXT / SRT · 串行队列 · 失败重试</span>
+              </div>
+              <button className="modalClose" title="关闭" onClick={() => setBatchProjectOpen(false)}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+
+            <div className="settingsBody batchProjectBody">
+              <div className="settingsGroup batchProjectSetup">
+                <div className="settingsGroupTitle">
+                  <FileText size={16} strokeWidth={1.9} />
+                  <span>项目配置</span>
+                </div>
+                <div className="batchProjectConfigGrid">
+                  <label className="settingsField">
+                    <span>项目名称</span>
+                    <input value={batchProjectTitle} disabled={batchProjectLocked} onChange={(event) => setBatchProjectTitle(event.target.value)} />
+                  </label>
+                  <label className="settingsField">
+                    <span>模型</span>
+                    <select value={batchProjectModel} disabled={batchProjectLocked} onChange={(event) => setBatchProjectModel(event.target.value)}>
+                      {models.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="batchProjectReference">
+                  <span>当前音色</span>
+                  <strong>{selectedVoiceInfo.name}</strong>
+                  <em>{selectedVoiceInfo.referenceAudio ? "会随项目保存参考音频" : "未配置参考音频"}</em>
+                </div>
+              </div>
+
+              <div className="settingsGroup">
+                <div className="settingsGroupTitle">
+                  <Upload size={16} strokeWidth={1.9} />
+                  <span>导入与分段</span>
+                </div>
+                <div className="batchProjectImportRow">
+                  <button className="pathPickButton" disabled={batchProjectLocked} onClick={() => batchFileInputRef.current?.click()}>
+                    <FileText size={15} strokeWidth={1.9} />
+                    <span>导入 TXT / SRT</span>
+                  </button>
+                  <button className="pathPickButton" disabled={batchProjectLocked} onClick={() => setBatchProjectSegments((segments) => [...segments, ""])}>
+                    <Plus size={15} strokeWidth={1.9} />
+                    <span>新增片段</span>
+                  </button>
+                  <input ref={batchFileInputRef} className="hiddenFile" type="file" accept=".txt,.srt,.vtt,text/plain" onChange={onImportBatchSource} />
+                  <span>{batchProjectSegmentCount} 个有效片段</span>
+                </div>
+                {batchProjectSegments.length === 0 ? (
+                  <div className="batchProjectEmpty">
+                    <FileText size={20} strokeWidth={1.8} />
+                    <strong>导入文本或字幕开始项目</strong>
+                    <span>TXT 按行/段落分段，SRT/VTT 会自动去除时间轴。</span>
+                  </div>
+                ) : (
+                  <div className="batchSegmentList">
+                    {batchProjectSegments.map((segment, index) => {
+                      const segmentState = editingBatchProject?.segments[index];
+                      return (
+                        <div key={`${editingBatchProjectId ?? "new"}-${index}`} className="batchSegmentItem">
+                          <span>{index + 1}</span>
+                          <textarea
+                            value={segment}
+                            rows={2}
+                            disabled={batchProjectLocked}
+                            placeholder="输入本段文本"
+                            onChange={(event) => updateBatchSegment(index, event.target.value)}
+                          />
+                          {segmentState && <em className={`batchSegmentState ${segmentState.status}`}>{batchSegmentStatusLabel(segmentState.status)}</em>}
+                          <button className="pathPickButton batchSegmentRemove" disabled={batchProjectLocked || batchProjectSegments.length === 1} onClick={() => removeBatchSegment(index)} title="移除片段">
+                            <Trash2 size={15} strokeWidth={1.9} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="settingsGroup">
+                <div className="settingsGroupTitle">
+                  <Library size={16} strokeWidth={1.9} />
+                  <span>项目队列</span>
+                </div>
+                {batchProjects.length === 0 ? (
+                  <div className="batchProjectEmpty compact">
+                    <Library size={19} strokeWidth={1.8} />
+                    <span>尚无已保存的批量项目</span>
+                  </div>
+                ) : (
+                  <div className="batchProjectList">
+                    {batchProjects.slice(0, 8).map((project) => {
+                      const progress = batchProjectProgress(project);
+                      const running = project.status === "queued" || project.status === "running";
+                      return (
+                        <div key={project.id} className={project.id === editingBatchProjectId ? "batchProjectRow active" : "batchProjectRow"}>
+                          <button className="batchProjectSelect" onClick={() => editBatchProject(project)}>
+                            <div>
+                              <strong>{project.title}</strong>
+                              <span>{project.model} · {progress.completed}/{progress.total} 完成{progress.failed ? ` · ${progress.failed} 失败` : ""}</span>
+                            </div>
+                            <em className={project.status}>{batchProjectStatusLabel(project.status)}</em>
+                          </button>
+                          <div className="batchProjectRowActions">
+                            {project.status === "failed" ? (
+                              <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project, true)}>
+                                {batchProjectAction === "retry" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
+                                <span>重试</span>
+                              </button>
+                            ) : (
+                              <button className="pathPickButton" disabled={Boolean(batchProjectAction) || running} onClick={() => void onRunExistingBatchProject(project)}>
+                                {batchProjectAction === "run" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
+                                <span>{running ? "队列中" : "运行"}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {(batchProjectError || batchProjectMessage) && (
+              <div className={batchProjectError ? "settingsFeedback error" : "settingsFeedback"}>
+                {batchProjectError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
+                <span>{batchProjectError ?? batchProjectMessage}</span>
+              </div>
+            )}
+
+            <footer className="settingsFooter batchProjectFooter">
+              <button className="secondaryAction settingsAction" onClick={() => void openBatchOutputDirectory()}>
+                <FolderOpen size={16} strokeWidth={1.9} />
+                <span>打开输出</span>
+              </button>
+              <button className="secondaryAction settingsAction" disabled={batchProjectLocked || Boolean(batchProjectAction)} onClick={() => void saveBatchProject(false)}>
+                {batchProjectAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
+                <span>保存草稿</span>
+              </button>
+              <button className="primaryAction settingsAction" disabled={batchProjectLocked || Boolean(batchProjectAction)} onClick={() => void saveBatchProject(true)}>
+                {batchProjectAction === "run" ? <Loader2 className="spin" size={16} /> : <Play size={16} strokeWidth={1.9} />}
+                <span>保存并生成</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {samplerOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="B 站取样">
