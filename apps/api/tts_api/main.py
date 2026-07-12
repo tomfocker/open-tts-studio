@@ -1,0 +1,45 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from tts_api.adapters.gptsovits import shutdown_gptsovits_services
+from tts_api.adapters.indextts2_worker import shutdown_indextts2_workers
+from tts_api.adapters.voxcpm2 import shutdown_voxcpm2_services
+from tts_api.config import get_settings
+from tts_api.routes import health, jobs, model_directories, model_instances, models, outputs, runtime, settings as settings_routes, speech, system, voices
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        shutdown_indextts2_workers()
+        shutdown_voxcpm2_services()
+        shutdown_gptsovits_services()
+
+    app = FastAPI(title="Open TTS Desktop API", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(health.router)
+    app.include_router(models.router)
+    app.include_router(speech.router)
+    app.include_router(outputs.router)
+    app.include_router(jobs.router)
+    app.include_router(voices.router)
+    app.include_router(system.router)
+    app.include_router(runtime.router)
+    app.include_router(settings_routes.router)
+    app.include_router(model_directories.router)
+    app.include_router(model_instances.router)
+    return app
+
+
+app = create_app()

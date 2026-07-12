@@ -1,0 +1,73 @@
+[
+  {
+    "id": "mock-tts",
+    "display_name": "Mock TTS",
+    "priority": "P0",
+    "source_url": "local",
+    "code_license": "MIT",
+    "weights_license": "MIT",
+    "commercial_use": "allowed",
+    "recommended_vram_gb": 0,
+    "features": ["plain_tts", "streaming"],
+    "request_capabilities": [],
+    "native_sample_rate": 24000,
+    "adapter": "mock"
+  },
+  {
+    "id": "voxcpm2",
+    "display_name": "VoxCPM2",
+    "priority": "P0",
+    "source_url": "https://github.com/OpenBMB/VoxCPM",
+    "code_license": "Apache-2.0",
+    "weights_license": "Apache-2.0",
+    "commercial_use": "allowed",
+    "recommended_vram_gb": 8,
+    "features": ["plain_tts", "streaming", "voice_design", "voice_clone", "controllable_clone", "extreme_clone"],
+    "request_capabilities": ["reference_audio", "reference_text", "control_prompt", "voice_prompt"],
+    "native_sample_rate": 48000,
+    "adapter": "voxcpm2"
+  },
+  {
+    "id": "f5-tts",
+    "display_name": "F5-TTS",
+    "priority": "P0",
+    "source_url": "https://github.com/SWivid/F5-TTS",
+    "code_license": "MIT",
+    "weights_license": "CC-BY-NC",
+    "commercial_use": "restricted",
+    "recommended_vram_gb": 6,
+    "features": ["plain_tts", "voice_clone"],
+    "request_capabilities": ["reference_audio", "reference_text"],
+    "native_sample_rate": 24000,
+    "adapter": "f5_tts"
+  },
+  {
+    "id": "gptsovits",
+    "display_name": "GPT-SoVITS",
+    "priority": "P0",
+    "source_url": "https://github.com/RVC-Boss/GPT-SoVITS",
+    "code_license": "MIT",
+    "weights_license": "varies",
+    "commercial_use": "restricted",
+    "recommended_vram_gb": 6,
+    "features": ["voice_clone", "extreme_clone", "duration_control"],
+    "request_capabilities": ["reference_audio", "reference_text", "speed"],
+    "requires_reference_audio": true,
+    "native_sample_rate": 32000,
+    "adapter": "gptsovits"
+  },
+  {
+    "id": "indextts2",
+    "display_name": "IndexTTS2",
+    "priority": "P0",
+    "source_url": "https://github.com/index-tts/index-tts",
+    "code_license": "Apache-2.0",
+    "weights_license": "Bilibili-IndexTTS",
+    "commercial_use": "restricted",
+    "recommended_vram_gb": 8,
+    "features": ["plain_tts", "voice_clone", "emotion_control", "duration_control"],
+    "request_capabilities": ["reference_audio", "control_prompt"],
+    "native_sample_rate": 22050,
+    "adapter": "indextts2"
+  }
+]

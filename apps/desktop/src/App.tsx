@@ -1,0 +1,2642 @@
+import {
+  AlertCircle,
+  CheckCircle2,
+  Cpu,
+  Download,
+  FileText,
+  FolderOpen,
+  Gauge,
+  Home,
+  Library,
+  Link2,
+  Loader2,
+  LogIn,
+  LogOut,
+  Maximize2,
+  Mic2,
+  Minus,
+  Pause,
+  Play,
+  Plus,
+  RefreshCw,
+  Save,
+  Server,
+  Settings,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
+  Trash2,
+  Upload,
+  Volume2,
+  Wand2,
+  Waves,
+  X
+} from "lucide-react";
+import QRCode from "qrcode";
+import { CSSProperties, ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  checkModelInstance,
+  createVoice,
+  fetchAppSettings,
+  fetchModelInstances,
+  fetchModels,
+  fetchSystemStatus,
+  fetchVoices,
+  generateSpeech,
+  getApiBase,
+  saveAppSettings,
+  startModelRuntime,
+  stopModelRuntime,
+  toAudioUrl,
+  updateModelInstance
+} from "./api";
+import type {
+  AppSettings,
+  BilibiliAudioOptionsResult,
+  BilibiliExtractSampleRequest,
+  BilibiliExtractSampleResult,
+  BilibiliLoginQrPayload,
+  BilibiliLoginSession,
+  BilibiliParsedItem,
+  BilibiliParsedLink,
+  BilibiliPollLoginPayload,
+  BilibiliSamplerState,
+  ModelDirectory,
+  ModelHealthResult,
+  ModelInfo,
+  ModelInstanceProfile,
+  IpcResponse,
+  SpeechResult,
+  SystemStatus,
+  VoiceInfo,
+  WorkerStatus
+} from "./types";
+
+declare global {
+  interface Window {
+    desktopWindow?: {
+      minimize: () => void;
+      maximize: () => void;
+      close: () => void;
+    };
+    desktopFiles?: {
+      openPath: (targetPath: string) => Promise<string>;
+      selectDirectory: () => Promise<string | null>;
+      selectReferenceAudio: () => Promise<string | null>;
+    };
+    desktopBilibiliSampler?: {
+      getSession: () => Promise<IpcResponse<BilibiliLoginSession>>;
+      startLogin: () => Promise<IpcResponse<BilibiliLoginQrPayload>>;
+      pollLogin: () => Promise<IpcResponse<BilibiliPollLoginPayload>>;
+      logout: () => Promise<IpcResponse>;
+      parseLink: (link: string) => Promise<IpcResponse<BilibiliParsedLink>>;
+      loadAudioOptions: (kind: BilibiliParsedLink["kind"], itemId: string) => Promise<IpcResponse<BilibiliAudioOptionsResult>>;
+      extractSample: (request: BilibiliExtractSampleRequest) => Promise<IpcResponse<BilibiliExtractSampleResult>>;
+      cancelExtract: () => Promise<IpcResponse>;
+      onStateChanged: (listener: (state: BilibiliSamplerState) => void) => () => void;
+    };
+  }
+}
+
+type VoicePreset = {
+  id: string;
+  name: string;
+  subtitle: string;
+  initials: string;
+  background: string;
+  referenceAudio?: string;
+  referenceText?: string;
+  authorizationStatus?: string;
+};
+
+type GenerationProgress = {
+  percent: number;
+  phaseIndex: number;
+  phaseTitle: string;
+  detail: string;
+  estimate: string;
+};
+
+type SettingsDraft = {
+  api_host: string;
+  api_port: number;
+  output_dir: string;
+  indextts2_root: string;
+  indextts2_idle_timeout_seconds: number;
+  local_api_idle_timeout_seconds: number;
+  voxcpm2_root: string;
+  voxcpm2_api_host: string;
+  voxcpm2_api_port: number;
+  gptsovits_root: string;
+  gptsovits_api_host: string;
+  gptsovits_api_port: number;
+};
+
+type ModelProfileDraft = {
+  package_label: string;
+  user_note: string;
+};
+
+const DEFAULT_INDEXTTS2_PROMPT = "D:\\AI\\IndexTTS2\\Index-TTS\\examples\\voice_01.wav";
+
+const voicePresets: VoicePreset[] = [
+  {
+    id: "sample",
+    name: "本地样例",
+    subtitle: "参考音频",
+    initials: "样",
+    background: "linear-gradient(135deg, #425466 0%, #8ea1b2 100%)",
+    referenceAudio: DEFAULT_INDEXTTS2_PROMPT
+  },
+  {
+    id: "custom",
+    name: "导入音色",
+    subtitle: "导入",
+    initials: "自",
+    background: "linear-gradient(135deg, #59616c 0%, #c8cfd6 100%)"
+  }
+];
+
+const cloneModeLabels = ["文本生成", "音色设计", "可控克隆", "极致克隆"] as const;
+type CloneMode = (typeof cloneModeLabels)[number];
+
+const featureLabels: Record<string, string> = {
+  plain_tts: "文本生成",
+  streaming: "流式输出",
+  voice_design: "音色设计",
+  voice_clone: "音色克隆",
+  controllable_clone: "可控克隆",
+  extreme_clone: "极致克隆",
+  emotion_control: "情绪控制",
+  duration_control: "语速控制"
+};
+
+const generationPhases = ["连接后端", "加载模型", "推理生成", "整理音频"];
+
+function createDefaultBilibiliSamplerState(): BilibiliSamplerState {
+  return {
+    loginSession: {
+      isLoggedIn: false,
+      nickname: null,
+      avatarUrl: null,
+      expiresAt: null
+    },
+    parsedLink: null,
+    selection: {
+      itemId: null
+    },
+    audioOptionSummary: null,
+    taskStage: "idle",
+    error: null
+  };
+}
+
+function samplerStageLabel(stage: BilibiliSamplerState["taskStage"]) {
+  switch (stage) {
+    case "parsing":
+      return "正在解析";
+    case "loading-audio-options":
+      return "加载音频流";
+    case "downloading-audio":
+      return "下载音频";
+    case "converting":
+      return "转码切分";
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "cancelled":
+      return "已取消";
+    default:
+      return "等待操作";
+  }
+}
+
+function formatSamplerItemMeta(item: BilibiliParsedItem | null) {
+  if (!item) {
+    return "未选择条目";
+  }
+  if (item.kind === "page") {
+    return `分 P ${item.page}`;
+  }
+  if (item.kind === "episode") {
+    return item.epId;
+  }
+  return item.seasonId;
+}
+
+function samplerKindLabel(kind: BilibiliParsedLink["kind"] | null | undefined) {
+  if (kind === "episode") {
+    return "番剧单集";
+  }
+  if (kind === "season") {
+    return "番剧季";
+  }
+  return "视频";
+}
+
+function samplerPollStatusLabel(status: BilibiliPollLoginPayload["status"]) {
+  if (status === "pending") {
+    return "等待扫码";
+  }
+  if (status === "scanned") {
+    return "已扫码，等待确认";
+  }
+  if (status === "confirmed") {
+    return "登录成功";
+  }
+  if (status === "expired") {
+    return "二维码已过期";
+  }
+  return "登录状态无效";
+}
+
+function getSamplerDefaultName(parsedLink: BilibiliParsedLink | null, item: BilibiliParsedItem | null) {
+  const parts = [parsedLink?.title, item?.title].filter(Boolean);
+  return parts.length > 0 ? parts.join(" - ") : "B站取样音色";
+}
+
+function parseOptionalSeconds(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
+  return {
+    api_host: settings?.api_host ?? "127.0.0.1",
+    api_port: settings?.api_port ?? 8765,
+    output_dir: settings?.output_dir ?? "D:\\code\\tts\\data\\outputs",
+    indextts2_root: settings?.indextts2_root ?? "D:\\AI\\IndexTTS2",
+    indextts2_idle_timeout_seconds: settings?.indextts2_idle_timeout_seconds ?? 600,
+    local_api_idle_timeout_seconds: settings?.local_api_idle_timeout_seconds ?? 600,
+    voxcpm2_root: settings?.voxcpm2_root ?? "E:\\Downloads_Sorted_2026-04-16\\Folders\\VoxCPM2\\VoxCPM2",
+    voxcpm2_api_host: settings?.voxcpm2_api_host ?? "127.0.0.1",
+    voxcpm2_api_port: settings?.voxcpm2_api_port ?? 8000,
+    gptsovits_root: settings?.gptsovits_root ?? "D:\\newworld\\Shinsekai\\data\\tts_bundles\\installed\\GPT-SoVITS-v2pro-20250604",
+    gptsovits_api_host: settings?.gptsovits_api_host ?? "127.0.0.1",
+    gptsovits_api_port: settings?.gptsovits_api_port ?? 9880
+  };
+}
+
+function getFileBaseName(filePath: string) {
+  const fileName = filePath.split(/[\\/]/).pop() ?? "本地音色";
+  return fileName.replace(/\.[^.]+$/, "") || "本地音色";
+}
+
+function voiceColorFromId(id: string) {
+  const palettes = [
+    "linear-gradient(135deg, #47646b 0%, #a8ced0 100%)",
+    "linear-gradient(135deg, #6b5d4e 0%, #d8c7aa 100%)",
+    "linear-gradient(135deg, #4f6175 0%, #b8c7d9 100%)",
+    "linear-gradient(135deg, #706070 0%, #d7c1d0 100%)",
+    "linear-gradient(135deg, #4e6a59 0%, #b9d7c4 100%)"
+  ];
+  const total = Array.from(id).reduce((sum, character) => sum + character.charCodeAt(0), 0);
+  return palettes[total % palettes.length];
+}
+
+function createImportedVoicePreset(voice: VoiceInfo): VoicePreset | null {
+  if (!voice.reference_audio) {
+    return null;
+  }
+  return {
+    id: voice.id,
+    name: voice.name,
+    subtitle: "本地导入",
+    initials: voice.name.trim().slice(0, 1) || "音",
+    background: voiceColorFromId(voice.id),
+    referenceAudio: voice.reference_audio,
+    referenceText: voice.reference_text ?? undefined,
+    authorizationStatus: voice.authorization_status
+  };
+}
+
+function createGeneratedVoiceName(modelName: string, sourceVoiceName: string) {
+  const now = new Date();
+  const time = `${now.getHours().toString().padStart(2, "0")}${now.getMinutes().toString().padStart(2, "0")}`;
+  return `${modelName}-${sourceVoiceName}-${time}`;
+}
+
+function formatDuration(value: number | undefined) {
+  if (!value || Number.isNaN(value)) {
+    return "0:00";
+  }
+  const roundedValue = Math.max(1, Math.round(value));
+  const minutes = Math.floor(roundedValue / 60);
+  const seconds = Math.floor(roundedValue % 60)
+    .toString()
+    .padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+function clampPercent(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, value));
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "-";
+  }
+  return `${Math.round(value)}%`;
+}
+
+function formatMemory(used: number | null | undefined, total: number | null | undefined) {
+  if (typeof used !== "number" || typeof total !== "number" || total <= 0) {
+    return "-";
+  }
+  const unit = total >= 1024 ? "GB" : "MB";
+  const divisor = total >= 1024 ? 1024 : 1;
+  return `${(used / divisor).toFixed(unit === "GB" ? 1 : 0)} / ${(total / divisor).toFixed(unit === "GB" ? 1 : 0)} ${unit}`;
+}
+
+function formatUptime(seconds: number | null | undefined) {
+  if (typeof seconds !== "number" || seconds < 1) {
+    return "刚刚启动";
+  }
+  if (seconds < 60) {
+    return `${Math.floor(seconds)} 秒`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return `${minutes} 分钟`;
+  }
+  const hours = Math.floor(minutes / 60);
+  return `${hours} 小时 ${minutes % 60} 分钟`;
+}
+
+function isLocalApiModel(modelId: string) {
+  return modelId === "voxcpm2" || modelId === "gptsovits";
+}
+
+function isRuntimeControllable(modelId: string) {
+  return modelId === "indextts2" || isLocalApiModel(modelId);
+}
+
+function getWorkerStatusForModel(systemStatus: SystemStatus | null, modelId: string) {
+  if (modelId === "voxcpm2") {
+    return systemStatus?.workers.voxcpm2;
+  }
+  if (modelId === "gptsovits") {
+    return systemStatus?.workers.gptsovits;
+  }
+  if (modelId === "indextts2") {
+    return systemStatus?.workers.indextts2;
+  }
+  return undefined;
+}
+
+function workerReleaseText(worker: WorkerStatus | undefined, modelId: string) {
+  if (!worker) {
+    return "等待状态";
+  }
+  if (worker.state === "starting") {
+    return "服务正在启动";
+  }
+  if (worker.state === "external") {
+    return "外部服务运行中";
+  }
+  if (!worker.loaded) {
+    return isLocalApiModel(modelId) ? "服务未启动" : "显存已释放";
+  }
+  if ((worker.active_requests ?? 0) > 0) {
+    return "正在生成，结束后开始计时";
+  }
+  if (typeof worker.release_in_seconds === "number") {
+    return `${formatDuration(worker.release_in_seconds)} 后释放`;
+  }
+  return "模型驻留中";
+}
+
+function workerBadgeText(worker: WorkerStatus | undefined, modelId: string) {
+  if (worker?.state === "starting") {
+    return "启动中";
+  }
+  if (worker?.state === "external") {
+    return "外部服务";
+  }
+  if (isLocalApiModel(modelId)) {
+    return worker?.loaded ? "服务运行" : "未启动";
+  }
+  return worker?.loaded ? "模型驻留" : "已释放";
+}
+
+function workerDetailText(worker: WorkerStatus | undefined, modelId: string) {
+  if (worker?.state === "external") {
+    return "服务由外部进程启动。本软件只读取状态，不会尝试结束它。";
+  }
+  if (worker?.state === "starting") {
+    return "已创建本地运行时，正在等待服务就绪；此过程不会自动发起语音生成。";
+  }
+  if (modelId === "voxcpm2") {
+    return worker?.loaded
+      ? "VoxCPM2 由本软件管理，空闲后会自动停止并释放显存。"
+      : "VoxCPM2 会在第一次生成时自动启动本地 API。";
+  }
+  if (modelId === "gptsovits") {
+    return worker?.loaded
+      ? "GPT-SoVITS 由本软件管理，空闲后会自动停止并释放显存。"
+      : "GPT-SoVITS 会在第一次生成时自动启动本地 API。";
+  }
+  return worker?.loaded
+    ? "IndexTTS2 运行在本软件托管的 worker 中，空闲后会自动退出。"
+    : "下一次生成会重新加载模型。";
+}
+
+function modelBadge(model: ModelInfo | undefined) {
+  if (!model) {
+    return "等待模型";
+  }
+  if (model.id === "indextts2" || model.id === "voxcpm2" || model.id === "gptsovits") {
+    return "已接入";
+  }
+  if (model.adapter === "mock") {
+    return "演示";
+  }
+  return "预留";
+}
+
+function hasFeature(model: ModelInfo | undefined, feature: string) {
+  return Boolean(model?.features.includes(feature));
+}
+
+function featureLabel(feature: string) {
+  return featureLabels[feature] ?? feature;
+}
+
+function commercialUseLabel(model: ModelInfo | undefined) {
+  if (!model) {
+    return "授权未知";
+  }
+  if (model.commercial_use === "allowed") {
+    return "可商用";
+  }
+  if (model.commercial_use === "restricted") {
+    return "商用受限";
+  }
+  return "授权未知";
+}
+
+function createModelProfileDraft(instance: ModelInstanceProfile): ModelProfileDraft {
+  return {
+    package_label: instance.package_label ?? "",
+    user_note: instance.user_note ?? ""
+  };
+}
+
+function modelProfileDraftChanged(instance: ModelInstanceProfile, draft: ModelProfileDraft | undefined) {
+  if (!draft) {
+    return false;
+  }
+  return draft.package_label !== (instance.package_label ?? "") || draft.user_note !== (instance.user_note ?? "");
+}
+
+function formatHistoryTime(value: string) {
+  return new Date(value).toLocaleString([], {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function modelInstanceStatusLabel(status: string | undefined) {
+  if (status === "ready") {
+    return "可用";
+  }
+  if (status === "untested") {
+    return "未测试";
+  }
+  if (status === "missing") {
+    return "缺失";
+  }
+  if (status === "broken") {
+    return "需修复";
+  }
+  if (status === "disabled") {
+    return "已禁用";
+  }
+  return "未知";
+}
+
+function runtimeTypeLabel(runtimeType: string) {
+  if (runtimeType === "worker_lazy_pack") {
+    return "懒人包 Worker";
+  }
+  if (runtimeType === "lazy_pack_api") {
+    return "本地 API";
+  }
+  return "预留";
+}
+
+function isModelInstanceUsable(instance: ModelInstanceProfile | undefined) {
+  return Boolean(instance?.enabled) && instance?.status !== "missing" && instance?.status !== "broken" && instance?.status !== "disabled";
+}
+
+function getSupportedCloneModes(model: ModelInfo | undefined): CloneMode[] {
+  if (!model) {
+    return ["可控克隆"];
+  }
+  const modes: CloneMode[] = [];
+  if (hasFeature(model, "voice_design")) {
+    modes.push("音色设计");
+  }
+  if (hasFeature(model, "controllable_clone") || hasFeature(model, "voice_clone") || hasFeature(model, "emotion_control")) {
+    modes.push("可控克隆");
+  }
+  if (hasFeature(model, "extreme_clone")) {
+    modes.push("极致克隆");
+  }
+  return modes.length > 0 ? modes : ["文本生成"];
+}
+
+function cloneModeNeedsVoice(mode: CloneMode) {
+  return mode === "可控克隆" || mode === "极致克隆";
+}
+
+function cloneModeNeedsReferenceText(mode: CloneMode) {
+  return mode === "极致克隆";
+}
+
+function supportsControlPrompt(model: ModelInfo | undefined, mode: CloneMode) {
+  if (mode === "音色设计") {
+    return hasFeature(model, "voice_design");
+  }
+  if (mode === "可控克隆") {
+    return hasFeature(model, "controllable_clone") || hasFeature(model, "emotion_control");
+  }
+  if (mode === "极致克隆") {
+    return hasFeature(model, "controllable_clone");
+  }
+  return false;
+}
+
+function capabilityHint(model: ModelInfo | undefined, mode: CloneMode) {
+  if (!model) {
+    return "等待模型能力信息";
+  }
+  if (model.id === "gptsovits" && mode === "可控克隆") {
+    return "GPT-SoVITS 会使用参考音频生成目标文本，参考文本可在极致克隆中补充。";
+  }
+  if (model.id === "gptsovits" && mode === "极致克隆") {
+    return "GPT-SoVITS 会同时使用参考音频和参考文本，适合更稳定的音色复刻。";
+  }
+  if (mode === "文本生成") {
+    return "当前模型只使用目标文本，不需要参考音色。";
+  }
+  if (mode === "音色设计") {
+    return "当前模型支持用控制指令直接设计声音。";
+  }
+  if (mode === "可控克隆") {
+    return "当前模型会使用参考音频进行克隆。";
+  }
+  return "当前模型会使用参考音频和对应文本进行高相似度克隆。";
+}
+
+function getGenerationProgress(modelId: string, elapsedSeconds: number): GenerationProgress {
+  const isIndexTts2 = modelId === "indextts2";
+  const isVoxCpm2 = modelId === "voxcpm2";
+  const isGptSoVits = modelId === "gptsovits";
+  if (isGptSoVits) {
+    if (elapsedSeconds < 6) {
+      return {
+        percent: Math.max(8, 12 + elapsedSeconds * 3),
+        phaseIndex: 0,
+        phaseTitle: "启动 GPT-SoVITS 本地 API",
+        detail: "正在检查本地懒人包、运行环境和接口端口。",
+        estimate: "首次启动会更慢"
+      };
+    }
+    if (elapsedSeconds < 30) {
+      return {
+        percent: 30 + (elapsedSeconds - 6) * 1.8,
+        phaseIndex: 1,
+        phaseTitle: "加载 GPT-SoVITS 权重",
+        detail: "首次调用会加载 GPT、SoVITS、声码器和参考音频。",
+        estimate: "通常 20-90 秒"
+      };
+    }
+    if (elapsedSeconds < 70) {
+      return {
+        percent: 58 + (elapsedSeconds - 30) * 0.75,
+        phaseIndex: 2,
+        phaseTitle: "克隆并合成语音",
+        detail: "正在根据目标文本、参考音频和参考文本生成语音。",
+        estimate: "长文本或首次冷启动会更慢"
+      };
+    }
+    return {
+      percent: Math.min(94, 88 + (elapsedSeconds - 70) * 0.2),
+      phaseIndex: 3,
+      phaseTitle: "写入并返回音频",
+      detail: "正在等待 GPT-SoVITS 返回 WAV 文件。",
+      estimate: "超过 2 分钟建议查看服务状态"
+    };
+  }
+  if (isVoxCpm2) {
+    if (elapsedSeconds < 6) {
+      return {
+        percent: Math.max(8, 12 + elapsedSeconds * 3),
+        phaseIndex: 0,
+        phaseTitle: "启动 VoxCPM2 本地 API",
+        detail: "正在检查本地服务和懒人包运行环境。",
+        estimate: "首次启动会更慢"
+      };
+    }
+    if (elapsedSeconds < 26) {
+      return {
+        percent: 30 + (elapsedSeconds - 6) * 2,
+        phaseIndex: 1,
+        phaseTitle: "加载 VoxCPM2 模型",
+        detail: "首次调用会加载权重、声码器和依赖库，显存会开始上升。",
+        estimate: "通常 20-60 秒"
+      };
+    }
+    if (elapsedSeconds < 58) {
+      return {
+        percent: 62 + (elapsedSeconds - 26) * 0.8,
+        phaseIndex: 2,
+        phaseTitle: "合成语音",
+        detail: "正在根据文本、参考音频和控制指令生成音频。",
+        estimate: "长文本会更慢"
+      };
+    }
+    return {
+      percent: Math.min(94, 88 + (elapsedSeconds - 58) * 0.25),
+      phaseIndex: 3,
+      phaseTitle: "写入并返回音频",
+      detail: "正在等待本地 API 返回 WAV 文件。",
+      estimate: "超过 2 分钟建议查看服务日志"
+    };
+  }
+  if (!isIndexTts2) {
+    const percent = Math.min(92, 24 + elapsedSeconds * 24);
+    return {
+      percent,
+      phaseIndex: elapsedSeconds < 1 ? 0 : elapsedSeconds < 2 ? 2 : 3,
+      phaseTitle: elapsedSeconds < 1 ? "连接本地服务" : elapsedSeconds < 2 ? "合成演示音频" : "写入音频文件",
+      detail: "轻量模型通常会很快完成。",
+      estimate: "通常 1-3 秒"
+    };
+  }
+
+  if (elapsedSeconds < 4) {
+    return {
+      percent: Math.max(8, 10 + elapsedSeconds * 4),
+      phaseIndex: 0,
+      phaseTitle: "连接后端并创建任务",
+      detail: "正在把文本、音色和控制指令送入本地 API。",
+      estimate: "首次生成约 20-40 秒"
+    };
+  }
+  if (elapsedSeconds < 14) {
+    return {
+      percent: 26 + (elapsedSeconds - 4) * 3.2,
+      phaseIndex: 1,
+      phaseTitle: "加载 IndexTTS2 权重",
+      detail: "首次调用会加载模型、声码器和参考音频，后续可通过常驻进程加速。",
+      estimate: "显卡和磁盘会影响耗时"
+    };
+  }
+  if (elapsedSeconds < 32) {
+    return {
+      percent: 58 + (elapsedSeconds - 14) * 1.45,
+      phaseIndex: 2,
+      phaseTitle: "GPU 推理生成语音",
+      detail: "正在根据文本和参考音色生成波形。",
+      estimate: "请稍等，长文本会更慢"
+    };
+  }
+  return {
+    percent: Math.min(94, 84 + (elapsedSeconds - 32) * 0.35),
+    phaseIndex: 3,
+    phaseTitle: "整理音频并等待返回",
+    detail: "模型可能正在保存 WAV 文件或等待进程返回。",
+    estimate: "超过 90 秒建议查看日志"
+  };
+}
+
+export function App() {
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [selectedModel, setSelectedModel] = useState("indextts2");
+  const [selectedVoice, setSelectedVoice] = useState("sample");
+  const [customVoices, setCustomVoices] = useState<VoicePreset[]>([]);
+  const [cloneMode, setCloneMode] = useState<CloneMode>("可控克隆");
+  const [input, setInput] = useState("你好，这是 IndexTTS2 的本地桌面软件测试。");
+  const [controlPrompt, setControlPrompt] = useState("语速自然，情绪稳定，声音清晰，有一点亲切感");
+  const [referenceText, setReferenceText] = useState("你好，这是参考音频的原始文本。");
+  const [cfg, setCfg] = useState(2);
+  const [steps, setSteps] = useState(10);
+  const [speed, setSpeed] = useState(1);
+  const [normalizeText, setNormalizeText] = useState(true);
+  const [denoise, setDenoise] = useState(false);
+  const [result, setResult] = useState<SpeechResult | null>(null);
+  const [resultReferenceText, setResultReferenceText] = useState("");
+  const [resultModelName, setResultModelName] = useState("");
+  const [resultVoiceName, setResultVoiceName] = useState("");
+  const [savedVoicePath, setSavedVoicePath] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [modelInstances, setModelInstances] = useState<ModelInstanceProfile[]>([]);
+  const [modelProfileDrafts, setModelProfileDrafts] = useState<Record<string, ModelProfileDraft>>({});
+  const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>(() => createSettingsDraft(null));
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [checkingModelId, setCheckingModelId] = useState<string | null>(null);
+  const [savingProfileModelId, setSavingProfileModelId] = useState<string | null>(null);
+  const [runtimeActionModelId, setRuntimeActionModelId] = useState<string | null>(null);
+  const [modelHealthResults, setModelHealthResults] = useState<Record<string, ModelHealthResult>>({});
+  const [voiceImporting, setVoiceImporting] = useState(false);
+  const [voiceSaving, setVoiceSaving] = useState(false);
+  const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
+  const [samplerOpen, setSamplerOpen] = useState(false);
+  const [samplerState, setSamplerState] = useState<BilibiliSamplerState>(() => createDefaultBilibiliSamplerState());
+  const [samplerLink, setSamplerLink] = useState("");
+  const [samplerQrPayload, setSamplerQrPayload] = useState<BilibiliLoginQrPayload | null>(null);
+  const [samplerQrCodeUrl, setSamplerQrCodeUrl] = useState<string | null>(null);
+  const [samplerPendingAction, setSamplerPendingAction] = useState<string | null>(null);
+  const [samplerStartSeconds, setSamplerStartSeconds] = useState("");
+  const [samplerEndSeconds, setSamplerEndSeconds] = useState("");
+  const [samplerName, setSamplerName] = useState("");
+  const [samplerReferenceText, setSamplerReferenceText] = useState("");
+  const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackTime, setPlaybackTime] = useState(0);
+  const [playbackDuration, setPlaybackDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const lastSamplerDefaultNameRef = useRef("");
+
+  const selectedModelInfo = useMemo(
+    () => models.find((model) => model.id === selectedModel),
+    [models, selectedModel]
+  );
+  const selectedModelInstance = useMemo(
+    () => modelInstances.find((instance) => instance.model_id === selectedModel),
+    [modelInstances, selectedModel]
+  );
+
+  const availableVoices = useMemo(() => {
+    const importVoice = voicePresets.find((voice) => voice.id === "custom");
+    const builtInVoices = voicePresets.filter((voice) => voice.id !== "custom");
+    return importVoice ? [...builtInVoices, ...customVoices, importVoice] : [...builtInVoices, ...customVoices];
+  }, [customVoices]);
+
+  const selectedVoiceInfo = useMemo(
+    () => availableVoices.find((voice) => voice.id === selectedVoice && voice.id !== "custom") ?? availableVoices[0] ?? voicePresets[0],
+    [availableVoices, selectedVoice]
+  );
+
+  const supportedCloneModes = useMemo(() => getSupportedCloneModes(selectedModelInfo), [selectedModelInfo]);
+  const supportedCloneModeKey = supportedCloneModes.join("|");
+  const needsReferenceAudio = cloneModeNeedsVoice(cloneMode);
+  const effectiveReferenceText = referenceText.trim() || selectedVoiceInfo.referenceText || "";
+  const needsExtremeReferenceText = cloneModeNeedsReferenceText(cloneMode);
+  const showControlPrompt = supportsControlPrompt(selectedModelInfo, cloneMode);
+  const showVoiceLibrary = needsReferenceAudio;
+  const showCfgSteps = selectedModel === "voxcpm2";
+  const showSpeedControl = hasFeature(selectedModelInfo, "duration_control");
+  const showNormalizeToggle = selectedModel === "voxcpm2";
+  const showDenoiseToggle = selectedModel === "voxcpm2";
+  const hasParameterControls = showCfgSteps || showSpeedControl || showNormalizeToggle || showDenoiseToggle;
+  const online = models.length > 0 && !error;
+  const resultSavedToVoiceLibrary = Boolean(result && savedVoicePath === result.file_path);
+  const canGenerate =
+    input.trim().length > 0 &&
+    !loading &&
+    isModelInstanceUsable(selectedModelInstance) &&
+    (!needsReferenceAudio || Boolean(selectedVoiceInfo.referenceAudio)) &&
+    (!needsExtremeReferenceText || effectiveReferenceText.trim().length > 0);
+  const audioUrl = result ? toAudioUrl(result.audio_url) : "";
+  const progress = playbackDuration > 0 ? Math.min((playbackTime / playbackDuration) * 100, 100) : 0;
+  const generationProgress = getGenerationProgress(selectedModel, elapsedSeconds);
+  const apiBaseLabel = getApiBase().replace(/^https?:\/\//, "");
+  const workerStatus =
+    selectedModel === "voxcpm2"
+      ? systemStatus?.workers.voxcpm2
+      : selectedModel === "gptsovits"
+        ? systemStatus?.workers.gptsovits
+        : systemStatus?.workers.indextts2;
+  const samplerBridgeAvailable = typeof window !== "undefined" && Boolean(window.desktopBilibiliSampler);
+  const samplerSelectedItem = useMemo(() => {
+    const parsedLink = samplerState.parsedLink;
+    if (!parsedLink) {
+      return null;
+    }
+    return parsedLink.items.find((item) => item.id === samplerState.selection.itemId) ?? parsedLink.items[0] ?? null;
+  }, [samplerState.parsedLink, samplerState.selection.itemId]);
+  const samplerDefaultName = useMemo(
+    () => getSamplerDefaultName(samplerState.parsedLink, samplerSelectedItem),
+    [samplerState.parsedLink, samplerSelectedItem]
+  );
+  const samplerStartValue = parseOptionalSeconds(samplerStartSeconds);
+  const samplerEndValue = parseOptionalSeconds(samplerEndSeconds);
+  const samplerClipError =
+    Number.isNaN(samplerStartValue)
+      ? "开始时间必须是数字"
+      : Number.isNaN(samplerEndValue)
+        ? "结束时间必须是数字"
+        : samplerStartValue !== null && samplerStartValue < 0
+          ? "开始时间不能小于 0"
+          : samplerEndValue !== null && samplerEndValue <= (samplerStartValue ?? 0)
+            ? "结束时间必须大于开始时间"
+            : null;
+  const samplerExtracting = samplerState.taskStage === "downloading-audio" || samplerState.taskStage === "converting";
+  const samplerBusy =
+    Boolean(samplerPendingAction) ||
+    samplerState.taskStage === "parsing" ||
+    samplerState.taskStage === "loading-audio-options" ||
+    samplerExtracting;
+  const samplerCanExtract = Boolean(
+    samplerBridgeAvailable &&
+      samplerState.parsedLink &&
+      samplerSelectedItem &&
+      samplerState.audioOptionSummary?.hasAudio &&
+      samplerName.trim() &&
+      !samplerClipError &&
+      !samplerBusy
+  );
+  const samplerFeedback = samplerState.error ?? samplerClipError ?? samplerMessage;
+  const samplerFeedbackIsError = Boolean(samplerState.error || samplerClipError);
+  const gpuAvailable = Boolean(systemStatus?.gpu.available);
+  const resourceMetrics = [
+    {
+      id: "cpu",
+      label: "CPU",
+      value: systemStatus?.system.cpu_percent,
+      detail: formatPercent(systemStatus?.system.cpu_percent),
+      available: Boolean(systemStatus)
+    },
+    {
+      id: "memory",
+      label: "内存",
+      value: systemStatus?.system.memory_percent,
+      detail: formatMemory(systemStatus?.system.memory_used_mb, systemStatus?.system.memory_total_mb),
+      available: Boolean(systemStatus)
+    },
+    {
+      id: "gpu",
+      label: "GPU",
+      value: systemStatus?.gpu.utilization_percent,
+      detail: gpuAvailable ? formatPercent(systemStatus?.gpu.utilization_percent) : "未检测到",
+      available: gpuAvailable
+    },
+    {
+      id: "vram",
+      label: "显存",
+      value: systemStatus?.gpu.memory_percent,
+      detail: gpuAvailable ? formatMemory(systemStatus?.gpu.memory_used_mb, systemStatus?.gpu.memory_total_mb) : "未检测到",
+      available: gpuAvailable
+    }
+  ];
+
+  async function loadModels() {
+    setError(null);
+    try {
+      const loaded = await fetchModels();
+      setModels(loaded);
+      const preferred = loaded.find((model) => model.id === "indextts2") ?? loaded[0];
+      if (preferred && !loaded.some((model) => model.id === selectedModel)) {
+        setSelectedModel(preferred.id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "无法连接本地 API");
+    }
+  }
+
+  async function loadVoices() {
+    try {
+      const loadedVoices = await fetchVoices();
+      setCustomVoices(
+        loadedVoices
+          .map(createImportedVoicePreset)
+          .filter((voice): voice is VoicePreset => Boolean(voice))
+      );
+    } catch {
+      setCustomVoices([]);
+    }
+  }
+
+  async function loadSystemStatus() {
+    try {
+      const status = await fetchSystemStatus();
+      setSystemStatus(status);
+    } catch {
+      setSystemStatus(null);
+    }
+  }
+
+  async function loadAppSettings() {
+    try {
+      const loadedSettings = await fetchAppSettings();
+      setAppSettings(loadedSettings);
+      setSettingsDraft(createSettingsDraft(loadedSettings));
+    } catch {
+      setAppSettings(null);
+    }
+  }
+
+  async function loadModelInstances() {
+    try {
+      const instances = await fetchModelInstances();
+      setModelInstances(instances);
+      setModelProfileDrafts((drafts) => {
+        const next: Record<string, ModelProfileDraft> = {};
+        for (const instance of instances) {
+          next[instance.model_id] = drafts[instance.model_id] ?? createModelProfileDraft(instance);
+        }
+        return next;
+      });
+    } catch {
+      setModelInstances([]);
+    }
+  }
+
+  function setSamplerFailure(message: string) {
+    setSamplerMessage(null);
+    setSamplerState((state) => ({
+      ...state,
+      taskStage: "failed",
+      error: message
+    }));
+  }
+
+  function requireSamplerBridge() {
+    if (!window.desktopBilibiliSampler) {
+      setSamplerFailure("请在桌面软件中使用 B 站取样");
+      return null;
+    }
+    return window.desktopBilibiliSampler;
+  }
+
+  async function refreshSamplerSession(showError = false) {
+    const sampler = window.desktopBilibiliSampler;
+    if (!sampler) {
+      if (showError) {
+        setSamplerFailure("请在桌面软件中使用 B 站取样");
+      }
+      return;
+    }
+    try {
+      const response = await sampler.getSession();
+      if (!response.success || !response.data) {
+        if (showError) {
+          setSamplerFailure(response.error ?? "加载 B 站登录状态失败");
+        }
+        return;
+      }
+      const loginSession = response.data;
+      setSamplerState((state) => ({
+        ...state,
+        loginSession,
+        error: null
+      }));
+    } catch (err) {
+      if (showError) {
+        setSamplerFailure(err instanceof Error ? err.message : "加载 B 站登录状态失败");
+      }
+    }
+  }
+
+  function openSampler() {
+    setSamplerOpen(true);
+    setSamplerMessage(null);
+    void refreshSamplerSession(true);
+  }
+
+  async function onSamplerStartLogin() {
+    const sampler = requireSamplerBridge();
+    if (!sampler) {
+      return;
+    }
+    setSamplerPendingAction("login");
+    setSamplerMessage(null);
+    setSamplerState((state) => ({ ...state, error: null }));
+    try {
+      const response = await sampler.startLogin();
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? "生成 B 站登录二维码失败");
+      }
+      setSamplerQrPayload(response.data);
+      setSamplerMessage("二维码已生成，扫码后点击确认");
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "生成 B 站登录二维码失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
+  async function onSamplerPollLogin() {
+    const sampler = requireSamplerBridge();
+    if (!sampler) {
+      return;
+    }
+    setSamplerPendingAction("poll-login");
+    setSamplerMessage(null);
+    setSamplerState((state) => ({ ...state, error: null }));
+    try {
+      const response = await sampler.pollLogin();
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? "确认 B 站登录失败");
+      }
+      if (response.data.loginSession) {
+        setSamplerState((state) => ({
+          ...state,
+          loginSession: response.data!.loginSession!,
+          error: null
+        }));
+      }
+      if (response.data.status === "confirmed") {
+        setSamplerQrPayload(null);
+      }
+      setSamplerMessage(samplerPollStatusLabel(response.data.status));
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "确认 B 站登录失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
+  async function onSamplerLogout() {
+    const sampler = requireSamplerBridge();
+    if (!sampler) {
+      return;
+    }
+    setSamplerPendingAction("logout");
+    setSamplerMessage(null);
+    try {
+      const response = await sampler.logout();
+      if (!response.success) {
+        throw new Error(response.error ?? "退出 B 站登录失败");
+      }
+      setSamplerQrPayload(null);
+      setSamplerState((state) => ({
+        ...state,
+        loginSession: createDefaultBilibiliSamplerState().loginSession,
+        error: null
+      }));
+      setSamplerMessage("已退出 B 站登录");
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "退出 B 站登录失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
+  async function onSamplerParseLink() {
+    const sampler = requireSamplerBridge();
+    if (!sampler) {
+      return;
+    }
+    const link = samplerLink.trim();
+    if (!link) {
+      setSamplerFailure("请先粘贴 B 站链接");
+      return;
+    }
+    setSamplerPendingAction("parse");
+    setSamplerMessage(null);
+    setSamplerState((state) => ({ ...state, error: null }));
+    try {
+      const response = await sampler.parseLink(link);
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? "解析 B 站链接失败");
+      }
+      const parsedLink = response.data;
+      setSamplerState((state) => ({
+        ...state,
+        parsedLink,
+        selection: { itemId: parsedLink.selectedItemId },
+        audioOptionSummary: null,
+        taskStage: "idle",
+        error: null
+      }));
+
+      const audioResponse = await sampler.loadAudioOptions(parsedLink.kind, parsedLink.selectedItemId);
+      if (!audioResponse.success || !audioResponse.data) {
+        throw new Error(audioResponse.error ?? "加载音频流失败");
+      }
+      setSamplerState((state) => ({
+        ...state,
+        selection: { itemId: audioResponse.data!.itemId },
+        audioOptionSummary: audioResponse.data!.summary,
+        taskStage: "idle",
+        error: null
+      }));
+      setSamplerMessage(audioResponse.data.summary.hasAudio ? "音频流已就绪" : audioResponse.data.summary.disabledReason ?? "没有可用音频流");
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "解析 B 站链接失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
+  async function onSamplerSelectItem(itemId: string) {
+    const sampler = requireSamplerBridge();
+    if (!sampler || !samplerState.parsedLink) {
+      return;
+    }
+    setSamplerPendingAction("load-audio");
+    setSamplerMessage(null);
+    setSamplerState((state) => ({
+      ...state,
+      selection: { itemId },
+      audioOptionSummary: null,
+      error: null
+    }));
+    try {
+      const response = await sampler.loadAudioOptions(samplerState.parsedLink.kind, itemId);
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? "加载音频流失败");
+      }
+      setSamplerState((state) => ({
+        ...state,
+        selection: { itemId: response.data!.itemId },
+        audioOptionSummary: response.data!.summary,
+        taskStage: "idle",
+        error: null
+      }));
+      setSamplerMessage(response.data.summary.hasAudio ? "音频流已就绪" : response.data.summary.disabledReason ?? "没有可用音频流");
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "加载音频流失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
+  async function onSamplerExtractAndSave() {
+    const sampler = requireSamplerBridge();
+    if (!sampler) {
+      return;
+    }
+    if (samplerClipError) {
+      return;
+    }
+    if (!samplerState.parsedLink || !samplerSelectedItem || !samplerState.audioOptionSummary?.hasAudio) {
+      setSamplerFailure("请先解析链接并选择可用音频流");
+      return;
+    }
+
+    const voiceName = samplerName.trim() || samplerDefaultName;
+    setSamplerPendingAction("extract");
+    setSamplerMessage(null);
+    setSamplerState((state) => ({ ...state, error: null }));
+    try {
+      const response = await sampler.extractSample({
+        startSeconds: samplerStartValue,
+        endSeconds: samplerEndValue,
+        sampleName: voiceName
+      });
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? "取样失败");
+      }
+
+      const voice = await createVoice({
+        name: voiceName,
+        reference_audio: response.data.audioPath,
+        reference_text: samplerReferenceText.trim() || undefined,
+        authorization_status: "source_bilibili_authorized"
+      });
+      const preset = createImportedVoicePreset(voice);
+      if (!preset) {
+        throw new Error("取样音频已生成，但音色库没有返回参考音频路径");
+      }
+      setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+      setSelectedVoice(preset.id);
+      if (samplerReferenceText.trim()) {
+        setReferenceText(samplerReferenceText.trim());
+      } else if (preset.referenceText) {
+        setReferenceText(preset.referenceText);
+      }
+      setVoiceMessage(`已从 B 站取样：${preset.name}`);
+      setSamplerMessage(`已加入音色库：${preset.name}，${formatDuration(response.data.durationSeconds)}`);
+      setSamplerOpen(false);
+      void loadVoices();
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "取样失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
+  async function onSamplerCancel() {
+    if (!samplerExtracting) {
+      setSamplerOpen(false);
+      return;
+    }
+    const sampler = requireSamplerBridge();
+    if (!sampler) {
+      return;
+    }
+    setSamplerPendingAction("cancel-extract");
+    try {
+      const response = await sampler.cancelExtract();
+      if (!response.success) {
+        throw new Error(response.error ?? "取消取样失败");
+      }
+      setSamplerMessage("已请求取消取样");
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "取消取样失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
+  async function onImportVoice() {
+    if (!window.desktopFiles?.selectReferenceAudio) {
+      setError("请在桌面软件中导入参考音频");
+      return;
+    }
+    setVoiceImporting(true);
+    setVoiceMessage(null);
+    setError(null);
+    try {
+      const audioPath = await window.desktopFiles.selectReferenceAudio();
+      if (!audioPath) {
+        return;
+      }
+      const createdVoice = await createVoice({
+        name: getFileBaseName(audioPath),
+        reference_audio: audioPath,
+        reference_text: referenceText.trim() || undefined,
+        authorization_status: "authorized"
+      });
+      const preset = createImportedVoicePreset(createdVoice);
+      if (preset) {
+        setCustomVoices((voices) => [...voices.filter((voice) => voice.id !== preset.id), preset]);
+        setSelectedVoice(preset.id);
+        if (preset.referenceText) {
+          setReferenceText(preset.referenceText);
+        }
+        setVoiceMessage(`已导入 ${preset.name}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "导入音色失败");
+    } finally {
+      setVoiceImporting(false);
+    }
+  }
+
+  async function onAddResultToVoiceLibrary() {
+    if (!result || resultSavedToVoiceLibrary) {
+      return;
+    }
+    setVoiceSaving(true);
+    setVoiceMessage(null);
+    setError(null);
+    try {
+      const voice = await createVoice({
+        name: createGeneratedVoiceName(resultModelName || selectedModelInfo?.display_name || result.model, resultVoiceName || selectedVoiceInfo.name),
+        reference_audio: result.file_path,
+        reference_text: resultReferenceText || input.trim() || undefined,
+        authorization_status: "generated_local"
+      });
+      const preset = createImportedVoicePreset(voice);
+      if (preset) {
+        setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+        setSelectedVoice(preset.id);
+        if (preset.referenceText) {
+          setReferenceText(preset.referenceText);
+        }
+        setSavedVoicePath(result.file_path);
+        setVoiceMessage(`已加入音色库：${preset.name}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "加入音色库失败");
+    } finally {
+      setVoiceSaving(false);
+    }
+  }
+
+  function openSettings() {
+    setSettingsDraft(createSettingsDraft(appSettings));
+    setSettingsError(null);
+    setSettingsMessage(null);
+    void loadModelInstances();
+    setSettingsOpen(true);
+  }
+
+  async function onSaveSettings() {
+    if (
+      !settingsDraft.output_dir.trim() ||
+      !settingsDraft.api_host.trim()
+    ) {
+      setSettingsError("路径和地址不能为空");
+      return;
+    }
+
+    setSettingsSaving(true);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const savedSettings = await saveAppSettings({
+        api_host: settingsDraft.api_host.trim(),
+        api_port: Number(settingsDraft.api_port),
+        output_dir: settingsDraft.output_dir.trim(),
+        indextts2_idle_timeout_seconds: Number(settingsDraft.indextts2_idle_timeout_seconds),
+        local_api_idle_timeout_seconds: Number(settingsDraft.local_api_idle_timeout_seconds)
+      });
+      setAppSettings(savedSettings);
+      setSettingsDraft(createSettingsDraft(savedSettings));
+      setSettingsMessage("设置已保存");
+      void loadSystemStatus();
+      void loadModelInstances();
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
+
+  async function openModelDirectory(directory: ModelDirectory) {
+    if (!window.desktopFiles?.openPath) {
+      setSettingsError("当前预览环境不支持打开目录");
+      return;
+    }
+    setSettingsError(null);
+    try {
+      const resultMessage = await window.desktopFiles.openPath(directory.path);
+      if (resultMessage) {
+        setSettingsError(resultMessage);
+      }
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "无法打开目录");
+    }
+  }
+
+  async function chooseDirectoryForSetting(field: "indextts2_root" | "voxcpm2_root" | "gptsovits_root" | "output_dir") {
+    if (!window.desktopFiles?.selectDirectory) {
+      setSettingsError("当前预览环境不支持选择目录");
+      return;
+    }
+    setSettingsError(null);
+    try {
+      const directoryPath = await window.desktopFiles.selectDirectory();
+      if (!directoryPath) {
+        return;
+      }
+      setSettingsDraft((draft) => ({ ...draft, [field]: directoryPath }));
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "选择目录失败");
+    }
+  }
+
+  async function chooseModelInstanceDirectory(instance: ModelInstanceProfile) {
+    if (!window.desktopFiles?.selectDirectory) {
+      setSettingsError("当前预览环境不支持选择目录");
+      return;
+    }
+    setSettingsError(null);
+    try {
+      const directoryPath = await window.desktopFiles.selectDirectory();
+      if (!directoryPath) {
+        return;
+      }
+      const updated = await updateModelInstance(instance.model_id, { root_path: directoryPath });
+      setModelInstances((items) => items.map((item) => (item.model_id === updated.model_id ? updated : item)));
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "选择目录失败");
+    }
+  }
+
+  function updateModelProfileDraft(modelId: string, values: Partial<ModelProfileDraft>) {
+    setModelProfileDrafts((drafts) => ({
+      ...drafts,
+      [modelId]: {
+        package_label: drafts[modelId]?.package_label ?? "",
+        user_note: drafts[modelId]?.user_note ?? "",
+        ...values
+      }
+    }));
+  }
+
+  async function onSaveModelProfile(instance: ModelInstanceProfile) {
+    const draft = modelProfileDrafts[instance.model_id] ?? createModelProfileDraft(instance);
+    setSavingProfileModelId(instance.model_id);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const updated = await updateModelInstance(instance.model_id, {
+        package_label: draft.package_label.trim() || null,
+        user_note: draft.user_note.trim() || null
+      });
+      setModelInstances((items) => items.map((item) => (item.model_id === updated.model_id ? updated : item)));
+      setModelProfileDrafts((drafts) => ({
+        ...drafts,
+        [updated.model_id]: createModelProfileDraft(updated)
+      }));
+      setSettingsMessage(`${updated.display_name} 档案已保存`);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "保存模型档案失败");
+    } finally {
+      setSavingProfileModelId(null);
+    }
+  }
+
+  async function onCheckModelInstance(instance: ModelInstanceProfile) {
+    setCheckingModelId(instance.model_id);
+    setSettingsError(null);
+    try {
+      const result = await checkModelInstance(instance.model_id);
+      setModelHealthResults((results) => ({ ...results, [instance.model_id]: result }));
+      await loadModelInstances();
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "检查模型失败");
+    } finally {
+      setCheckingModelId(null);
+    }
+  }
+
+  async function onToggleModelInstance(instance: ModelInstanceProfile) {
+    setSettingsError(null);
+    try {
+      const updated = await updateModelInstance(instance.model_id, { enabled: !instance.enabled });
+      setModelInstances((items) => items.map((item) => (item.model_id === updated.model_id ? updated : item)));
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "切换模型状态失败");
+    }
+  }
+
+  async function onStartModelRuntime(instance: ModelInstanceProfile) {
+    setRuntimeActionModelId(instance.model_id);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const result = await startModelRuntime(instance.model_id);
+      setSettingsMessage(`${instance.display_name} 已发出启动请求，可在运行时状态中查看就绪情况。`);
+      setSystemStatus((current) =>
+        current
+          ? { ...current, workers: { ...current.workers, [instance.model_id]: result.worker } }
+          : current
+      );
+      await loadSystemStatus();
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "启动模型运行时失败");
+    } finally {
+      setRuntimeActionModelId(null);
+    }
+  }
+
+  async function onStopModelRuntime(instance: ModelInstanceProfile) {
+    setRuntimeActionModelId(instance.model_id);
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const result = await stopModelRuntime(instance.model_id);
+      setSettingsMessage(
+        result.released
+          ? `${instance.display_name} 已停止，显存会在进程退出后释放。`
+          : `${instance.display_name} 当前没有由本软件托管的运行时。`
+      );
+      setSystemStatus((current) =>
+        current
+          ? { ...current, workers: { ...current.workers, [instance.model_id]: result.worker } }
+          : current
+      );
+      await loadSystemStatus();
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "释放模型运行时失败");
+    } finally {
+      setRuntimeActionModelId(null);
+    }
+  }
+
+  async function onGenerate() {
+    setLoading(true);
+    setError(null);
+    setIsPlaying(false);
+    setResult(null);
+    setResultReferenceText("");
+    setResultModelName("");
+    setResultVoiceName("");
+    setSavedVoicePath(null);
+    const startedAt = Date.now();
+    const requestText = input.trim();
+    const requestModelName = selectedModelInfo?.display_name ?? selectedModel;
+    const requestVoiceName = selectedVoiceInfo.name;
+    setGenerationStartedAt(startedAt);
+    setElapsedSeconds(0);
+    try {
+      const generated = await generateSpeech(selectedModel, input, {
+        referenceAudio: needsReferenceAudio ? selectedVoiceInfo.referenceAudio : undefined,
+        referenceText: needsExtremeReferenceText || selectedModel === "gptsovits" ? effectiveReferenceText.trim() || undefined : undefined,
+        emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
+        speed: showSpeedControl ? speed : 1
+      });
+      setResult(generated);
+      setResultReferenceText(requestText);
+      setResultModelName(requestModelName);
+      setResultVoiceName(requestVoiceName);
+      setPlaybackTime(0);
+      setPlaybackDuration(generated.duration_seconds);
+      void loadModelInstances();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "生成失败");
+    } finally {
+      setLoading(false);
+      setGenerationStartedAt(null);
+      void loadSystemStatus();
+    }
+  }
+
+  async function togglePlayback() {
+    if (!audioRef.current || !result) {
+      return;
+    }
+    if (audioRef.current.paused) {
+      await audioRef.current.play();
+      setIsPlaying(true);
+    } else {
+      audioRef.current.pause();
+      setIsPlaying(false);
+    }
+  }
+
+  function onImportText(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setInput(String(reader.result ?? ""));
+    reader.readAsText(file, "utf-8");
+    event.target.value = "";
+  }
+
+  useEffect(() => {
+    loadModels();
+    loadVoices();
+    loadSystemStatus();
+    loadAppSettings();
+    loadModelInstances();
+    void refreshSamplerSession(false);
+  }, []);
+
+  useEffect(() => {
+    if (!window.desktopBilibiliSampler?.onStateChanged) {
+      return undefined;
+    }
+    return window.desktopBilibiliSampler.onStateChanged((state) => {
+      setSamplerState(state);
+    });
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadSystemStatus();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    setIsPlaying(false);
+    setPlaybackTime(0);
+  }, [audioUrl]);
+
+  useEffect(() => {
+    if (selectedVoiceInfo.referenceText && !referenceText.trim()) {
+      setReferenceText(selectedVoiceInfo.referenceText);
+    }
+  }, [selectedVoiceInfo.id]);
+
+  useEffect(() => {
+    let disposed = false;
+    if (!samplerQrPayload?.qrUrl) {
+      setSamplerQrCodeUrl(null);
+      return undefined;
+    }
+    QRCode.toDataURL(samplerQrPayload.qrUrl, {
+      margin: 1,
+      width: 184,
+      color: {
+        dark: "#263441",
+        light: "#f7fbff"
+      }
+    })
+      .then((dataUrl) => {
+        if (!disposed) {
+          setSamplerQrCodeUrl(dataUrl);
+        }
+      })
+      .catch(() => {
+        if (!disposed) {
+          setSamplerQrCodeUrl(null);
+        }
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [samplerQrPayload?.qrUrl]);
+
+  useEffect(() => {
+    const lastDefault = lastSamplerDefaultNameRef.current;
+    setSamplerName((current) => (!current.trim() || current === lastDefault ? samplerDefaultName : current));
+    lastSamplerDefaultNameRef.current = samplerDefaultName;
+  }, [samplerDefaultName]);
+
+  useEffect(() => {
+    if (!supportedCloneModes.includes(cloneMode)) {
+      setCloneMode(supportedCloneModes[0]);
+    }
+  }, [cloneMode, supportedCloneModeKey]);
+
+  useEffect(() => {
+    if (!loading || !generationStartedAt) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - generationStartedAt) / 1000));
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [generationStartedAt, loading]);
+
+  return (
+    <main className="studioShell">
+      <header className="desktopTopbar">
+        <div className="brandMark">
+          <div className="brandGlyph">
+            <Waves size={18} strokeWidth={2} />
+          </div>
+          <div>
+            <strong>OpenTTS Studio</strong>
+            <span>Local Voice Workstation</span>
+          </div>
+        </div>
+
+        <div className="topStatus">
+          <span className={online ? "statusDot online" : "statusDot"} />
+          <span>{online ? "本地后端在线" : "等待后端"}</span>
+          <code>{apiBaseLabel}</code>
+        </div>
+
+        <div className="windowTools">
+          <button className="toolButton" title="刷新状态" onClick={() => {
+            void loadModels();
+            void loadSystemStatus();
+            void loadModelInstances();
+          }}>
+            <RefreshCw size={17} strokeWidth={1.9} />
+          </button>
+          <button className="toolButton" title="设置" onClick={openSettings}>
+            <Settings size={17} strokeWidth={1.9} />
+          </button>
+          <button className="toolButton" title="主页">
+            <Home size={17} strokeWidth={1.9} />
+          </button>
+          <button className="toolButton" title="最小化" onClick={() => window.desktopWindow?.minimize()}>
+            <Minus size={18} strokeWidth={2} />
+          </button>
+          <button className="toolButton" title="最大化" onClick={() => window.desktopWindow?.maximize()}>
+            <Maximize2 size={16} strokeWidth={1.9} />
+          </button>
+          <button className="toolButton close" title="关闭" onClick={() => window.desktopWindow?.close()}>
+            <X size={18} strokeWidth={2} />
+          </button>
+        </div>
+      </header>
+
+      <section className="workbench">
+        <aside className="leftRail">
+          <section className="softPanel voicePanel">
+            <div className="panelTitle voicePanelTitle">
+              <span className="panelTitleGroup">
+                <Library size={17} strokeWidth={1.9} />
+                <span>音色库</span>
+              </span>
+              <div className="voicePanelActions">
+                <button className="voiceImportButton" disabled={voiceImporting} onClick={() => void onImportVoice()}>
+                  {voiceImporting ? <Loader2 className="spin" size={14} /> : <Upload size={14} strokeWidth={1.9} />}
+                  <span>导入</span>
+                </button>
+                <button className="voiceImportButton" onClick={openSampler}>
+                  <Download size={14} strokeWidth={1.9} />
+                  <span>取样</span>
+                </button>
+              </div>
+            </div>
+            {showVoiceLibrary ? (
+              <div className="voiceGrid compactVoiceGrid">
+                {availableVoices.map((voice) => (
+                  <button
+                    key={voice.id}
+                    className={voice.id === selectedVoice && voice.id !== "custom" ? "voiceCard active" : "voiceCard"}
+                    onClick={() => {
+                      if (voice.id === "custom") {
+                        void onImportVoice();
+                        return;
+                      }
+                      setSelectedVoice(voice.id);
+                    }}
+                    disabled={voice.id === "custom" && voiceImporting}
+                    title={voice.name}
+                  >
+                    <span
+                      className="voiceAvatar"
+                      style={{ "--avatar-bg": voice.background } as CSSProperties}
+                      aria-hidden="true"
+                    >
+                      {voice.initials}
+                    </span>
+                    <span className="voiceName">{voice.name}</span>
+                    <small>{voice.subtitle}</small>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="voiceEmptyState">
+                <Mic2 size={20} strokeWidth={1.9} />
+                <strong>{selectedModelInfo?.display_name ?? selectedModel}</strong>
+                <span>{capabilityHint(selectedModelInfo, cloneMode)}</span>
+              </div>
+            )}
+            {voiceMessage && <div className="voiceNotice">{voiceMessage}</div>}
+          </section>
+
+          <section className="softPanel controlPanel">
+            <div
+              className="segmented"
+              style={{ "--segment-count": supportedCloneModes.length } as CSSProperties}
+            >
+              {supportedCloneModes.map((mode) => (
+                <button
+                  key={mode}
+                  className={mode === cloneMode ? "segment active" : "segment"}
+                  onClick={() => setCloneMode(mode)}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+            {showControlPrompt ? (
+              <textarea
+                className="controlPrompt"
+                value={controlPrompt}
+                onChange={(event) => setControlPrompt(event.target.value)}
+                placeholder="控制指令"
+              />
+            ) : (
+              <div className="capabilityNote">
+                <Sparkles size={17} strokeWidth={1.9} />
+                <span>{capabilityHint(selectedModelInfo, cloneMode)}</span>
+              </div>
+            )}
+            {needsExtremeReferenceText && (
+              <textarea
+                className="controlPrompt referencePrompt"
+                value={referenceText}
+                onChange={(event) => setReferenceText(event.target.value)}
+                placeholder="参考音频对应文本"
+              />
+            )}
+          </section>
+
+          <section className="softPanel paramsPanel">
+            <div className="panelTitle">
+              <SlidersHorizontal size={17} strokeWidth={1.9} />
+              <span>参数</span>
+            </div>
+            {showCfgSteps && (
+              <>
+                <label className="sliderField">
+                  <span>CFG</span>
+                  <input type="range" min="1" max="6" step="0.5" value={cfg} onChange={(event) => setCfg(Number(event.target.value))} />
+                  <strong>{cfg}</strong>
+                </label>
+                <label className="sliderField">
+                  <span>步数</span>
+                  <input type="range" min="5" max="30" step="1" value={steps} onChange={(event) => setSteps(Number(event.target.value))} />
+                  <strong>{steps}</strong>
+                </label>
+              </>
+            )}
+            {showSpeedControl && (
+              <label className="sliderField">
+                <span>语速</span>
+                <input type="range" min="0.75" max="1.5" step="0.05" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} />
+                <strong>{speed.toFixed(2)}</strong>
+              </label>
+            )}
+
+            {(showNormalizeToggle || showDenoiseToggle) && (
+              <div className="toggleRow">
+                {showNormalizeToggle && (
+                  <button className={normalizeText ? "toggle active" : "toggle"} onClick={() => setNormalizeText((value) => !value)}>
+                    <CheckCircle2 size={16} strokeWidth={1.9} />
+                    <span>文本正则化</span>
+                  </button>
+                )}
+                {showDenoiseToggle && (
+                  <button className={denoise ? "toggle active" : "toggle"} onClick={() => setDenoise((value) => !value)}>
+                    <ShieldCheck size={16} strokeWidth={1.9} />
+                    <span>语音降噪</span>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {!hasParameterControls && (
+              <div className="capabilityNote compactCapabilityNote">
+                <SlidersHorizontal size={17} strokeWidth={1.9} />
+                <span>当前模型暂无可调参数。</span>
+              </div>
+            )}
+
+            {!isModelInstanceUsable(selectedModelInstance) && (
+              <div className="capabilityNote compactCapabilityNote">
+                <AlertCircle size={17} strokeWidth={1.9} />
+                <span>当前模型还没有可用实例，请在设置里的模型管理中心检查或修复。</span>
+              </div>
+            )}
+
+            <div className="leftActions">
+              <button className="secondaryAction" disabled={!result}>
+                <FolderOpen size={17} strokeWidth={1.9} />
+                <span>查看成品</span>
+              </button>
+              <button className="primaryAction" disabled={!canGenerate} onClick={onGenerate}>
+                {loading ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} strokeWidth={1.9} />}
+                <span>{loading ? "生成中" : "开始生成"}</span>
+              </button>
+            </div>
+          </section>
+        </aside>
+
+        <section className="mainStage">
+          <section className="softPanel canvasPanel">
+            <div className="engineStrip">
+              <div className="engineHeader">
+                <Cpu size={18} strokeWidth={1.9} />
+                <span>模型引擎</span>
+              </div>
+              <div className="modelScroller">
+                {models.map((model) => (
+                  <button
+                    key={model.id}
+                    className={model.id === selectedModel ? "modelPill active" : "modelPill"}
+                    onClick={() => setSelectedModel(model.id)}
+                    title={model.display_name}
+                  >
+                    <span>{model.display_name}</span>
+                    <small>{modelBadge(model)}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="taskCanvas">
+              {loading ? (
+                <div className="generatingState">
+                  <div className="pulseBadge">
+                    <Loader2 className="spin" size={18} />
+                    <span>{selectedModelInfo?.display_name ?? selectedModel} 正在生成</span>
+                  </div>
+                  <div className="progressConsole">
+                    <div className="progressHeader">
+                      <div>
+                        <strong>{generationProgress.phaseTitle}</strong>
+                        <span>{generationProgress.detail}</span>
+                      </div>
+                      <div className="elapsedTimer">
+                        <small>已用时</small>
+                        <b>{formatDuration(elapsedSeconds)}</b>
+                      </div>
+                    </div>
+                    <div className="generationProgressBar" aria-label="生成进度">
+                      <span style={{ width: `${generationProgress.percent}%` }} />
+                    </div>
+                    <div className="phaseTimeline">
+                      {generationPhases.map((phase, index) => (
+                        <span
+                          key={phase}
+                          className={
+                            index < generationProgress.phaseIndex
+                              ? "phaseStep done"
+                              : index === generationProgress.phaseIndex
+                                ? "phaseStep active"
+                                : "phaseStep"
+                          }
+                        >
+                          {phase}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="progressHint">{generationProgress.estimate}</div>
+                  </div>
+                  <div className="skeletonWave">
+                    {Array.from({ length: 48 }).map((_, index) => (
+                      <span key={index} style={{ "--bar": `${18 + ((index * 13) % 54)}px` } as CSSProperties} />
+                    ))}
+                  </div>
+                </div>
+              ) : result ? (
+                <div className="resultCard">
+                  <div className="resultIcon">
+                    <Volume2 size={24} strokeWidth={1.8} />
+                  </div>
+                  <div>
+                    <h2>{selectedVoiceInfo.name}</h2>
+                    <p>{selectedModelInfo?.display_name ?? result.model}</p>
+                  </div>
+                  <div className="resultMeta">
+                    <span>{result.sample_rate} Hz</span>
+                    <span>{formatDuration(result.duration_seconds)}</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="emptyCanvas">
+                  <div className="emptyIcon">
+                    <Sparkles size={25} strokeWidth={1.8} />
+                  </div>
+                  <h2>准备生成</h2>
+                  <p>音色和文本就绪后即可生成。</p>
+                </div>
+              )}
+            </div>
+
+            <div className="editorDock">
+              <div className="editorTools">
+                <button className="dockButton" onClick={() => fileInputRef.current?.click()}>
+                  <FileText size={17} strokeWidth={1.9} />
+                  <span>导入 TXT</span>
+                </button>
+                <button className="dockButton" onClick={() => setInput("")}>
+                  <Trash2 size={17} strokeWidth={1.9} />
+                  <span>清空文本</span>
+                </button>
+                <button className="roundAdd" title="添加任务">
+                  <Plus size={18} strokeWidth={2} />
+                </button>
+                <input ref={fileInputRef} className="hiddenFile" type="file" accept=".txt,text/plain" onChange={onImportText} />
+              </div>
+              <textarea
+                className="targetText"
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="目标文本"
+              />
+              <div className="editorFoot">
+                <span>{input.trim().length} 字</span>
+                {showNormalizeToggle && <span>{normalizeText ? "文本正则化开" : "文本正则化关"}</span>}
+                {showDenoiseToggle && <span>{denoise ? "降噪开" : "降噪关"}</span>}
+              </div>
+            </div>
+          </section>
+
+          <section className="softPanel playerPanel">
+            <button className="playButton" disabled={!result} onClick={togglePlayback}>
+              {isPlaying ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}
+            </button>
+            <div className="timeReadout">
+              <span>{formatDuration(playbackTime)}</span>
+              <span>/</span>
+              <span>{formatDuration(playbackDuration || result?.duration_seconds)}</span>
+            </div>
+            <div className="playerTrack">
+              <div className="trackFill" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="playerInfo">
+              {result ? (
+                <>
+                  <strong>{selectedModelInfo?.display_name ?? result.model}</strong>
+                  <span>{result.file_path}</span>
+                </>
+              ) : (
+                <>
+                  <strong>暂无音频</strong>
+                  <span>生成完成后会出现在这里</span>
+                </>
+              )}
+            </div>
+            <button
+              className={resultSavedToVoiceLibrary ? "voiceSaveButton saved" : "voiceSaveButton"}
+              disabled={!result || voiceSaving || resultSavedToVoiceLibrary}
+              onClick={() => void onAddResultToVoiceLibrary()}
+            >
+              {voiceSaving ? <Loader2 className="spin" size={16} /> : resultSavedToVoiceLibrary ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <Save size={16} strokeWidth={1.9} />}
+              <span>{voiceSaving ? "加入中" : resultSavedToVoiceLibrary ? "已加入" : "加入音色库"}</span>
+            </button>
+            <audio
+              ref={audioRef}
+              src={audioUrl}
+              onLoadedMetadata={(event) => setPlaybackDuration(event.currentTarget.duration || result?.duration_seconds || 0)}
+              onTimeUpdate={(event) => setPlaybackTime(event.currentTarget.currentTime)}
+              onEnded={() => setIsPlaying(false)}
+            />
+          </section>
+        </section>
+
+        <aside className="rightRail">
+          <section className="softPanel inspectorPanel">
+            <div className="panelTitle">
+              <Server size={17} strokeWidth={1.9} />
+              <span>运行状态</span>
+            </div>
+            <div className="workerSummary">
+              <div className="statusBadgeRow">
+                <span className={workerStatus?.loaded ? "workerBadge loaded" : "workerBadge"}>
+                  {workerBadgeText(workerStatus, selectedModel)}
+                </span>
+                <strong>{workerReleaseText(workerStatus, selectedModel)}</strong>
+              </div>
+              <span className="workerDetail">{workerDetailText(workerStatus, selectedModel)}</span>
+            </div>
+            <div className="inspectorRows">
+              <div>
+                <span>当前模型</span>
+                <strong>{selectedModelInfo?.display_name ?? selectedModel}</strong>
+              </div>
+              <div>
+                <span>模型健康</span>
+                <strong>{modelInstanceStatusLabel(selectedModelInstance?.status)}</strong>
+              </div>
+              <div>
+                <span>后端运行</span>
+                <strong>{systemStatus ? formatUptime(systemStatus.api.uptime_seconds) : "-"}</strong>
+              </div>
+              <div>
+                <span>显存建议</span>
+                <strong>{selectedModelInfo ? `${selectedModelInfo.recommended_vram_gb} GB` : "-"}</strong>
+              </div>
+              <div>
+                <span>采样率</span>
+                <strong>{selectedModelInfo ? `${selectedModelInfo.native_sample_rate} Hz` : "-"}</strong>
+              </div>
+              <div>
+                <span>商用状态</span>
+                <strong>{selectedModelInfo?.commercial_use ?? "-"}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section className="softPanel resourcePanel">
+            <div className="panelTitle">
+              <Cpu size={17} strokeWidth={1.9} />
+              <span>系统监控</span>
+            </div>
+            <div className="resourceList">
+              {resourceMetrics.map((metric) => (
+                <div key={metric.id} className={metric.available ? "resourceMetric" : "resourceMetric unavailable"}>
+                  <div className="metricHeader">
+                    <span>{metric.label}</span>
+                    <strong>{metric.detail}</strong>
+                  </div>
+                  <div className="metricTrack" aria-label={metric.label}>
+                    <span style={{ width: `${metric.available ? clampPercent(metric.value) : 0}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="monitorNote">
+              {gpuAvailable
+                ? systemStatus?.gpu.name ?? "GPU 状态已接入"
+                : "未检测到 NVIDIA GPU，显存数据会保持为空。"}
+            </p>
+          </section>
+
+          <section className="softPanel meterPanel">
+            <div className="panelTitle">
+              <Gauge size={17} strokeWidth={1.9} />
+              <span>任务监控</span>
+            </div>
+            <div className="taskStatusCard">
+              <div className="taskState">
+                <span className={loading ? "taskStateIcon active" : "taskStateIcon"}>
+                  {loading ? <Loader2 className="spin" size={18} /> : <Gauge size={18} strokeWidth={1.9} />}
+                </span>
+                <div>
+                  <strong>{loading ? generationProgress.phaseTitle : result ? "生成完成" : "等待任务"}</strong>
+                  <span>
+                    {loading
+                      ? generationProgress.detail
+                      : result
+                        ? "音频已写入本地输出目录。"
+                        : "输入文本后点击开始生成。"}
+                  </span>
+                </div>
+              </div>
+              <div className="sideProgress">
+                <span style={{ width: `${loading ? generationProgress.percent : result ? 100 : 0}%` }} />
+              </div>
+            </div>
+            <div className="meterMeta">
+              <span>{loading ? "推理中" : "空闲"}</span>
+              <strong>{loading ? formatDuration(elapsedSeconds) : result ? formatDuration(result.duration_seconds) : "0:00"}</strong>
+            </div>
+          </section>
+
+          {error && (
+            <section className="errorPanel">
+              <AlertCircle size={18} strokeWidth={1.9} />
+              <span>{error}</span>
+            </section>
+          )}
+        </aside>
+      </section>
+
+      {samplerOpen && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="B 站取样">
+          <section className="settingsDialog samplerDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>B 站取样</strong>
+                <span>{samplerBridgeAvailable ? samplerStageLabel(samplerState.taskStage) : "桌面桥接未接入"}</span>
+              </div>
+              <button
+                className="modalClose"
+                title={samplerExtracting ? "取消取样" : "关闭"}
+                disabled={samplerBusy && !samplerExtracting}
+                onClick={() => void onSamplerCancel()}
+              >
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+
+            <div className="settingsBody samplerBody">
+              <div className="settingsGroup">
+                <div className="settingsGroupTitle">
+                  <LogIn size={16} strokeWidth={1.9} />
+                  <span>B 站登录</span>
+                </div>
+                <div className="samplerLoginRow">
+                  <div className="samplerAccount">
+                    <span className="samplerAccountAvatar">
+                      {samplerState.loginSession.avatarUrl ? (
+                        <img src={samplerState.loginSession.avatarUrl} alt="" referrerPolicy="no-referrer" />
+                      ) : (
+                        <LogIn size={17} strokeWidth={1.9} />
+                      )}
+                    </span>
+                    <div>
+                      <strong>{samplerState.loginSession.isLoggedIn ? samplerState.loginSession.nickname ?? "已登录" : "未登录"}</strong>
+                      <span>
+                        {samplerState.loginSession.expiresAt
+                          ? `有效期：${new Date(samplerState.loginSession.expiresAt).toLocaleString()}`
+                          : "公开视频可直接解析，受限内容请先登录"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="samplerLoginActions">
+                    {samplerState.loginSession.isLoggedIn ? (
+                      <button className="pathPickButton" disabled={samplerBusy} onClick={() => void onSamplerLogout()}>
+                        {samplerPendingAction === "logout" ? <Loader2 className="spin" size={15} /> : <LogOut size={15} strokeWidth={1.9} />}
+                        <span>退出</span>
+                      </button>
+                    ) : (
+                      <>
+                        <button className="pathPickButton" disabled={samplerBusy} onClick={() => void onSamplerStartLogin()}>
+                          {samplerPendingAction === "login" ? <Loader2 className="spin" size={15} /> : <LogIn size={15} strokeWidth={1.9} />}
+                          <span>扫码登录</span>
+                        </button>
+                        <button className="pathPickButton" disabled={samplerBusy || !samplerQrPayload} onClick={() => void onSamplerPollLogin()}>
+                          {samplerPendingAction === "poll-login" ? <Loader2 className="spin" size={15} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}
+                          <span>确认</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {samplerQrPayload && !samplerState.loginSession.isLoggedIn && (
+                  <div className="samplerQrPanel">
+                    <div className="samplerQrBox">
+                      {samplerQrCodeUrl ? <img src={samplerQrCodeUrl} alt="B 站登录二维码" /> : <Loader2 className="spin" size={20} />}
+                    </div>
+                    <span>扫码并在手机确认后，点击确认。</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="settingsGroup">
+                <div className="settingsGroupTitle">
+                  <Link2 size={16} strokeWidth={1.9} />
+                  <span>视频链接</span>
+                </div>
+                <div className="samplerLinkRow">
+                  <input
+                    value={samplerLink}
+                    placeholder="https://www.bilibili.com/video/BV..."
+                    onChange={(event) => setSamplerLink(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        void onSamplerParseLink();
+                      }
+                    }}
+                  />
+                  <button className="pathPickButton" disabled={samplerBusy || !samplerLink.trim()} onClick={() => void onSamplerParseLink()}>
+                    {samplerPendingAction === "parse" || samplerState.taskStage === "parsing" ? <Loader2 className="spin" size={15} /> : <Link2 size={15} strokeWidth={1.9} />}
+                    <span>解析</span>
+                  </button>
+                </div>
+              </div>
+
+              {samplerState.parsedLink && (
+                <div className="settingsGroup samplerPreview">
+                  <div className="samplerPreviewHeader">
+                    {samplerState.parsedLink.coverUrl ? (
+                      <img className="samplerCover" src={samplerState.parsedLink.coverUrl} alt="" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="samplerCover samplerCoverPlaceholder">
+                        <Link2 size={22} strokeWidth={1.8} />
+                      </div>
+                    )}
+                    <div className="samplerMeta">
+                      <strong>{samplerState.parsedLink.title ?? "B 站视频"}</strong>
+                      <span>{samplerKindLabel(samplerState.parsedLink.kind)} · {formatSamplerItemMeta(samplerSelectedItem)}</span>
+                      <span>{samplerSelectedItem?.title ?? "请选择条目"}</span>
+                    </div>
+                  </div>
+
+                  <label className="settingsField samplerField">
+                    <span>条目</span>
+                    <select
+                      value={samplerState.selection.itemId ?? samplerState.parsedLink.selectedItemId}
+                      disabled={samplerBusy}
+                      onChange={(event) => void onSamplerSelectItem(event.target.value)}
+                    >
+                      {samplerState.parsedLink.items.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {formatSamplerItemMeta(item)} · {item.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  {samplerState.audioOptionSummary && (
+                    <div className={samplerState.audioOptionSummary.hasAudio ? "samplerAudioStatus ready" : "samplerAudioStatus warning"}>
+                      {samplerState.audioOptionSummary.hasAudio ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <AlertCircle size={16} strokeWidth={1.9} />}
+                      <span>{samplerState.audioOptionSummary.hasAudio ? "音频流可用" : samplerState.audioOptionSummary.disabledReason ?? "没有可用音频流"}</span>
+                    </div>
+                  )}
+
+                  <div className="samplerClipGrid">
+                    <label className="settingsField samplerField">
+                      <span>开始秒</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={samplerStartSeconds}
+                        placeholder="留空"
+                        onChange={(event) => setSamplerStartSeconds(event.target.value)}
+                      />
+                    </label>
+                    <label className="settingsField samplerField">
+                      <span>结束秒</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={samplerEndSeconds}
+                        placeholder="留空"
+                        onChange={(event) => setSamplerEndSeconds(event.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <label className="settingsField samplerField">
+                    <span>音色名称</span>
+                    <input value={samplerName} maxLength={120} onChange={(event) => setSamplerName(event.target.value)} />
+                  </label>
+
+                  <label className="modelProfileField samplerTextField">
+                    <span>参考文本</span>
+                    <textarea
+                      value={samplerReferenceText}
+                      maxLength={1000}
+                      rows={3}
+                      placeholder="可选，用于极致克隆或后续标注"
+                      onChange={(event) => setSamplerReferenceText(event.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
+            </div>
+
+            {samplerFeedback && (
+              <div className={samplerFeedbackIsError ? "settingsFeedback error" : "settingsFeedback"}>
+                {samplerFeedbackIsError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
+                <span>{samplerFeedback}</span>
+              </div>
+            )}
+
+            <footer className="settingsFooter">
+              <button
+                className="secondaryAction settingsAction"
+                disabled={samplerBusy && !samplerExtracting}
+                onClick={() => void onSamplerCancel()}
+              >
+                {samplerPendingAction === "cancel-extract" ? <Loader2 className="spin" size={16} /> : <X size={16} strokeWidth={1.9} />}
+                <span>{samplerExtracting ? "取消任务" : "关闭"}</span>
+              </button>
+              <button className="primaryAction settingsAction" disabled={!samplerCanExtract} onClick={() => void onSamplerExtractAndSave()}>
+                {samplerPendingAction === "extract" || samplerExtracting ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
+                <span>{samplerPendingAction === "extract" || samplerExtracting ? "取样中" : "取样入库"}</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="设置">
+          <section className="settingsDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>设置</strong>
+                <span>{appSettings?.settings_file ?? "本地用户配置"}</span>
+              </div>
+              <button className="modalClose" title="关闭" onClick={() => setSettingsOpen(false)}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+
+            <div className="settingsBody">
+              <div className="settingsGroup">
+                <div className="settingsGroupTitle">
+                  <Cpu size={16} strokeWidth={1.9} />
+                  <span>本地模型</span>
+                </div>
+                <div className="modelCenterList">
+                  {modelInstances.map((instance) => {
+                    const healthResult = modelHealthResults[instance.model_id];
+                    const modelInfo = models.find((model) => model.id === instance.model_id);
+                    const draft = modelProfileDrafts[instance.model_id] ?? createModelProfileDraft(instance);
+                    const profileChanged = modelProfileDraftChanged(instance, draft);
+                    const healthHistory = instance.health_history ?? [];
+                    const runtimeWorker = getWorkerStatusForModel(systemStatus, instance.model_id);
+                    const runtimeControllable = isRuntimeControllable(instance.model_id);
+                    const runtimeActionPending = runtimeActionModelId === instance.model_id;
+                    return (
+                      <div key={instance.model_id} className="modelCenterCard">
+                        <div className="modelCenterHeader">
+                          <div>
+                            <strong>{instance.display_name}</strong>
+                            <span>{runtimeTypeLabel(instance.runtime_type)}</span>
+                          </div>
+                          <span className={`modelState ${instance.status}`}>{modelInstanceStatusLabel(instance.status)}</span>
+                        </div>
+                        <div className="modelCenterPath">
+                          <span>{instance.root_path ?? "未配置目录"}</span>
+                        </div>
+                        <div className="modelCenterMeta">
+                          <span>{instance.enabled ? "已启用" : "已禁用"}</span>
+                          <span>{instance.last_success_at ? `成功：${new Date(instance.last_success_at).toLocaleString()}` : "尚无成功记录"}</span>
+                        </div>
+                        <div className="modelCapabilityRow">
+                          <span>{modelInfo ? `${modelInfo.recommended_vram_gb} GB 显存建议` : "显存建议未知"}</span>
+                          <span>{modelInfo ? `${modelInfo.native_sample_rate} Hz` : "采样率未知"}</span>
+                          <span>{commercialUseLabel(modelInfo)}</span>
+                        </div>
+                        {modelInfo && (
+                          <div className="modelFeatureList">
+                            {modelInfo.features.map((feature) => (
+                              <span key={feature} className="featureTag">{featureLabel(feature)}</span>
+                            ))}
+                          </div>
+                        )}
+                        {runtimeControllable && (
+                          <div className="modelRuntimeStatus">
+                            <div className="modelRuntimeHeader">
+                              <span>运行时</span>
+                              <strong className={runtimeWorker?.loaded ? "ready" : ""}>{workerBadgeText(runtimeWorker, instance.model_id)}</strong>
+                            </div>
+                            <div className="modelRuntimeMeta">
+                              <span>{workerReleaseText(runtimeWorker, instance.model_id)}</span>
+                              {runtimeWorker?.managed && <span>本软件托管</span>}
+                            </div>
+                            <p>{workerDetailText(runtimeWorker, instance.model_id)}</p>
+                            {runtimeWorker?.api_base && <code>{runtimeWorker.api_base}</code>}
+                          </div>
+                        )}
+                        <div className="modelProfileGrid">
+                          <label className="modelProfileField">
+                            <span>稳定包标记</span>
+                            <input
+                              value={draft.package_label}
+                              maxLength={120}
+                              placeholder="例如 v2pro 20250604"
+                              onChange={(event) => updateModelProfileDraft(instance.model_id, { package_label: event.target.value })}
+                            />
+                          </label>
+                          <label className="modelProfileField wide">
+                            <span>维护备注</span>
+                            <textarea
+                              value={draft.user_note}
+                              maxLength={500}
+                              rows={2}
+                              placeholder="例如：当前稳定包，先不要替换。"
+                              onChange={(event) => updateModelProfileDraft(instance.model_id, { user_note: event.target.value })}
+                            />
+                          </label>
+                        </div>
+                        {(healthResult?.repair_hint || instance.last_error) && (
+                          <div className="modelRepairHint">{healthResult?.repair_hint ?? instance.last_error}</div>
+                        )}
+                        {healthResult && healthResult.checks.length > 0 && (
+                          <div className="modelCheckList">
+                            {healthResult.checks.map((check) => (
+                              <span key={check.id} className={check.passed ? "checkItem passed" : "checkItem failed"}>
+                                {check.label}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {healthHistory.length > 0 && (
+                          <div className="modelHistoryList">
+                            {healthHistory.slice(0, 3).map((entry, index) => (
+                              <div key={`${entry.checked_at}-${index}`} className={`modelHistoryItem ${entry.status}`}>
+                                <span>{formatHistoryTime(entry.checked_at)}</span>
+                                <strong>{modelInstanceStatusLabel(entry.status)}</strong>
+                                <em>
+                                  {entry.failed_check_ids.length > 0
+                                    ? `失败项：${entry.failed_check_ids.join("、")}`
+                                    : "检查通过"}
+                                </em>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="modelCenterActions">
+                          <button className="pathPickButton" onClick={() => void onCheckModelInstance(instance)} disabled={checkingModelId === instance.model_id}>
+                            {checkingModelId === instance.model_id ? <Loader2 className="spin" size={15} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}
+                            <span>检查</span>
+                          </button>
+                          {runtimeControllable && (
+                            <button
+                              className="pathPickButton"
+                              title="仅在点击后启动本地模型或 API；不会自动执行。"
+                              onClick={() => void onStartModelRuntime(instance)}
+                              disabled={!instance.enabled || runtimeActionPending || Boolean(runtimeWorker?.loaded) || runtimeWorker?.state === "starting"}
+                            >
+                              {runtimeActionPending ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
+                              <span>{instance.model_id === "indextts2" ? "预热模型" : "启动服务"}</span>
+                            </button>
+                          )}
+                          {runtimeControllable && (
+                            <button
+                              className="pathPickButton runtimeStopButton"
+                              title={runtimeWorker?.managed ? "停止本软件托管的运行时并释放显存。" : "外部服务不会被本软件停止。"}
+                              onClick={() => void onStopModelRuntime(instance)}
+                              disabled={runtimeActionPending || !runtimeWorker?.can_stop}
+                            >
+                              {runtimeActionPending ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}
+                              <span>{instance.model_id === "indextts2" ? "释放显存" : "停止服务"}</span>
+                            </button>
+                          )}
+                          <button className="pathPickButton" onClick={() => void chooseModelInstanceDirectory(instance)}>
+                            <FolderOpen size={15} strokeWidth={1.9} />
+                            <span>选择目录</span>
+                          </button>
+                          <button
+                            className="pathPickButton"
+                            onClick={() =>
+                              void openModelDirectory({
+                                id: instance.model_id,
+                                display_name: instance.display_name,
+                                path: instance.root_path ?? "",
+                                exists: Boolean(instance.root_path),
+                                kind: "model_root"
+                              })
+                            }
+                            disabled={!instance.root_path}
+                          >
+                            <FolderOpen size={15} strokeWidth={1.9} />
+                            <span>打开</span>
+                          </button>
+                          <button className="pathPickButton" onClick={() => void onToggleModelInstance(instance)}>
+                            <ShieldCheck size={15} strokeWidth={1.9} />
+                            <span>{instance.enabled ? "禁用" : "启用"}</span>
+                          </button>
+                          <button
+                            className="pathPickButton"
+                            onClick={() => void onSaveModelProfile(instance)}
+                            disabled={!profileChanged || savingProfileModelId === instance.model_id}
+                          >
+                            {savingProfileModelId === instance.model_id ? <Loader2 className="spin" size={15} /> : <Save size={15} strokeWidth={1.9} />}
+                            <span>保存档案</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <label className="settingsField">
+                  <span>IndexTTS2 空闲释放显存</span>
+                  <input
+                    type="number"
+                    min={30}
+                    max={86400}
+                    step={30}
+                    value={settingsDraft.indextts2_idle_timeout_seconds}
+                    onChange={(event) =>
+                      setSettingsDraft((draft) => ({
+                        ...draft,
+                        indextts2_idle_timeout_seconds: Number(event.target.value)
+                      }))
+                    }
+                  />
+                </label>
+                <label className="settingsField">
+                  <span>VoxCPM2 / GPT-SoVITS 空闲停止服务</span>
+                  <input
+                    type="number"
+                    min={30}
+                    max={86400}
+                    step={30}
+                    value={settingsDraft.local_api_idle_timeout_seconds}
+                    onChange={(event) =>
+                      setSettingsDraft((draft) => ({
+                        ...draft,
+                        local_api_idle_timeout_seconds: Number(event.target.value)
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="settingsGroup">
+                <div className="settingsGroupTitle">
+                  <FolderOpen size={16} strokeWidth={1.9} />
+                  <span>文件输出</span>
+                </div>
+                <label className="settingsField">
+                  <span>输出目录</span>
+                  <div className="settingsPathInput">
+                    <input
+                      value={settingsDraft.output_dir}
+                      onChange={(event) => setSettingsDraft((draft) => ({ ...draft, output_dir: event.target.value }))}
+                    />
+                    <button className="pathPickButton" onClick={() => void chooseDirectoryForSetting("output_dir")}>
+                      <FolderOpen size={15} strokeWidth={1.9} />
+                      <span>选择</span>
+                    </button>
+                  </div>
+                </label>
+              </div>
+
+              <div className="settingsGroup">
+                <div className="settingsGroupTitle">
+                  <Server size={16} strokeWidth={1.9} />
+                  <span>API 服务</span>
+                </div>
+                <div className="settingsInline">
+                  <label className="settingsField">
+                    <span>监听地址</span>
+                    <input
+                      value={settingsDraft.api_host}
+                      onChange={(event) => setSettingsDraft((draft) => ({ ...draft, api_host: event.target.value }))}
+                    />
+                  </label>
+                  <label className="settingsField">
+                    <span>端口</span>
+                    <input
+                      type="number"
+                      min={1024}
+                      max={65535}
+                      value={settingsDraft.api_port}
+                      onChange={(event) => setSettingsDraft((draft) => ({ ...draft, api_port: Number(event.target.value) }))}
+                    />
+                  </label>
+                </div>
+                <div className="restartNotice">
+                  <RefreshCw size={15} strokeWidth={1.9} />
+                  <span>地址和端口会在重启桌面软件后生效</span>
+                </div>
+              </div>
+
+            </div>
+
+            {(settingsError || settingsMessage) && (
+              <div className={settingsError ? "settingsFeedback error" : "settingsFeedback"}>
+                {settingsError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
+                <span>{settingsError ?? settingsMessage}</span>
+              </div>
+            )}
+
+            <footer className="settingsFooter">
+              <button className="secondaryAction settingsAction" onClick={() => setSettingsDraft(createSettingsDraft(appSettings))}>
+                <RefreshCw size={16} strokeWidth={1.9} />
+                <span>恢复</span>
+              </button>
+              <button className="primaryAction settingsAction" onClick={onSaveSettings} disabled={settingsSaving}>
+                {settingsSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
+                <span>{settingsSaving ? "保存中" : "保存设置"}</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+    </main>
+  );
+}
