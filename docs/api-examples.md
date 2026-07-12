@@ -107,3 +107,21 @@ $project = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/v1/projects
 Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/projects/$($project.id)/run"
 Invoke-RestMethod "http://127.0.0.1:8765/v1/projects/$($project.id)/export"
 ```
+
+## Settings Backup and Migration
+
+`GET /v1/settings/export` returns a versioned JSON document containing only portable configuration: model locations and stable profile labels, enabled states, idle-release settings, and local API/output settings. It never contains the environment API key, voice audio, generated audio, or projects.
+
+```powershell
+$backup = Invoke-RestMethod "http://127.0.0.1:8765/v1/settings/export"
+$backup | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 .\OpenTTS-Studio-settings.json
+
+$restore = Get-Content -Raw .\OpenTTS-Studio-settings.json
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8765/v1/settings/import `
+  -ContentType "application/json" `
+  -Body $restore
+```
+
+Imports are validated against the versioned schema and the models known to the installed application. If the backup changes the desktop API address or port, restart OpenTTS Studio after importing.

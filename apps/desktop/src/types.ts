@@ -396,6 +396,30 @@ export type AppSettingsUpdate = Partial<
   >
 >;
 
+export type SettingsBackupModelInstance = {
+  enabled: boolean;
+  root_path?: string | null;
+  api_host?: string | null;
+  api_port?: number | null;
+  package_label?: string | null;
+  user_note?: string | null;
+};
+
+export type SettingsBackup = {
+  schema: "open-tts-studio-settings";
+  version: 1;
+  created_at: string;
+  settings: Pick<
+    AppSettings,
+    | "api_host"
+    | "api_port"
+    | "output_dir"
+    | "indextts2_idle_timeout_seconds"
+    | "local_api_idle_timeout_seconds"
+  >;
+  model_instances: Record<string, SettingsBackupModelInstance>;
+};
+
 export type ModelDirectory = {
   id: string;
   display_name: string;

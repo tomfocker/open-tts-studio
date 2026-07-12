@@ -11,7 +11,9 @@ const {
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
   resolveFfmpegPath,
+  saveSettingsBackup,
   selectDirectory,
+  selectSettingsBackup,
   selectReferenceAudio,
   terminateProcessTree
 } = require("./desktop-runtime.cjs");
@@ -163,6 +165,57 @@ test("selectDirectory returns null when selection is cancelled", async () => {
   });
 
   assert.equal(selectedPath, null);
+});
+
+test("saveSettingsBackup writes a JSON export to the selected native path", async () => {
+  const calls = [];
+  const savedPath = await saveSettingsBackup(
+    {
+      showSaveDialog: async (options) => {
+        calls.push(options);
+        return { canceled: false, filePath: "D:/backups/opentts-settings.json" };
+      }
+    },
+    {
+      writeFile: async (...args) => calls.push(args)
+    },
+    '{"version":1}',
+    "OpenTTS-Studio-settings-2026-07-12.json"
+  );
+
+  assert.equal(savedPath, "D:/backups/opentts-settings.json");
+  assert.equal(calls[0].title, "导出设置备份");
+  assert.equal(calls[0].filters[0].name, "JSON");
+  assert.deepEqual(calls[1], ["D:/backups/opentts-settings.json", '{"version":1}', "utf8"]);
+});
+
+test("saveSettingsBackup returns null when the native save dialog is cancelled", async () => {
+  const savedPath = await saveSettingsBackup(
+    { showSaveDialog: async () => ({ canceled: true }) },
+    { writeFile: async () => assert.fail("writeFile should not be called") },
+    '{"version":1}',
+    "OpenTTS-Studio-settings.json"
+  );
+
+  assert.equal(savedPath, null);
+});
+
+test("selectSettingsBackup reads the JSON selected through the native dialog", async () => {
+  const selected = await selectSettingsBackup(
+    {
+      showOpenDialog: async (options) => {
+        assert.equal(options.title, "选择设置备份");
+        assert.deepEqual(options.properties, ["openFile"]);
+        return { canceled: false, filePaths: ["D:/backups/opentts-settings.json"] };
+      }
+    },
+    { readFile: async () => '{"schema":"open-tts-studio-settings"}' }
+  );
+
+  assert.deepEqual(selected, {
+    path: "D:/backups/opentts-settings.json",
+    content: '{"schema":"open-tts-studio-settings"}'
+  });
 });
 
 test("chooseFrontendTarget loads packaged dist when no dev server is available", async () => {

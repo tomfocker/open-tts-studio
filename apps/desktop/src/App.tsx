@@ -46,8 +46,10 @@ import {
   fetchSystemStatus,
   fetchVoiceQuality,
   fetchVoices,
+  exportSettingsBackup,
   generateSpeech,
   getApiBase,
+  importSettingsBackup,
   retryBatchProject,
   runBatchProject,
   saveAppSettings,
@@ -75,6 +77,7 @@ import type {
   ModelInstanceProfile,
   IpcResponse,
   SpeechResult,
+  SettingsBackup,
   SystemStatus,
   VoiceInfo,
   VoiceQualityReport,
@@ -92,6 +95,8 @@ declare global {
       openPath: (targetPath: string) => Promise<string>;
       selectDirectory: () => Promise<string | null>;
       selectReferenceAudio: () => Promise<string | null>;
+      saveSettingsBackup: (content: string) => Promise<string | null>;
+      selectSettingsBackup: () => Promise<{ path: string; content: string } | null>;
     };
     desktopBilibiliSampler?: {
       getSession: () => Promise<IpcResponse<BilibiliLoginSession>>;
@@ -845,6 +850,7 @@ export function App() {
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>(() => createSettingsDraft(null));
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsMigrationAction, setSettingsMigrationAction] = useState<"export" | "import" | null>(null);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [checkingModelId, setCheckingModelId] = useState<string | null>(null);
@@ -1611,6 +1617,60 @@ export function App() {
       setSettingsError(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSettingsSaving(false);
+    }
+  }
+
+  async function onExportSettingsBackup() {
+    if (!window.desktopFiles?.saveSettingsBackup) {
+      setSettingsError("请在桌面软件中导出设置备份");
+      return;
+    }
+
+    setSettingsMigrationAction("export");
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const backup = await exportSettingsBackup();
+      const savedPath = await window.desktopFiles.saveSettingsBackup(JSON.stringify(backup, null, 2));
+      if (savedPath) {
+        setSettingsMessage(`设置备份已保存到：${savedPath}`);
+      }
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "导出设置备份失败");
+    } finally {
+      setSettingsMigrationAction(null);
+    }
+  }
+
+  async function onImportSettingsBackup() {
+    if (!window.desktopFiles?.selectSettingsBackup) {
+      setSettingsError("请在桌面软件中导入设置备份");
+      return;
+    }
+
+    setSettingsMigrationAction("import");
+    setSettingsError(null);
+    setSettingsMessage(null);
+    try {
+      const selectedBackup = await window.desktopFiles.selectSettingsBackup();
+      if (!selectedBackup) {
+        return;
+      }
+      let backup: SettingsBackup;
+      try {
+        backup = JSON.parse(selectedBackup.content) as SettingsBackup;
+      } catch {
+        throw new Error("所选文件不是有效的 JSON 设置备份");
+      }
+      const importedSettings = await importSettingsBackup(backup);
+      setAppSettings(importedSettings);
+      setSettingsDraft(createSettingsDraft(importedSettings));
+      await Promise.all([loadModelInstances(), loadSystemStatus()]);
+      setSettingsMessage(`已导入设置备份：${selectedBackup.path}。如修改了 API 地址或端口，请重启软件。`);
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "导入设置备份失败");
+    } finally {
+      setSettingsMigrationAction(null);
     }
   }
 
@@ -3071,6 +3131,38 @@ export function App() {
                 <div className="restartNotice">
                   <RefreshCw size={15} strokeWidth={1.9} />
                   <span>地址和端口会在重启桌面软件后生效</span>
+                </div>
+              </div>
+
+              <div className="settingsGroup settingsMigrationGroup">
+                <div className="settingsGroupTitle">
+                  <Save size={16} strokeWidth={1.9} />
+                  <span>备份与迁移</span>
+                </div>
+                <p className="settingsMigrationDescription">
+                  备份模型目录、启用状态、稳定包标记和运行时设置；不会包含 API 密钥、音色文件、生成音频或项目内容。
+                </p>
+                <div className="settingsMigrationActions">
+                  <button
+                    className="secondaryAction settingsAction"
+                    disabled={settingsMigrationAction !== null}
+                    onClick={() => void onExportSettingsBackup()}
+                  >
+                    {settingsMigrationAction === "export" ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
+                    <span>{settingsMigrationAction === "export" ? "导出中" : "导出备份"}</span>
+                  </button>
+                  <button
+                    className="primaryAction settingsAction"
+                    disabled={settingsMigrationAction !== null}
+                    onClick={() => void onImportSettingsBackup()}
+                  >
+                    {settingsMigrationAction === "import" ? <Loader2 className="spin" size={16} /> : <Upload size={16} strokeWidth={1.9} />}
+                    <span>{settingsMigrationAction === "import" ? "导入中" : "导入备份"}</span>
+                  </button>
+                </div>
+                <div className="settingsMigrationNotice">
+                  <RefreshCw size={15} strokeWidth={1.9} />
+                  <span>导入会立即保存当前可迁移配置；若备份修改了 API 地址或端口，重启后生效。</span>
                 </div>
               </div>
 

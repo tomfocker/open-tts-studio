@@ -249,6 +249,42 @@ async function selectDirectory(dialogImpl) {
   return result.filePaths[0];
 }
 
+async function saveSettingsBackup(dialogImpl, fsPromises, content, defaultPath) {
+  if (typeof content !== "string" || !content.trim()) {
+    throw new Error("Backup content is required");
+  }
+  if (content.length > 1024 * 1024) {
+    throw new Error("Backup content is too large");
+  }
+  const result = await dialogImpl.showSaveDialog({
+    title: "导出设置备份",
+    defaultPath,
+    filters: [{ name: "JSON", extensions: ["json"] }]
+  });
+  if (result.canceled || !result.filePath) {
+    return null;
+  }
+  await fsPromises.writeFile(result.filePath, content, "utf8");
+  return result.filePath;
+}
+
+async function selectSettingsBackup(dialogImpl, fsPromises) {
+  const result = await dialogImpl.showOpenDialog({
+    title: "选择设置备份",
+    properties: ["openFile"],
+    filters: [{ name: "JSON", extensions: ["json"] }]
+  });
+  if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+    return null;
+  }
+  const selectedPath = result.filePaths[0];
+  const content = await fsPromises.readFile(selectedPath, "utf8");
+  if (content.length > 1024 * 1024) {
+    throw new Error("Backup file is too large");
+  }
+  return { path: selectedPath, content };
+}
+
 module.exports = {
   DEFAULT_API_HOST,
   DEFAULT_API_PORT,
@@ -263,7 +299,9 @@ module.exports = {
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
   resolveFfmpegPath,
+  saveSettingsBackup,
   selectDirectory,
+  selectSettingsBackup,
   selectReferenceAudio,
   spawnBackendProcess,
   terminateProcessTree,

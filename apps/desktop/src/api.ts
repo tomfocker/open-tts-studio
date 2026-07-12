@@ -14,6 +14,7 @@ import type {
   ModelInstancesResponse,
   ModelInstanceUpdate,
   ModelRuntimeActionResult,
+  SettingsBackup,
   SpeechResult,
   SystemStatus,
   VoiceQualityReport,
@@ -241,6 +242,27 @@ export async function saveAppSettings(update: AppSettingsUpdate): Promise<AppSet
   });
   if (!response.ok) {
     throw new Error(`Failed to save settings: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function exportSettingsBackup(): Promise<SettingsBackup> {
+  const response = await fetch(`${getApiBase()}/v1/settings/export`);
+  if (!response.ok) {
+    throw new Error(`Failed to export settings: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function importSettingsBackup(backup: SettingsBackup): Promise<AppSettings> {
+  const response = await fetch(`${getApiBase()}/v1/settings/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(backup)
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to import settings: ${response.status}`);
   }
   return response.json();
 }

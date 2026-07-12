@@ -2084,6 +2084,46 @@ audio {
   white-space: nowrap;
 }
 
+.settingsMigrationGroup {
+  gap: 10px;
+}
+
+.settingsMigrationDescription {
+  margin: 0;
+  color: #657584;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.settingsMigrationActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.settingsMigrationActions .settingsAction {
+  flex: 1 1 150px;
+}
+
+.settingsMigrationNotice {
+  min-width: 0;
+  border-radius: 7px;
+  padding: 9px 10px;
+  color: #5f7180;
+  background: rgba(224, 233, 241, 0.54);
+  box-shadow: var(--inner);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settingsMigrationNotice svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .modelCenterList {
   min-width: 0;
   display: grid;

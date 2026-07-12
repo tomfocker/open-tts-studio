@@ -1,4 +1,5 @@
 const path = require("node:path");
+const fs = require("node:fs/promises");
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const {
   chooseFrontendTarget,
@@ -9,7 +10,9 @@ const {
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
   resolveFfmpegPath,
+  saveSettingsBackup,
   selectDirectory,
+  selectSettingsBackup,
   selectReferenceAudio,
   spawnBackendProcess,
   terminateProcessTree
@@ -87,6 +90,13 @@ ipcMain.handle("file:open-path", (_event, targetPath) => openLocalPath(targetPat
 ipcMain.handle("file:select-reference-audio", () => selectReferenceAudio(dialog));
 
 ipcMain.handle("file:select-directory", () => selectDirectory(dialog));
+
+ipcMain.handle("file:save-settings-backup", (_event, content) => {
+  const date = new Date().toISOString().slice(0, 10);
+  return saveSettingsBackup(dialog, fs, content, `OpenTTS-Studio-settings-${date}.json`);
+});
+
+ipcMain.handle("file:select-settings-backup", () => selectSettingsBackup(dialog, fs));
 
 ipcMain.handle("bilibili-sampler:get-session", () => bilibiliSamplerService.loadSession());
 

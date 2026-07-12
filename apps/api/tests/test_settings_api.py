@@ -127,3 +127,92 @@ def test_settings_endpoint_rejects_too_short_idle_timeout(tmp_path: Path, monkey
     response = client.patch("/v1/settings", json={"indextts2_idle_timeout_seconds": 5})
 
     assert response.status_code == 422
+
+
+def test_settings_export_contains_only_safe_versioned_migration_data(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPEN_TTS_API_KEY", "must-not-be-exported")
+    client, _ = make_settings_client(tmp_path, monkeypatch)
+    stable_root = tmp_path / "stable" / "IndexTTS2"
+    update_response = client.patch(
+        "/v1/model-instances/indextts2",
+        headers={"X-OpenTTS-Key": "must-not-be-exported"},
+        json={
+            "root_path": str(stable_root),
+            "package_label": "本机稳定包",
+            "user_note": "导出时保留该维护备注。",
+        },
+    )
+    assert update_response.status_code == 200
+
+    response = client.get("/v1/settings/export", headers={"X-OpenTTS-Key": "must-not-be-exported"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema"] == "open-tts-studio-settings"
+    assert body["version"] == 1
+    assert body["settings"]["indextts2_idle_timeout_seconds"] == 600
+    assert body["model_instances"]["indextts2"] == {
+        "enabled": True,
+        "root_path": str(stable_root),
+        "package_label": "本机稳定包",
+        "user_note": "导出时保留该维护备注。",
+    }
+    serialized = str(body)
+    assert "must-not-be-exported" not in serialized
+    assert "settings_file" not in serialized
+    assert "health_history" not in serialized
+    assert "last_error" not in serialized
+
+
+def test_settings_import_restores_portable_settings_and_model_profiles(tmp_path: Path, monkeypatch):
+    client, settings_file = make_settings_client(tmp_path, monkeypatch)
+    export_response = client.get("/v1/settings/export")
+    assert export_response.status_code == 200
+    backup = export_response.json()
+    imported_output = tmp_path / "migrated-outputs"
+    imported_root = tmp_path / "migrated" / "VoxCPM2"
+    backup["settings"].update(
+        {
+            "api_host": "0.0.0.0",
+            "api_port": 8899,
+            "output_dir": str(imported_output),
+            "indextts2_idle_timeout_seconds": 180,
+            "local_api_idle_timeout_seconds": 240,
+        }
+    )
+    backup["model_instances"]["voxcpm2"] = {
+        "enabled": True,
+        "root_path": str(imported_root),
+        "api_host": "127.0.0.1",
+        "api_port": 8010,
+        "package_label": "已验证的稳定包",
+        "user_note": "迁移后先执行检查。",
+    }
+
+    import_response = client.post("/v1/settings/import", json=backup)
+
+    assert import_response.status_code == 200
+    assert import_response.json()["output_dir"] == str(imported_output)
+    assert import_response.json()["api_port"] == 8899
+    assert import_response.json()["indextts2_idle_timeout_seconds"] == 180
+    assert import_response.json()["local_api_idle_timeout_seconds"] == 240
+
+    instances_response = client.get("/v1/model-instances")
+    instances = {item["model_id"]: item for item in instances_response.json()["instances"]}
+    assert instances["voxcpm2"]["root_path"] == str(imported_root)
+    assert instances["voxcpm2"]["api_port"] == 8010
+    assert instances["voxcpm2"]["package_label"] == "已验证的稳定包"
+    assert instances["voxcpm2"]["user_note"] == "迁移后先执行检查。"
+    assert instances["voxcpm2"]["status"] == "untested"
+    assert "api_access_key" not in settings_file.read_text(encoding="utf-8")
+
+
+def test_settings_import_rejects_an_unknown_model_profile(tmp_path: Path, monkeypatch):
+    client, _ = make_settings_client(tmp_path, monkeypatch)
+    backup = client.get("/v1/settings/export").json()
+    backup["model_instances"]["future-tts"] = {"enabled": True, "root_path": "D:/models/future-tts"}
+
+    response = client.post("/v1/settings/import", json=backup)
+
+    assert response.status_code == 422
+    assert "future-tts" in response.json()["detail"]

@@ -13,7 +13,9 @@ contextBridge.exposeInMainWorld("desktopConfig", {
 contextBridge.exposeInMainWorld("desktopFiles", {
   openPath: (targetPath) => ipcRenderer.invoke("file:open-path", targetPath),
   selectDirectory: () => ipcRenderer.invoke("file:select-directory"),
-  selectReferenceAudio: () => ipcRenderer.invoke("file:select-reference-audio")
+  selectReferenceAudio: () => ipcRenderer.invoke("file:select-reference-audio"),
+  saveSettingsBackup: (content) => ipcRenderer.invoke("file:save-settings-backup", content),
+  selectSettingsBackup: () => ipcRenderer.invoke("file:select-settings-backup")
 });
 
 contextBridge.exposeInMainWorld("desktopBilibiliSampler", {
