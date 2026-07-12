@@ -19,6 +19,10 @@ contextBridge.exposeInMainWorld("desktopFiles", {
   selectSettingsBackup: () => ipcRenderer.invoke("file:select-settings-backup")
 });
 
+contextBridge.exposeInMainWorld("desktopClipboard", {
+  writeText: (content) => ipcRenderer.invoke("clipboard:write-text", content)
+});
+
 contextBridge.exposeInMainWorld("desktopBilibiliSampler", {
   getSession: () => ipcRenderer.invoke("bilibili-sampler:get-session"),
   startLogin: () => ipcRenderer.invoke("bilibili-sampler:start-login"),

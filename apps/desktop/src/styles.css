@@ -2657,6 +2657,298 @@ audio {
   gap: 10px;
 }
 
+.taskCenterDialog {
+  width: min(860px, 100%);
+  max-height: min(800px, calc(100dvh - 44px));
+}
+
+.taskCenterBody {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.taskCenterSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.taskCenterSummary > div {
+  min-width: 0;
+  min-height: 68px;
+  padding: 11px 13px;
+  border-radius: 8px;
+  background: rgba(248, 251, 253, 0.62);
+  box-shadow: var(--inner);
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.taskCenterSummary > div span {
+  color: #778695;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.taskCenterSummary > div strong {
+  color: #34495a;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.taskCenterSummary > .pathPickButton {
+  align-self: center;
+}
+
+.taskCenterEmpty {
+  min-height: 210px;
+  border-radius: 8px;
+  padding: 28px;
+  color: #7a8997;
+  background: rgba(224, 233, 241, 0.48);
+  box-shadow: var(--inner);
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.taskCenterEmpty svg {
+  color: #6d9f7d;
+}
+
+.taskCenterEmpty strong {
+  color: #405466;
+  font-size: 14px;
+}
+
+.taskCenterEmpty span {
+  max-width: 390px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.taskCenterList {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.taskCenterItem {
+  min-width: 0;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(246, 250, 252, 0.5);
+  box-shadow: var(--inner);
+  display: grid;
+  gap: 10px;
+}
+
+.taskCenterItem.running {
+  background: rgba(246, 252, 248, 0.68);
+}
+
+.taskCenterItem.failed {
+  background: rgba(255, 247, 246, 0.68);
+}
+
+.taskCenterItem.cancelled {
+  background: rgba(240, 244, 247, 0.7);
+}
+
+.taskCenterItemHeader {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.taskCenterItemHeader > div {
+  min-width: 0;
+}
+
+.taskCenterItemHeader strong,
+.taskCenterItemHeader span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskCenterItemHeader strong {
+  color: #34495a;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.taskCenterItemHeader > div > span {
+  margin-top: 3px;
+  color: #798897;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.taskCenterStatus {
+  flex: 0 0 auto;
+  min-height: 25px;
+  border-radius: 8px;
+  padding: 5px 8px;
+  color: #6f7e8c;
+  background: rgba(225, 233, 240, 0.84);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.2;
+  box-shadow: var(--inner);
+}
+
+.taskCenterStatus.queued {
+  color: #7c6541;
+  background: rgba(255, 245, 226, 0.84);
+}
+
+.taskCenterStatus.running,
+.taskCenterStatus.succeeded {
+  color: #2f7a51;
+  background: rgba(229, 247, 236, 0.86);
+}
+
+.taskCenterStatus.failed {
+  color: #9b4747;
+  background: rgba(255, 235, 233, 0.88);
+}
+
+.taskCenterProgress {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(207, 219, 229, 0.82);
+  box-shadow: inset 3px 3px 7px rgba(126, 145, 164, 0.14), inset -3px -3px 7px rgba(255, 255, 255, 0.56);
+}
+
+.taskCenterProgress span {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(89, 184, 113, 0.76), rgba(50, 127, 85, 0.96));
+  transition: width 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.taskCenterItem.failed .taskCenterProgress span {
+  background: linear-gradient(90deg, rgba(210, 119, 106, 0.7), rgba(162, 69, 69, 0.94));
+}
+
+.taskCenterItem.cancelled .taskCenterProgress span {
+  background: rgba(130, 146, 160, 0.72);
+}
+
+.taskCenterProgressMeta {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.taskCenterProgressMeta span {
+  min-width: 0;
+  overflow: hidden;
+  color: #667787;
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskCenterProgressMeta strong {
+  color: #4c6070;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
+.taskCenterError {
+  min-width: 0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: #974848;
+  background: rgba(255, 238, 236, 0.84);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.taskCenterError span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.taskEventList {
+  min-width: 0;
+  border-top: 1px solid rgba(116, 132, 148, 0.16);
+  display: grid;
+}
+
+.taskEventList > div {
+  min-width: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(116, 132, 148, 0.13);
+  display: grid;
+  grid-template-columns: 74px minmax(94px, 0.45fr) minmax(0, 1.55fr);
+  align-items: baseline;
+  gap: 10px;
+}
+
+.taskEventList span,
+.taskEventList strong,
+.taskEventList em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskEventList span {
+  color: #81909e;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+}
+
+.taskEventList strong {
+  color: #536779;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.taskEventList em {
+  color: #687a8a;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.taskEventList > div.error strong,
+.taskEventList > div.error em {
+  color: #9b4747;
+}
+
+.taskCenterActions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .settingsAction {
   min-width: 126px;
   padding: 0 15px;
@@ -2818,7 +3110,8 @@ audio {
   .settingsInline,
   .settingsPathInput,
   .modelPackageComposer,
-  .settingsFooter {
+  .settingsFooter,
+  .taskCenterSummary {
     grid-template-columns: 1fr;
   }
 
@@ -2828,6 +3121,36 @@ audio {
 
   .settingsFooter {
     display: grid;
+  }
+
+  .taskCenterDialog {
+    max-height: calc(100dvh - 24px);
+  }
+
+  .taskCenterItemHeader {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .taskEventList > div {
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 5px 9px;
+  }
+
+  .taskEventList em {
+    grid-column: 1 / -1;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  .taskCenterActions {
+    justify-content: stretch;
+  }
+
+  .taskCenterActions .pathPickButton {
+    flex: 1 1 112px;
   }
 
   .modelDirectoryRow {

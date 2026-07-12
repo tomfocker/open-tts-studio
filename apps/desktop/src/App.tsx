@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   CheckCircle2,
+  Copy,
   Cpu,
   Download,
   FileText,
@@ -37,7 +38,9 @@ import { CSSProperties, ChangeEvent, useEffect, useMemo, useRef, useState } from
 
 import {
   activateModelPackage,
+  cancelSpeechJob,
   checkModelInstance,
+  createSpeechJob,
   createVoice,
   createBatchProject,
   fetchAppSettings,
@@ -45,16 +48,18 @@ import {
   fetchModelInstances,
   fetchModelPackages,
   fetchModels,
+  fetchSpeechJob,
   fetchSystemStatus,
+  fetchTaskSummaries,
   fetchVoiceQuality,
   fetchVoices,
   exportSettingsBackup,
-  generateSpeech,
   getApiBase,
   importSettingsBackup,
   inspectModelPackage,
   registerModelPackage,
   retryBatchProject,
+  retrySpeechJob,
   runBatchProject,
   saveAppSettings,
   startModelRuntime,
@@ -83,8 +88,10 @@ import type {
   ModelPackageRecord,
   IpcResponse,
   SpeechResult,
+  SpeechJob,
   SettingsBackup,
   SystemStatus,
+  TaskSummary,
   VoiceInfo,
   VoiceQualityReport,
   WorkerStatus
@@ -104,6 +111,9 @@ declare global {
       selectReferenceAudio: () => Promise<string | null>;
       saveSettingsBackup: (content: string) => Promise<string | null>;
       selectSettingsBackup: () => Promise<{ path: string; content: string } | null>;
+    };
+    desktopClipboard?: {
+      writeText: (content: string) => Promise<void>;
     };
     desktopBilibiliSampler?: {
       getSession: () => Promise<IpcResponse<BilibiliLoginSession>>;
@@ -668,6 +678,108 @@ function modelPackageAdapterLabel(status: ModelPackageRecord["inspection"]["adap
   return "结构待修复";
 }
 
+function taskStatusLabel(status: string) {
+  if (status === "queued") {
+    return "排队中";
+  }
+  if (status === "running") {
+    return "执行中";
+  }
+  if (status === "succeeded" || status === "completed") {
+    return "已完成";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  if (status === "cancelled") {
+    return "已取消";
+  }
+  return status || "未知";
+}
+
+function taskSourceLabel(source: TaskSummary["source"]) {
+  if (source === "speech") {
+    return "单句生成";
+  }
+  if (source === "batch_project") {
+    return "批量旁白";
+  }
+  if (source === "bilibili") {
+    return "B 站取样";
+  }
+  return "本地任务";
+}
+
+function buildTaskDiagnosticText(task: TaskSummary) {
+  const lines = [
+    "OpenTTS Studio 任务诊断",
+    `任务：${task.title}`,
+    `来源：${taskSourceLabel(task.source)}`,
+    `状态：${taskStatusLabel(task.status)}`,
+    `阶段：${task.stage}`,
+    `进度：${task.progress_percent}%`,
+    `创建：${task.created_at}`,
+    `更新：${task.updated_at}`
+  ];
+  if (task.error) {
+    lines.push(`错误：${task.error}`);
+  }
+  if (task.log_file) {
+    lines.push(`日志：${task.log_file}`);
+  }
+  if (task.events.length > 0) {
+    lines.push("最近事件：");
+    lines.push(...task.events.slice(-12).map((event) => `[${event.occurred_at}] ${event.level}/${event.stage}: ${event.message}`));
+  }
+  return lines.join("\n");
+}
+
+function isTerminalTaskStatus(status: string) {
+  return ["succeeded", "completed", "failed", "cancelled"].includes(status);
+}
+
+function getSpeechJobProgress(job: SpeechJob): GenerationProgress {
+  const latestEvent = job.events[job.events.length - 1];
+  const stageMap: Record<string, Omit<GenerationProgress, "percent" | "detail">> = {
+    queued: { phaseIndex: 0, phaseTitle: "任务已进入本地队列", estimate: "等待前序任务完成" },
+    validating: { phaseIndex: 0, phaseTitle: "校验本地模型与请求", estimate: "正在读取真实后端状态" },
+    waiting_generation_slot: { phaseIndex: 0, phaseTitle: "等待串行生成槽位", estimate: "避免多个本地模型争抢显存" },
+    starting_adapter: { phaseIndex: 1, phaseTitle: "适配器已启动", estimate: "模型正在处理请求" },
+    finalizing: { phaseIndex: 3, phaseTitle: "整理音频与结果", estimate: "即将返回本地 WAV 文件" },
+    completed: { phaseIndex: 3, phaseTitle: "生成完成", estimate: "音频已写入输出目录" },
+    failed: { phaseIndex: 3, phaseTitle: "生成失败", estimate: "可在任务中心查看诊断日志" },
+    cancelled: { phaseIndex: 0, phaseTitle: "任务已取消", estimate: "排队任务不会继续启动模型" }
+  };
+  const fallback = { phaseIndex: 1, phaseTitle: "本地模型正在处理", estimate: "等待后端返回真实阶段" };
+  const meta = stageMap[job.stage] ?? fallback;
+  return {
+    percent: Math.max(3, job.progress_percent),
+    phaseIndex: meta.phaseIndex,
+    phaseTitle: meta.phaseTitle,
+    detail: latestEvent?.message ?? "正在等待后端任务事件。",
+    estimate: meta.estimate
+  };
+}
+
+function samplerTaskProgress(stage: BilibiliSamplerState["taskStage"]) {
+  if (stage === "parsing") {
+    return 18;
+  }
+  if (stage === "loading-audio-options") {
+    return 34;
+  }
+  if (stage === "downloading-audio") {
+    return 58;
+  }
+  if (stage === "converting") {
+    return 82;
+  }
+  if (stage === "completed") {
+    return 100;
+  }
+  return 0;
+}
+
 function formatPackageSize(sizeBytes: number | null | undefined, scanComplete: boolean) {
   if (sizeBytes === null || sizeBytes === undefined) {
     return "体积未统计";
@@ -892,6 +1004,13 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [activeSpeechJob, setActiveSpeechJob] = useState<SpeechJob | null>(null);
+  const [activeSpeechContext, setActiveSpeechContext] = useState<{ modelName: string; voiceName: string } | null>(null);
+  const [taskCenterOpen, setTaskCenterOpen] = useState(false);
+  const [remoteTasks, setRemoteTasks] = useState<TaskSummary[]>([]);
+  const [taskCenterAction, setTaskCenterAction] = useState<string | null>(null);
+  const [taskCenterError, setTaskCenterError] = useState<string | null>(null);
+  const [taskCenterMessage, setTaskCenterMessage] = useState<string | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [modelInstances, setModelInstances] = useState<ModelInstanceProfile[]>([]);
@@ -993,7 +1112,9 @@ export function App() {
     (!needsExtremeReferenceText || effectiveReferenceText.trim().length > 0);
   const audioUrl = result ? toAudioUrl(result.audio_url) : "";
   const progress = playbackDuration > 0 ? Math.min((playbackTime / playbackDuration) * 100, 100) : 0;
-  const generationProgress = getGenerationProgress(selectedModel, elapsedSeconds);
+  const generationProgress = activeSpeechJob
+    ? getSpeechJobProgress(activeSpeechJob)
+    : getGenerationProgress(selectedModel, elapsedSeconds);
   const apiBaseLabel = getApiBase().replace(/^https?:\/\//, "");
   const workerStatus =
     selectedModel === "voxcpm2"
@@ -1042,6 +1163,39 @@ export function App() {
   );
   const samplerFeedback = samplerState.error ?? samplerClipError ?? samplerMessage;
   const samplerFeedbackIsError = Boolean(samplerState.error || samplerClipError);
+  const samplerTask = useMemo<TaskSummary | null>(() => {
+    const stage = samplerState.taskStage;
+    if (stage === "idle" && !samplerPendingAction) {
+      return null;
+    }
+    const status = stage === "completed"
+      ? "completed"
+      : stage === "failed"
+        ? "failed"
+        : stage === "cancelled"
+          ? "cancelled"
+          : "running";
+    const now = new Date().toISOString();
+    const message = samplerState.error ?? samplerStageLabel(stage);
+    return {
+      id: "desktop-bilibili-sampler",
+      source: "bilibili",
+      title: samplerState.parsedLink?.title ?? "B 站音色取样",
+      status,
+      stage,
+      progress_percent: samplerTaskProgress(stage),
+      created_at: now,
+      updated_at: now,
+      error: samplerState.error,
+      retryable: status === "failed" || status === "cancelled",
+      cancelable: stage === "downloading-audio" || stage === "converting",
+      events: [{ occurred_at: now, stage, message, level: samplerState.error ? "error" : "info" }]
+    };
+  }, [samplerPendingAction, samplerState]);
+  const taskCenterTasks = useMemo(() => {
+    const allTasks = samplerTask ? [samplerTask, ...remoteTasks] : remoteTasks;
+    return [...allTasks].sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
+  }, [remoteTasks, samplerTask]);
   const gpuAvailable = Boolean(systemStatus?.gpu.available);
   const resourceMetrics = [
     {
@@ -1280,6 +1434,14 @@ export function App() {
       setModelPackages(await fetchModelPackages());
     } catch {
       setModelPackages([]);
+    }
+  }
+
+  async function loadTaskSummaries() {
+    try {
+      setRemoteTasks(await fetchTaskSummaries());
+    } catch {
+      setRemoteTasks([]);
     }
   }
 
@@ -1989,25 +2151,109 @@ export function App() {
     setGenerationStartedAt(startedAt);
     setElapsedSeconds(0);
     try {
-      const generated = await generateSpeech(selectedModel, input, {
+      const job = await createSpeechJob(selectedModel, requestText, {
         referenceAudio: needsReferenceAudio ? selectedVoiceInfo.referenceAudio : undefined,
         referenceText: needsExtremeReferenceText || selectedModel === "gptsovits" ? effectiveReferenceText.trim() || undefined : undefined,
         emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
         speed: showSpeedControl ? speed : 1
       });
-      setResult(generated);
-      setResultReferenceText(requestText);
-      setResultModelName(requestModelName);
-      setResultVoiceName(requestVoiceName);
-      setPlaybackTime(0);
-      setPlaybackDuration(generated.duration_seconds);
-      void loadModelInstances();
+      setActiveSpeechContext({ modelName: requestModelName, voiceName: requestVoiceName });
+      setActiveSpeechJob(job);
+      void loadTaskSummaries();
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成失败");
-    } finally {
       setLoading(false);
       setGenerationStartedAt(null);
       void loadSystemStatus();
+    }
+  }
+
+  async function onCancelTask(task: TaskSummary) {
+    setTaskCenterAction(`cancel-${task.id}`);
+    setTaskCenterError(null);
+    try {
+      if (task.source === "speech") {
+        await cancelSpeechJob(task.id);
+        setTaskCenterMessage("排队生成任务已取消。");
+      } else if (task.source === "bilibili") {
+        await onSamplerCancel();
+        setTaskCenterMessage("已向 B 站取样任务发送取消请求。");
+      } else {
+        throw new Error("当前任务类型暂不支持安全取消。");
+      }
+      await loadTaskSummaries();
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "取消任务失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
+  async function onRetryTask(task: TaskSummary) {
+    setTaskCenterAction(`retry-${task.id}`);
+    setTaskCenterError(null);
+    try {
+      if (task.source === "speech") {
+        const retried = await retrySpeechJob(task.id);
+        const retryModelName = models.find((model) => model.id === retried.request.model)?.display_name ?? retried.request.model;
+        setActiveSpeechContext({ modelName: retryModelName, voiceName: "任务重试" });
+        setActiveSpeechJob(retried);
+        setLoading(true);
+        setGenerationStartedAt(Date.now());
+        setElapsedSeconds(0);
+        setTaskCenterMessage("失败的单句任务已重新进入本地队列。");
+      } else if (task.source === "batch_project") {
+        const projectId = task.id.replace(/^project:/, "");
+        await retryBatchProject(projectId);
+        await loadBatchProjects();
+        setTaskCenterMessage("批量项目已重新进入串行队列。");
+      } else if (task.source === "bilibili") {
+        setSamplerOpen(true);
+        setTaskCenterOpen(false);
+        setTaskCenterMessage("已打开 B 站取样窗口，请重新发起操作。");
+      } else {
+        throw new Error("当前任务类型暂不支持重试。");
+      }
+      await loadTaskSummaries();
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "重试任务失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
+  async function openTaskLog(task: TaskSummary) {
+    if (!task.log_file || !window.desktopFiles?.openPath) {
+      setTaskCenterError("当前任务没有可打开的本地日志文件。");
+      return;
+    }
+    try {
+      const errorMessage = await window.desktopFiles.openPath(task.log_file);
+      if (errorMessage) {
+        throw new Error(errorMessage);
+      }
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "打开任务日志失败");
+    }
+  }
+
+  async function copyTaskDiagnostics(task: TaskSummary) {
+    setTaskCenterAction(`copy-${task.id}`);
+    setTaskCenterError(null);
+    try {
+      const content = buildTaskDiagnosticText(task);
+      if (window.desktopClipboard?.writeText) {
+        await window.desktopClipboard.writeText(content);
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(content);
+      } else {
+        throw new Error("当前环境不支持写入剪贴板。");
+      }
+      setTaskCenterMessage("任务诊断已复制，可直接粘贴到反馈或排障消息中。");
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "复制任务诊断失败");
+    } finally {
+      setTaskCenterAction(null);
     }
   }
 
@@ -2042,6 +2288,7 @@ export function App() {
     loadAppSettings();
     loadModelInstances();
     loadModelPackages();
+    loadTaskSummaries();
     void loadBatchProjects();
     void refreshSamplerSession(false);
   }, []);
@@ -2061,6 +2308,68 @@ export function App() {
     }, 3000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!activeSpeechJob?.id) {
+      return undefined;
+    }
+    let disposed = false;
+    const pollJob = async () => {
+      try {
+        const job = await fetchSpeechJob(activeSpeechJob.id);
+        if (disposed) {
+          return;
+        }
+        setActiveSpeechJob(job);
+        void loadTaskSummaries();
+        if (!isTerminalTaskStatus(job.status)) {
+          return;
+        }
+        if (job.status === "succeeded" && job.result) {
+          setResult(job.result);
+          setResultReferenceText(job.request.input);
+          setResultModelName(activeSpeechContext?.modelName ?? job.request.model);
+          setResultVoiceName(activeSpeechContext?.voiceName ?? "本地任务");
+          setPlaybackTime(0);
+          setPlaybackDuration(job.result.duration_seconds);
+          void loadModelInstances();
+        } else {
+          setError(job.error ?? (job.status === "cancelled" ? "生成任务已取消" : "生成失败"));
+        }
+        setLoading(false);
+        setGenerationStartedAt(null);
+        setActiveSpeechJob(null);
+        setActiveSpeechContext(null);
+        void loadSystemStatus();
+      } catch (err) {
+        if (disposed) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : "读取生成任务状态失败");
+        setLoading(false);
+        setGenerationStartedAt(null);
+        setActiveSpeechJob(null);
+        setActiveSpeechContext(null);
+      }
+    };
+    void pollJob();
+    const timer = window.setInterval(() => void pollJob(), 900);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [activeSpeechContext, activeSpeechJob?.id]);
+
+  useEffect(() => {
+    const hasActiveBatch = batchProjects.some((project) => project.status === "queued" || project.status === "running");
+    const shouldPoll = taskCenterOpen || Boolean(activeSpeechJob) || hasActiveBatch || samplerBusy;
+    if (!shouldPoll) {
+      return undefined;
+    }
+    void loadTaskSummaries();
+    const timer = window.setInterval(() => void loadTaskSummaries(), 1200);
+    return () => window.clearInterval(timer);
+  }, [activeSpeechJob, batchProjects, samplerBusy, taskCenterOpen]);
 
   useEffect(() => {
     if (!batchProjectOpen) {
@@ -2173,8 +2482,17 @@ export function App() {
             void loadSystemStatus();
             void loadModelInstances();
             void loadModelPackages();
+            void loadTaskSummaries();
           }}>
             <RefreshCw size={17} strokeWidth={1.9} />
+          </button>
+          <button className="toolButton" title="任务中心" onClick={() => {
+            setTaskCenterError(null);
+            setTaskCenterMessage(null);
+            void loadTaskSummaries();
+            setTaskCenterOpen(true);
+          }}>
+            <Gauge size={17} strokeWidth={1.9} />
           </button>
           <button className="toolButton" title="批量项目" onClick={openBatchProjectWorkspace}>
             <FileText size={17} strokeWidth={1.9} />
@@ -2655,6 +2973,127 @@ export function App() {
           )}
         </aside>
       </section>
+
+      {taskCenterOpen && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="任务中心">
+          <section className="settingsDialog taskCenterDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>任务中心</strong>
+                <span>真实后端阶段 · 串行队列 · 失败诊断</span>
+              </div>
+              <button className="modalClose" title="关闭" onClick={() => setTaskCenterOpen(false)}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+
+            <div className="settingsBody taskCenterBody">
+              <div className="taskCenterSummary">
+                <div>
+                  <span>当前任务</span>
+                  <strong>{taskCenterTasks.length}</strong>
+                </div>
+                <div>
+                  <span>进行中</span>
+                  <strong>{taskCenterTasks.filter((task) => task.status === "queued" || task.status === "running").length}</strong>
+                </div>
+                <div>
+                  <span>可重试</span>
+                  <strong>{taskCenterTasks.filter((task) => task.retryable).length}</strong>
+                </div>
+                <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void loadTaskSummaries()}>
+                  <RefreshCw size={15} strokeWidth={1.9} />
+                  <span>刷新</span>
+                </button>
+              </div>
+
+              {taskCenterTasks.length === 0 ? (
+                <div className="taskCenterEmpty">
+                  <Gauge size={22} strokeWidth={1.7} />
+                  <strong>暂无可追踪任务</strong>
+                  <span>单句生成、批量旁白和 B 站取样开始后，会在这里显示真实状态与诊断信息。</span>
+                </div>
+              ) : (
+                <div className="taskCenterList">
+                  {taskCenterTasks.map((task) => {
+                    const latestEvent = task.events[task.events.length - 1];
+                    const isCancelling = taskCenterAction === `cancel-${task.id}`;
+                    const isRetrying = taskCenterAction === `retry-${task.id}`;
+                    return (
+                      <article key={task.id} className={`taskCenterItem ${task.status}`}>
+                        <div className="taskCenterItemHeader">
+                          <div>
+                            <strong>{task.title}</strong>
+                            <span>{taskSourceLabel(task.source)} · {task.stage}</span>
+                          </div>
+                          <span className={`taskCenterStatus ${task.status}`}>{taskStatusLabel(task.status)}</span>
+                        </div>
+                        <div className="taskCenterProgress" aria-label={`${task.title} 进度`}>
+                          <span style={{ width: `${task.progress_percent}%` }} />
+                        </div>
+                        <div className="taskCenterProgressMeta">
+                          <span>{latestEvent?.message ?? "等待任务事件"}</span>
+                          <strong>{task.progress_percent}%</strong>
+                        </div>
+                        {task.error && <div className="taskCenterError"><AlertCircle size={15} strokeWidth={1.9} /><span>{task.error}</span></div>}
+                        {task.events.length > 0 && (
+                          <div className="taskEventList">
+                            {task.events.slice(-3).reverse().map((event, index) => (
+                              <div key={`${event.occurred_at}-${index}`} className={event.level === "error" ? "error" : ""}>
+                                <span>{formatHistoryTime(event.occurred_at)}</span>
+                                <strong>{event.stage}</strong>
+                                <em>{event.message}</em>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="taskCenterActions">
+                          <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void copyTaskDiagnostics(task)}>
+                            {taskCenterAction === `copy-${task.id}` ? <Loader2 className="spin" size={15} /> : <Copy size={15} strokeWidth={1.9} />}
+                            <span>复制诊断</span>
+                          </button>
+                          {task.log_file && (
+                            <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void openTaskLog(task)}>
+                              <FileText size={15} strokeWidth={1.9} />
+                              <span>打开日志</span>
+                            </button>
+                          )}
+                          {task.cancelable && (
+                            <button className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onCancelTask(task)}>
+                              {isCancelling ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}
+                              <span>{isCancelling ? "取消中" : "取消"}</span>
+                            </button>
+                          )}
+                          {task.retryable && (
+                            <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onRetryTask(task)}>
+                              {isRetrying ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
+                              <span>{isRetrying ? "重试中" : "重试"}</span>
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {(taskCenterError || taskCenterMessage) && (
+              <div className={taskCenterError ? "settingsFeedback error" : "settingsFeedback"}>
+                {taskCenterError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
+                <span>{taskCenterError ?? taskCenterMessage}</span>
+              </div>
+            )}
+
+            <footer className="settingsFooter">
+              <button className="secondaryAction settingsAction" onClick={() => setTaskCenterOpen(false)}>
+                <X size={16} strokeWidth={1.9} />
+                <span>关闭</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {batchProjectOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="批量项目">

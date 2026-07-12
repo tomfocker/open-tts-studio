@@ -20,6 +20,63 @@ export type SpeechResult = {
   duration_seconds: number;
 };
 
+export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
+export type TaskEvent = {
+  occurred_at: string;
+  stage: string;
+  message: string;
+  level: string;
+};
+
+export type SpeechJob = {
+  id: string;
+  status: JobStatus;
+  request: SpeechRequest;
+  result?: SpeechResult | null;
+  error?: string | null;
+  stage: string;
+  progress_percent: number;
+  events: TaskEvent[];
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  log_file?: string | null;
+  retry_of?: string | null;
+};
+
+export type TaskSummary = {
+  id: string;
+  source: "speech" | "batch_project" | "bilibili" | string;
+  title: string;
+  status: string;
+  stage: string;
+  progress_percent: number;
+  created_at: string;
+  updated_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  error?: string | null;
+  log_file?: string | null;
+  retryable: boolean;
+  cancelable: boolean;
+  events: TaskEvent[];
+};
+
+export type SpeechRequest = {
+  model: string;
+  input: string;
+  voice?: string | null;
+  voice_prompt?: string | null;
+  reference_audio?: string | null;
+  reference_text?: string | null;
+  emotion?: string | null;
+  language?: string | null;
+  response_format?: string;
+  speed?: number;
+  stream?: boolean;
+};
+
 export type BatchProjectStatus = "draft" | "queued" | "running" | "completed" | "failed";
 
 export type BatchSegmentStatus = "pending" | "running" | "succeeded" | "failed";

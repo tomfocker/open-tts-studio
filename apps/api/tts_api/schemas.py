@@ -48,11 +48,23 @@ class SpeechResult(BaseModel):
     duration_seconds: float
 
 
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class JobStatus(StrEnum):
     queued = "queued"
     running = "running"
     succeeded = "succeeded"
     failed = "failed"
+    cancelled = "cancelled"
+
+
+class TaskEvent(BaseModel):
+    occurred_at: datetime = Field(default_factory=utc_now)
+    stage: str
+    message: str
+    level: str = "info"
 
 
 class JobInfo(BaseModel):
@@ -61,6 +73,32 @@ class JobInfo(BaseModel):
     request: SpeechRequest
     result: SpeechResult | None = None
     error: str | None = None
+    stage: str = "queued"
+    progress_percent: int = Field(default=0, ge=0, le=100)
+    events: list[TaskEvent] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=utc_now)
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    log_file: str | None = None
+    retry_of: str | None = None
+
+
+class TaskSummary(BaseModel):
+    id: str
+    source: str
+    title: str
+    status: str
+    stage: str
+    progress_percent: int = Field(ge=0, le=100)
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+    log_file: str | None = None
+    retryable: bool = False
+    cancelable: bool = False
+    events: list[TaskEvent] = Field(default_factory=list)
 
 
 class VoiceInfo(BaseModel):
@@ -118,12 +156,6 @@ class BatchSegmentStatus(StrEnum):
     running = "running"
     succeeded = "succeeded"
     failed = "failed"
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 class BatchSegmentDraft(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
 

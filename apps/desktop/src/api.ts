@@ -19,8 +19,10 @@ import type {
   ModelPackageUpdate,
   ModelRuntimeActionResult,
   SettingsBackup,
+  SpeechJob,
   SpeechResult,
   SystemStatus,
+  TaskSummary,
   VoiceQualityReport,
   VoiceInfo
 } from "./types";
@@ -45,6 +47,18 @@ export type GenerateSpeechOptions = {
   emotion?: string;
   speed?: number;
 };
+
+function buildSpeechPayload(model: string, input: string, options: GenerateSpeechOptions = {}) {
+  return {
+    model,
+    input,
+    reference_audio: options.referenceAudio,
+    reference_text: options.referenceText,
+    emotion: options.emotion,
+    response_format: "wav",
+    speed: options.speed ?? 1
+  };
+}
 
 export async function fetchModels(): Promise<ModelInfo[]> {
   const response = await fetch(`${getApiBase()}/v1/tts/models`);
@@ -100,20 +114,46 @@ export async function generateSpeech(
   const response = await fetch(`${getApiBase()}/v1/audio/speech`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      input,
-      reference_audio: options.referenceAudio,
-      reference_text: options.referenceText,
-      emotion: options.emotion,
-      response_format: "wav",
-      speed: options.speed ?? 1
-    })
+    body: JSON.stringify(buildSpeechPayload(model, input, options))
   });
   if (!response.ok) {
     throw new Error(`Failed to generate speech: ${response.status}`);
   }
   return response.json();
+}
+
+async function jobRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${getApiBase()}${path}`, init);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Task request failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export function createSpeechJob(model: string, input: string, options: GenerateSpeechOptions = {}): Promise<SpeechJob> {
+  return jobRequest<SpeechJob>("/v1/tts/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildSpeechPayload(model, input, options))
+  });
+}
+
+export function fetchSpeechJob(jobId: string): Promise<SpeechJob> {
+  return jobRequest<SpeechJob>(`/v1/tts/jobs/${jobId}`);
+}
+
+export function cancelSpeechJob(jobId: string): Promise<SpeechJob> {
+  return jobRequest<SpeechJob>(`/v1/tts/jobs/${jobId}/cancel`, { method: "POST" });
+}
+
+export function retrySpeechJob(jobId: string): Promise<SpeechJob> {
+  return jobRequest<SpeechJob>(`/v1/tts/jobs/${jobId}/retry`, { method: "POST" });
+}
+
+export async function fetchTaskSummaries(): Promise<TaskSummary[]> {
+  const payload = await jobRequest<{ tasks: TaskSummary[] }>("/v1/tasks");
+  return payload.tasks;
 }
 
 async function projectRequest<T>(path: string, init?: RequestInit): Promise<T> {

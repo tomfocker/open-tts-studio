@@ -17,6 +17,8 @@ data/config/user-settings.json
 data/config/voices.json
 data/config/projects.json
 data/config/model-packages.json
+data/config/tasks.json
+data/config/task-logs/
 *.wav
 *.mp3
 *.m4a

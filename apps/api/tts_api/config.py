@@ -8,6 +8,26 @@ from pydantic import BaseModel, Field
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_SETTINGS_FILE = WORKSPACE_ROOT / "data" / "config" / "user-settings.json"
+
+
+def _default_tasks_file() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_TASKS_FILE")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_settings = os.environ.get("OPEN_TTS_SETTINGS_FILE")
+    if configured_settings:
+        return Path(configured_settings).parent / "tasks.json"
+    return WORKSPACE_ROOT / "data" / "config" / "tasks.json"
+
+
+def _default_task_log_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_TASK_LOG_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_settings = os.environ.get("OPEN_TTS_SETTINGS_FILE")
+    if configured_settings:
+        return Path(configured_settings).parent / "task-logs"
+    return WORKSPACE_ROOT / "data" / "logs" / "tasks"
 USER_SETTING_KEYS = {
     "api_host",
     "api_port",
@@ -38,6 +58,8 @@ class Settings(BaseModel):
     voice_library_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_VOICE_LIBRARY_FILE", str(WORKSPACE_ROOT / "data" / "config" / "voices.json"))))
     projects_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_PROJECTS_FILE", str(WORKSPACE_ROOT / "data" / "config" / "projects.json"))))
     model_packages_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_MODEL_PACKAGES_FILE", str(WORKSPACE_ROOT / "data" / "config" / "model-packages.json"))))
+    tasks_file: Path = Field(default_factory=_default_tasks_file)
+    task_log_dir: Path = Field(default_factory=_default_task_log_dir)
     indextts2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_INDEXTTS2_ROOT", r"D:\AI\IndexTTS2")))
     indextts2_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_INDEXTTS2_IDLE_SECONDS", "600")))
     local_api_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_LOCAL_API_IDLE_SECONDS", "600")))

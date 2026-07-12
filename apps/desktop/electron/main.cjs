@@ -1,6 +1,6 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require("electron");
 const {
   chooseFrontendTarget,
   createDesktopPaths,
@@ -100,6 +100,16 @@ ipcMain.handle("file:save-settings-backup", (_event, content) => {
 });
 
 ipcMain.handle("file:select-settings-backup", () => selectSettingsBackup(dialog, fs));
+
+ipcMain.handle("clipboard:write-text", (_event, content) => {
+  if (typeof content !== "string" || !content.trim()) {
+    throw new Error("Clipboard text is required");
+  }
+  if (content.length > 256 * 1024) {
+    throw new Error("Clipboard text is too large");
+  }
+  clipboard.writeText(content);
+});
 
 ipcMain.handle("bilibili-sampler:get-session", () => bilibiliSamplerService.loadSession());
 

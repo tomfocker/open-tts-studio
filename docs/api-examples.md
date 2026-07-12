@@ -89,6 +89,30 @@ Invoke-RestMethod `
   -Body $body
 ```
 
+`POST /v1/tts/jobs` returns immediately with a `queued` task. Jobs run one at a time so local adapters do not compete for GPU memory. Poll a single job or the task-center summary while it is running:
+
+```powershell
+$job = Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8765/v1/tts/jobs `
+  -ContentType "application/json" `
+  -Body $body
+
+Invoke-RestMethod "http://127.0.0.1:8765/v1/tts/jobs/$($job.id)"
+Invoke-RestMethod "http://127.0.0.1:8765/v1/tasks"
+```
+
+Each job reports its actual known `stage`, `progress_percent`, recent `events`, and a local `log_file`. The final model-internal inference step cannot always be split into smaller percentages, so its progress can remain at the latest confirmed stage until the adapter returns.
+
+Only a task that is still `queued` can be cancelled safely. A `running` job is intentionally allowed to finish, because abruptly killing an external model process could corrupt its runtime or leave GPU memory in an unknown state. Failed and cancelled jobs can be retried; retrying creates a new job that points back to the original through `retry_of`.
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/tts/jobs/$($job.id)/cancel"
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/tts/jobs/$($job.id)/retry"
+```
+
+The desktop task center also includes non-draft batch projects. Recent speech jobs are stored in `data/config/tasks.json` and their event logs in `data/logs/tasks/` by default. Queued jobs resume when the local backend starts again; a task that was already running during a restart is marked interrupted and made retryable. Set `OPEN_TTS_TASKS_FILE` or `OPEN_TTS_TASK_LOG_DIR` before starting the API to relocate them. Synchronous `/v1/audio/speech` and `/v1/tts/speech` requests are also recorded for diagnostics.
+
 ## Batch Project
 
 Projects persist text segments and run them one at a time, which prevents several local models from competing for the same GPU memory. The desktop app provides the recommended TXT/SRT workflow; these endpoints are available to other local applications as well.
