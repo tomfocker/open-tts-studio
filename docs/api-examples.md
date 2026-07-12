@@ -113,6 +113,16 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/tts/jobs/$($job.id
 
 The desktop task center also includes non-draft batch projects. Recent speech jobs are stored in `data/config/tasks.json` and their event logs in `data/logs/tasks/` by default. Queued jobs resume when the local backend starts again; a task that was already running during a restart is marked interrupted and made retryable. Set `OPEN_TTS_TASKS_FILE` or `OPEN_TTS_TASK_LOG_DIR` before starting the API to relocate them. Synchronous `/v1/audio/speech` and `/v1/tts/speech` requests are also recorded for diagnostics.
 
+## List Generated Audio Assets
+
+`GET /v1/audio-assets` scans the configured output directory for WAV files and enriches them with matching single-speech or batch-project metadata when available. It is read-only: the API does not move or delete any user files.
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8765/v1/audio-assets?limit=120"
+```
+
+Each item includes `file_path`, `audio_url`, size, modification time, source, and—when known—the model, input text, duration, task, or batch project that created it.
+
 ## Batch Project
 
 Projects persist text segments and run them one at a time, which prevents several local models from competing for the same GPU memory. The desktop app provides the recommended TXT/SRT workflow; these endpoints are available to other local applications as well.

@@ -1,4 +1,5 @@
 import type {
+  AudioAsset,
   AppSettings,
   AppSettingsUpdate,
   BatchProject,
@@ -154,6 +155,11 @@ export function retrySpeechJob(jobId: string): Promise<SpeechJob> {
 export async function fetchTaskSummaries(): Promise<TaskSummary[]> {
   const payload = await jobRequest<{ tasks: TaskSummary[] }>("/v1/tasks");
   return payload.tasks;
+}
+
+export async function fetchAudioAssets(): Promise<AudioAsset[]> {
+  const payload = await jobRequest<{ assets: AudioAsset[] }>("/v1/audio-assets");
+  return payload.assets;
 }
 
 async function projectRequest<T>(path: string, init?: RequestInit): Promise<T> {

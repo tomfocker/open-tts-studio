@@ -101,6 +101,21 @@ class TaskSummary(BaseModel):
     events: list[TaskEvent] = Field(default_factory=list)
 
 
+class AudioAsset(BaseModel):
+    file_name: str
+    file_path: str
+    audio_url: str
+    file_size_bytes: int = Field(ge=0)
+    modified_at: datetime
+    source: str = "untracked"
+    model: str | None = None
+    text: str | None = None
+    duration_seconds: float | None = Field(default=None, ge=0)
+    task_id: str | None = None
+    project_id: str | None = None
+    project_title: str | None = None
+
+
 class VoiceInfo(BaseModel):
     id: str
     name: str

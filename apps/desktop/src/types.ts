@@ -45,6 +45,21 @@ export type SpeechJob = {
   retry_of?: string | null;
 };
 
+export type AudioAsset = {
+  file_name: string;
+  file_path: string;
+  audio_url: string;
+  file_size_bytes: number;
+  modified_at: string;
+  source: "speech" | "batch_project" | "untracked" | string;
+  model?: string | null;
+  text?: string | null;
+  duration_seconds?: number | null;
+  task_id?: string | null;
+  project_id?: string | null;
+  project_title?: string | null;
+};
+
 export type TaskSummary = {
   id: string;
   source: "speech" | "batch_project" | "bilibili" | string;

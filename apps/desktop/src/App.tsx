@@ -7,7 +7,6 @@ import {
   FileText,
   FolderOpen,
   Gauge,
-  Home,
   Library,
   Link2,
   Loader2,
@@ -45,6 +44,7 @@ import {
   createVoice,
   createBatchProject,
   fetchAppSettings,
+  fetchAudioAssets,
   fetchBatchProjects,
   fetchModelInstances,
   fetchModelPackages,
@@ -72,6 +72,7 @@ import {
   updateModelInstance
 } from "./api";
 import type {
+  AudioAsset,
   AppSettings,
   BatchProject,
   BilibiliAudioOptionsResult,
@@ -804,6 +805,26 @@ function formatPackageSize(sizeBytes: number | null | undefined, scanComplete: b
   return scanComplete ? rendered : `至少 ${rendered}`;
 }
 
+function formatAssetSize(sizeBytes: number) {
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+  if (sizeBytes < 1024 * 1024) {
+    return `${(sizeBytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function audioAssetSourceLabel(source: AudioAsset["source"]) {
+  if (source === "speech") {
+    return "单句生成";
+  }
+  if (source === "batch_project") {
+    return "批量旁白";
+  }
+  return "输出目录文件";
+}
+
 function isModelInstanceUsable(instance: ModelInstanceProfile | undefined) {
   return Boolean(instance?.enabled) && instance?.status !== "missing" && instance?.status !== "broken" && instance?.status !== "disabled";
 }
@@ -1020,6 +1041,15 @@ export function App() {
   const [taskCenterAction, setTaskCenterAction] = useState<string | null>(null);
   const [taskCenterError, setTaskCenterError] = useState<string | null>(null);
   const [taskCenterMessage, setTaskCenterMessage] = useState<string | null>(null);
+  const [audioLibraryOpen, setAudioLibraryOpen] = useState(false);
+  const [audioAssets, setAudioAssets] = useState<AudioAsset[]>([]);
+  const [selectedAudioAssetPath, setSelectedAudioAssetPath] = useState<string | null>(null);
+  const [audioLibrarySearch, setAudioLibrarySearch] = useState("");
+  const [audioLibrarySource, setAudioLibrarySource] = useState("all");
+  const [audioLibraryLoading, setAudioLibraryLoading] = useState(false);
+  const [audioLibraryAction, setAudioLibraryAction] = useState<string | null>(null);
+  const [audioLibraryError, setAudioLibraryError] = useState<string | null>(null);
+  const [audioLibraryMessage, setAudioLibraryMessage] = useState<string | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [modelInstances, setModelInstances] = useState<ModelInstanceProfile[]>([]);
@@ -1210,6 +1240,24 @@ export function App() {
     const allTasks = samplerTask ? [samplerTask, ...remoteTasks] : remoteTasks;
     return [...allTasks].sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
   }, [remoteTasks, samplerTask]);
+  const visibleAudioAssets = useMemo(() => {
+    const search = audioLibrarySearch.trim().toLocaleLowerCase();
+    return audioAssets.filter((asset) => {
+      if (audioLibrarySource !== "all" && asset.source !== audioLibrarySource) {
+        return false;
+      }
+      if (!search) {
+        return true;
+      }
+      return [asset.file_name, asset.model, asset.text, asset.project_title]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLocaleLowerCase().includes(search));
+    });
+  }, [audioAssets, audioLibrarySearch, audioLibrarySource]);
+  const selectedAudioAsset = useMemo(
+    () => visibleAudioAssets.find((asset) => asset.file_path === selectedAudioAssetPath) ?? visibleAudioAssets[0] ?? null,
+    [selectedAudioAssetPath, visibleAudioAssets]
+  );
   const gpuAvailable = Boolean(systemStatus?.gpu.available);
   const resourceMetrics = [
     {
@@ -1488,6 +1536,75 @@ export function App() {
       setRemoteTasks(await fetchTaskSummaries());
     } catch {
       setRemoteTasks([]);
+    }
+  }
+
+  async function loadAudioAssets() {
+    setAudioLibraryLoading(true);
+    try {
+      const assets = await fetchAudioAssets();
+      setAudioAssets(assets);
+      setSelectedAudioAssetPath((current) =>
+        current && assets.some((asset) => asset.file_path === current) ? current : assets[0]?.file_path ?? null
+      );
+    } catch (err) {
+      setAudioLibraryError(err instanceof Error ? err.message : "无法读取输出目录中的音频资产");
+    } finally {
+      setAudioLibraryLoading(false);
+    }
+  }
+
+  function openAudioLibrary() {
+    setAudioLibraryError(null);
+    setAudioLibraryMessage(null);
+    setAudioLibraryOpen(true);
+    void loadAudioAssets();
+  }
+
+  async function onOpenAudioAsset(asset: AudioAsset) {
+    if (!window.desktopFiles?.openPath) {
+      setAudioLibraryError("请在桌面软件中打开本地音频文件");
+      return;
+    }
+    setAudioLibraryAction(`open-${asset.file_path}`);
+    setAudioLibraryError(null);
+    try {
+      const errorMessage = await window.desktopFiles.openPath(asset.file_path);
+      if (errorMessage) {
+        throw new Error(errorMessage);
+      }
+      setAudioLibraryMessage(`${asset.file_name} 已交给系统默认音频程序打开。`);
+    } catch (err) {
+      setAudioLibraryError(err instanceof Error ? err.message : "打开音频文件失败");
+    } finally {
+      setAudioLibraryAction(null);
+    }
+  }
+
+  async function onAddAudioAssetToVoiceLibrary(asset: AudioAsset) {
+    setAudioLibraryAction(`voice-${asset.file_path}`);
+    setAudioLibraryError(null);
+    try {
+      const voice = await createVoice({
+        name: createGeneratedVoiceName(asset.model ?? "本地音频", getFileBaseName(asset.file_name)),
+        reference_audio: asset.file_path,
+        reference_text: asset.text ?? undefined,
+        authorization_status: asset.source === "untracked" ? "user_managed_output" : "generated_local",
+        source_type: asset.source === "untracked" ? "local_output" : "generated"
+      });
+      const preset = createImportedVoicePreset(voice);
+      if (preset) {
+        setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+        setSelectedVoice(preset.id);
+        if (preset.referenceText) {
+          setReferenceText(preset.referenceText);
+        }
+      }
+      setAudioLibraryMessage(`${asset.file_name} 已加入音色库。`);
+    } catch (err) {
+      setAudioLibraryError(err instanceof Error ? err.message : "将音频加入音色库失败");
+    } finally {
+      setAudioLibraryAction(null);
     }
   }
 
@@ -2563,8 +2680,8 @@ export function App() {
           <button className="toolButton" title="设置" onClick={openSettings}>
             <Settings size={17} strokeWidth={1.9} />
           </button>
-          <button className="toolButton" title="主页">
-            <Home size={17} strokeWidth={1.9} />
+          <button className="toolButton" title="音频资产库" onClick={openAudioLibrary}>
+            <Library size={17} strokeWidth={1.9} />
           </button>
           <button className="toolButton" title="最小化" onClick={() => window.desktopWindow?.minimize()}>
             <Minus size={18} strokeWidth={2} />
@@ -3036,6 +3153,128 @@ export function App() {
           )}
         </aside>
       </section>
+
+      {audioLibraryOpen && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音频资产库">
+          <section className="settingsDialog audioLibraryDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>音频资产库</strong>
+                <span>输出目录 · 本地预览 · 任务可追溯</span>
+              </div>
+              <button className="modalClose" title="关闭" onClick={() => setAudioLibraryOpen(false)}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+
+            <div className="settingsBody audioLibraryBody">
+              <div className="audioLibraryControls">
+                <label className="audioLibraryField audioLibrarySearchField">
+                  <span>搜索音频</span>
+                  <input
+                    value={audioLibrarySearch}
+                    placeholder="文件名、模型、文本或项目名称"
+                    onChange={(event) => setAudioLibrarySearch(event.target.value)}
+                  />
+                </label>
+                <label className="audioLibraryField">
+                  <span>来源</span>
+                  <select value={audioLibrarySource} onChange={(event) => setAudioLibrarySource(event.target.value)}>
+                    <option value="all">全部来源</option>
+                    <option value="speech">单句生成</option>
+                    <option value="batch_project">批量旁白</option>
+                    <option value="untracked">输出目录文件</option>
+                  </select>
+                </label>
+                <button className="pathPickButton audioLibraryRefresh" disabled={audioLibraryLoading || audioLibraryAction !== null} onClick={() => void loadAudioAssets()}>
+                  {audioLibraryLoading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
+                  <span>刷新</span>
+                </button>
+              </div>
+
+              <div className="audioLibraryCount">
+                <span>显示 {visibleAudioAssets.length} / {audioAssets.length} 个 WAV 资产</span>
+                <span>只读扫描，不会移动或删除文件</span>
+              </div>
+
+              {audioLibraryLoading && audioAssets.length === 0 ? (
+                <div className="audioLibrarySkeleton" aria-label="正在读取音频资产">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : visibleAudioAssets.length === 0 ? (
+                <div className="audioLibraryEmpty">
+                  <Library size={22} strokeWidth={1.7} />
+                  <strong>{audioAssets.length === 0 ? "输出目录中暂无 WAV 音频" : "没有匹配的音频资产"}</strong>
+                  <span>{audioAssets.length === 0 ? "完成一次生成后，音频会自动出现在这里。" : "尝试调整搜索词或来源筛选。"}</span>
+                </div>
+              ) : (
+                <div className="audioLibraryLayout">
+                  <div className="audioAssetList" aria-label="音频资产列表">
+                    {visibleAudioAssets.map((asset) => (
+                      <button
+                        key={asset.file_path}
+                        className={asset.file_path === selectedAudioAsset?.file_path ? "audioAssetRow active" : "audioAssetRow"}
+                        onClick={() => setSelectedAudioAssetPath(asset.file_path)}
+                      >
+                        <div>
+                          <strong>{asset.file_name}</strong>
+                          <span>{asset.model ?? "未关联模型"} · {formatAssetSize(asset.file_size_bytes)} · {formatHistoryTime(asset.modified_at)}</span>
+                        </div>
+                        <em className={asset.source}>{audioAssetSourceLabel(asset.source)}</em>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedAudioAsset && (
+                    <aside className="audioAssetPreview">
+                      <div className="audioAssetPreviewHeader">
+                        <div>
+                          <strong>{selectedAudioAsset.file_name}</strong>
+                          <span>{audioAssetSourceLabel(selectedAudioAsset.source)}</span>
+                        </div>
+                        <span>{selectedAudioAsset.duration_seconds ? formatDuration(selectedAudioAsset.duration_seconds) : formatAssetSize(selectedAudioAsset.file_size_bytes)}</span>
+                      </div>
+                      <audio controls preload="metadata" src={toAudioUrl(selectedAudioAsset.audio_url)} />
+                      <div className="audioAssetMeta">
+                        <span>模型</span><strong>{selectedAudioAsset.model ?? "未关联"}</strong>
+                        <span>生成时间</span><strong>{formatHistoryTime(selectedAudioAsset.modified_at)}</strong>
+                        <span>来源</span><strong>{selectedAudioAsset.project_title ?? audioAssetSourceLabel(selectedAudioAsset.source)}</strong>
+                      </div>
+                      <p className="audioAssetText">{selectedAudioAsset.text || "该文件不带任务文本记录。"}</p>
+                      <div className="audioAssetActions">
+                        <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onOpenAudioAsset(selectedAudioAsset)}>
+                          {audioLibraryAction === `open-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <FolderOpen size={15} strokeWidth={1.9} />}
+                          <span>打开音频</span>
+                        </button>
+                        <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onAddAudioAssetToVoiceLibrary(selectedAudioAsset)}>
+                          {audioLibraryAction === `voice-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <Save size={15} strokeWidth={1.9} />}
+                          <span>加入音色库</span>
+                        </button>
+                      </div>
+                    </aside>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {(audioLibraryError || audioLibraryMessage) && (
+              <div className={audioLibraryError ? "settingsFeedback error" : "settingsFeedback"}>
+                {audioLibraryError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
+                <span>{audioLibraryError ?? audioLibraryMessage}</span>
+              </div>
+            )}
+
+            <footer className="settingsFooter">
+              <button className="secondaryAction settingsAction" onClick={() => setAudioLibraryOpen(false)}>
+                <X size={16} strokeWidth={1.9} />
+                <span>关闭</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {taskCenterOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="任务中心">

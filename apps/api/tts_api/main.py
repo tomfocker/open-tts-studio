@@ -10,7 +10,7 @@ from tts_api.adapters.voxcpm2 import shutdown_voxcpm2_services
 from tts_api.config import get_settings
 from tts_api.jobs import get_job_runner
 from tts_api.projects import get_project_runner
-from tts_api.routes import health, jobs, model_directories, model_instances, model_packages, models, outputs, projects, runtime, settings as settings_routes, speech, system, tasks, voices
+from tts_api.routes import audio_assets, health, jobs, model_directories, model_instances, model_packages, models, outputs, projects, runtime, settings as settings_routes, speech, system, tasks, voices
 
 
 def create_app() -> FastAPI:
@@ -47,6 +47,7 @@ def create_app() -> FastAPI:
     app.include_router(models.router)
     app.include_router(speech.router)
     app.include_router(outputs.router)
+    app.include_router(audio_assets.router)
     app.include_router(jobs.router)
     app.include_router(projects.router)
     app.include_router(voices.router)
