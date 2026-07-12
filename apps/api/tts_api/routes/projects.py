@@ -65,6 +65,26 @@ def retry_project(project_id: str) -> BatchProject:
         raise HTTPException(status_code=409, detail=str(exc))
 
 
+@router.post("/v1/projects/{project_id}/cancel", response_model=BatchProject)
+def cancel_project(project_id: str) -> BatchProject:
+    try:
+        return get_project_runner().cancel(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unknown project: {project_id}")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/v1/projects/{project_id}/resume", response_model=BatchProject)
+def resume_project(project_id: str) -> BatchProject:
+    try:
+        return get_project_runner().resume(project_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unknown project: {project_id}")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
 @router.get("/v1/projects/{project_id}/export")
 def export_project_manifest(project_id: str) -> dict:
     project = _get_project_or_404(project_id)

@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -77,3 +78,72 @@ def test_projects_api_persists_project_without_starting_tts(tmp_path: Path, monk
 
     assert list_response.status_code == 200
     assert list_response.json()[0]["id"] == project["id"]
+
+
+def test_batch_project_stops_after_current_segment_and_resumes_from_the_boundary(tmp_path: Path):
+    store = BatchProjectStore(tmp_path / "projects.json")
+    project = store.create(
+        BatchProjectCreate(
+            title="可安全停止的旁白",
+            model="mock-tts",
+            segments=[BatchSegmentDraft(text="第一段"), BatchSegmentDraft(text="第二段")],
+        )
+    )
+    first_segment_started = threading.Event()
+    allow_first_segment_to_finish = threading.Event()
+    generated: list[str] = []
+
+    def synthesize(request):
+        generated.append(request.input)
+        if request.input == "第一段":
+            first_segment_started.set()
+            if not allow_first_segment_to_finish.wait(timeout=2):
+                raise RuntimeError("test did not release the active segment")
+        return make_result(request)
+
+    runner = BatchProjectRunner(store, synthesize)
+    store.queue(project.id)
+    worker = threading.Thread(target=runner.run_project, args=(project.id,))
+    worker.start()
+    assert first_segment_started.wait(timeout=1)
+
+    stopping = runner.cancel(project.id)
+    assert stopping.status == "cancelling"
+    allow_first_segment_to_finish.set()
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+
+    cancelled = store.get(project.id)
+    assert cancelled is not None
+    assert cancelled.status == "cancelled"
+    assert [segment.status for segment in cancelled.segments] == ["succeeded", "pending"]
+    assert generated == ["第一段"]
+
+    store.resume(project.id)
+    resumed = runner.run_project(project.id)
+
+    assert resumed.status == "completed"
+    assert [segment.status for segment in resumed.segments] == ["succeeded", "succeeded"]
+    assert generated == ["第一段", "第二段"]
+
+
+def test_batch_project_restart_recovery_preserves_queued_work_and_marks_active_work_stopped(tmp_path: Path):
+    store = BatchProjectStore(tmp_path / "projects.json")
+    queued = store.create(
+        BatchProjectCreate(title="等待恢复", model="mock-tts", segments=[BatchSegmentDraft(text="排队段落")])
+    )
+    interrupted = store.create(
+        BatchProjectCreate(title="中断恢复", model="mock-tts", segments=[BatchSegmentDraft(text="运行段落")])
+    )
+    store.queue(queued.id)
+    store.queue(interrupted.id)
+    store.mark_running(interrupted.id)
+    store.mark_segment_running(interrupted.id, interrupted.segments[0].id)
+
+    queued_project_ids = store.recover_after_restart()
+
+    recovered = store.get(interrupted.id)
+    assert queued_project_ids == [queued.id]
+    assert recovered is not None
+    assert recovered.status == "cancelled"
+    assert recovered.segments[0].status == "pending"

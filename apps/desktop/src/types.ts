@@ -77,7 +77,7 @@ export type SpeechRequest = {
   stream?: boolean;
 };
 
-export type BatchProjectStatus = "draft" | "queued" | "running" | "completed" | "failed";
+export type BatchProjectStatus = "draft" | "queued" | "running" | "cancelling" | "cancelled" | "completed" | "failed";
 
 export type BatchSegmentStatus = "pending" | "running" | "succeeded" | "failed";
 

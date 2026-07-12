@@ -8,6 +8,8 @@ from tts_api.adapters.gptsovits import shutdown_gptsovits_services
 from tts_api.adapters.indextts2_worker import shutdown_indextts2_workers
 from tts_api.adapters.voxcpm2 import shutdown_voxcpm2_services
 from tts_api.config import get_settings
+from tts_api.jobs import get_job_runner
+from tts_api.projects import get_project_runner
 from tts_api.routes import health, jobs, model_directories, model_instances, model_packages, models, outputs, projects, runtime, settings as settings_routes, speech, system, tasks, voices
 
 
@@ -16,6 +18,8 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        get_job_runner()
+        get_project_runner()
         yield
         shutdown_indextts2_workers()
         shutdown_voxcpm2_services()

@@ -132,6 +132,17 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/projects/$($projec
 Invoke-RestMethod "http://127.0.0.1:8765/v1/projects/$($project.id)/export"
 ```
 
+## Safely Stop or Resume a Batch Project
+
+Stopping a queued project removes it immediately. Stopping a running project changes it to `cancelling`: the current segment is allowed to finish, but no new segment is started. The project then becomes `cancelled`; completed audio remains available and `resume` continues with the remaining segments.
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/projects/$($project.id)/cancel"
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/projects/$($project.id)/resume"
+```
+
+This API deliberately does not terminate a model process while it is synthesizing. If the backend restarts during a running batch project, that project is marked `cancelled` and can be resumed manually; queued batch projects resume automatically.
+
 ## Settings Backup and Migration
 
 `GET /v1/settings/export` returns a versioned JSON document containing only portable configuration: model locations and stable profile labels, enabled states, idle-release settings, and local API/output settings. It never contains the environment API key, voice audio, generated audio, or projects.

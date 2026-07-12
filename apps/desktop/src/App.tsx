@@ -38,6 +38,7 @@ import { CSSProperties, ChangeEvent, useEffect, useMemo, useRef, useState } from
 
 import {
   activateModelPackage,
+  cancelBatchProject,
   cancelSpeechJob,
   checkModelInstance,
   createSpeechJob,
@@ -61,6 +62,7 @@ import {
   retryBatchProject,
   retrySpeechJob,
   runBatchProject,
+  resumeBatchProject,
   saveAppSettings,
   startModelRuntime,
   stopModelRuntime,
@@ -325,6 +327,10 @@ function batchProjectStatusLabel(status: BatchProject["status"]) {
       return "队列中";
     case "running":
       return "生成中";
+    case "cancelling":
+      return "停止中";
+    case "cancelled":
+      return "已停止";
     case "completed":
       return "已完成";
     case "failed":
@@ -684,6 +690,9 @@ function taskStatusLabel(status: string) {
   }
   if (status === "running") {
     return "执行中";
+  }
+  if (status === "cancelling") {
+    return "停止中";
   }
   if (status === "succeeded" || status === "completed") {
     return "已完成";
@@ -1054,7 +1063,7 @@ export function App() {
   const [batchProjectSegments, setBatchProjectSegments] = useState<string[]>([]);
   const [batchProjectMessage, setBatchProjectMessage] = useState<string | null>(null);
   const [batchProjectError, setBatchProjectError] = useState<string | null>(null);
-  const [batchProjectAction, setBatchProjectAction] = useState<"save" | "run" | "retry" | null>(null);
+  const [batchProjectAction, setBatchProjectAction] = useState<"save" | "run" | "retry" | "cancel" | "resume" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackTime, setPlaybackTime] = useState(0);
@@ -1087,7 +1096,12 @@ export function App() {
     () => batchProjects.find((project) => project.id === editingBatchProjectId) ?? null,
     [batchProjects, editingBatchProjectId]
   );
-  const batchProjectLocked = editingBatchProject?.status === "queued" || editingBatchProject?.status === "running";
+  const batchProjectLocked =
+    editingBatchProject?.status === "queued" ||
+    editingBatchProject?.status === "running" ||
+    editingBatchProject?.status === "cancelling";
+  const batchProjectCanStop = editingBatchProject?.status === "queued" || editingBatchProject?.status === "running";
+  const batchProjectCanResume = editingBatchProject?.status === "cancelled";
   const batchProjectSegmentCount = batchProjectSegments.filter((segment) => segment.trim()).length;
 
   const supportedCloneModes = useMemo(() => getSupportedCloneModes(selectedModelInfo), [selectedModelInfo]);
@@ -1374,6 +1388,38 @@ export function App() {
       await loadBatchProjects();
     } catch (err) {
       setBatchProjectError(err instanceof Error ? err.message : "启动批量项目失败");
+    } finally {
+      setBatchProjectAction(null);
+    }
+  }
+
+  async function onCancelBatchProject(project: BatchProject) {
+    setBatchProjectAction("cancel");
+    setBatchProjectError(null);
+    try {
+      const updated = await cancelBatchProject(project.id);
+      setBatchProjectMessage(
+        updated.status === "cancelling"
+          ? `${project.title} 会在当前段落完成后安全停止`
+          : `${project.title} 已从生成队列中移除`
+      );
+      await Promise.all([loadBatchProjects(), loadTaskSummaries()]);
+    } catch (err) {
+      setBatchProjectError(err instanceof Error ? err.message : "停止批量项目失败");
+    } finally {
+      setBatchProjectAction(null);
+    }
+  }
+
+  async function onResumeBatchProject(project: BatchProject) {
+    setBatchProjectAction("resume");
+    setBatchProjectError(null);
+    try {
+      await resumeBatchProject(project.id);
+      setBatchProjectMessage(`${project.title} 已从上次停止的位置继续进入队列`);
+      await Promise.all([loadBatchProjects(), loadTaskSummaries()]);
+    } catch (err) {
+      setBatchProjectError(err instanceof Error ? err.message : "继续批量项目失败");
     } finally {
       setBatchProjectAction(null);
     }
@@ -2175,6 +2221,15 @@ export function App() {
       if (task.source === "speech") {
         await cancelSpeechJob(task.id);
         setTaskCenterMessage("排队生成任务已取消。");
+      } else if (task.source === "batch_project") {
+        const projectId = task.id.replace(/^project:/, "");
+        const updated = await cancelBatchProject(projectId);
+        await loadBatchProjects();
+        setTaskCenterMessage(
+          updated.status === "cancelling"
+            ? "批量项目会在当前段落完成后安全停止。"
+            : "批量项目已从生成队列中移除。"
+        );
       } else if (task.source === "bilibili") {
         await onSamplerCancel();
         setTaskCenterMessage("已向 B 站取样任务发送取消请求。");
@@ -2204,9 +2259,13 @@ export function App() {
         setTaskCenterMessage("失败的单句任务已重新进入本地队列。");
       } else if (task.source === "batch_project") {
         const projectId = task.id.replace(/^project:/, "");
-        await retryBatchProject(projectId);
+        if (task.status === "cancelled") {
+          await resumeBatchProject(projectId);
+        } else {
+          await retryBatchProject(projectId);
+        }
         await loadBatchProjects();
-        setTaskCenterMessage("批量项目已重新进入串行队列。");
+        setTaskCenterMessage(task.status === "cancelled" ? "批量项目已从停止位置继续进入队列。" : "批量项目已重新进入串行队列。");
       } else if (task.source === "bilibili") {
         setSamplerOpen(true);
         setTaskCenterOpen(false);
@@ -2361,7 +2420,9 @@ export function App() {
   }, [activeSpeechContext, activeSpeechJob?.id]);
 
   useEffect(() => {
-    const hasActiveBatch = batchProjects.some((project) => project.status === "queued" || project.status === "running");
+    const hasActiveBatch = batchProjects.some(
+      (project) => project.status === "queued" || project.status === "running" || project.status === "cancelling"
+    );
     const shouldPoll = taskCenterOpen || Boolean(activeSpeechJob) || hasActiveBatch || samplerBusy;
     if (!shouldPoll) {
       return undefined;
@@ -2375,7 +2436,9 @@ export function App() {
     if (!batchProjectOpen) {
       return undefined;
     }
-    const hasActiveProject = batchProjects.some((project) => project.status === "queued" || project.status === "running");
+    const hasActiveProject = batchProjects.some(
+      (project) => project.status === "queued" || project.status === "running" || project.status === "cancelling"
+    );
     if (!hasActiveProject) {
       return undefined;
     }
@@ -2995,7 +3058,7 @@ export function App() {
                 </div>
                 <div>
                   <span>进行中</span>
-                  <strong>{taskCenterTasks.filter((task) => task.status === "queued" || task.status === "running").length}</strong>
+                  <strong>{taskCenterTasks.filter((task) => task.status === "queued" || task.status === "running" || task.status === "cancelling").length}</strong>
                 </div>
                 <div>
                   <span>可重试</span>
@@ -3019,6 +3082,7 @@ export function App() {
                     const latestEvent = task.events[task.events.length - 1];
                     const isCancelling = taskCenterAction === `cancel-${task.id}`;
                     const isRetrying = taskCenterAction === `retry-${task.id}`;
+                    const retryLabel = task.source === "batch_project" && task.status === "cancelled" ? "继续" : "重试";
                     return (
                       <article key={task.id} className={`taskCenterItem ${task.status}`}>
                         <div className="taskCenterItemHeader">
@@ -3067,7 +3131,7 @@ export function App() {
                           {task.retryable && (
                             <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onRetryTask(task)}>
                               {isRetrying ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
-                              <span>{isRetrying ? "重试中" : "重试"}</span>
+                              <span>{isRetrying ? `${retryLabel}中` : retryLabel}</span>
                             </button>
                           )}
                         </div>
@@ -3101,7 +3165,7 @@ export function App() {
             <header className="settingsHeader">
               <div>
                 <strong>批量项目</strong>
-                <span>TXT / SRT · 串行队列 · 失败重试</span>
+                <span>TXT / SRT · 串行队列 · 安全停止与断点继续</span>
               </div>
               <button className="modalClose" title="关闭" onClick={() => setBatchProjectOpen(false)}>
                 <X size={18} strokeWidth={2} />
@@ -3343,7 +3407,6 @@ export function App() {
                   <div className="batchProjectList">
                     {batchProjects.slice(0, 8).map((project) => {
                       const progress = batchProjectProgress(project);
-                      const running = project.status === "queued" || project.status === "running";
                       return (
                         <div key={project.id} className={project.id === editingBatchProjectId ? "batchProjectRow active" : "batchProjectRow"}>
                           <button className="batchProjectSelect" onClick={() => editBatchProject(project)}>
@@ -3359,10 +3422,25 @@ export function App() {
                                 {batchProjectAction === "retry" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
                                 <span>重试</span>
                               </button>
+                            ) : project.status === "cancelled" ? (
+                              <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(project)}>
+                                {batchProjectAction === "resume" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
+                                <span>继续</span>
+                              </button>
+                            ) : project.status === "cancelling" ? (
+                              <button className="pathPickButton runtimeStopButton" disabled>
+                                <Loader2 className="spin" size={15} />
+                                <span>停止中</span>
+                              </button>
+                            ) : project.status === "queued" || project.status === "running" ? (
+                              <button className="pathPickButton runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(project)}>
+                                {batchProjectAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}
+                                <span>{project.status === "running" ? "安全停止" : "取消队列"}</span>
+                              </button>
                             ) : (
-                              <button className="pathPickButton" disabled={Boolean(batchProjectAction) || running} onClick={() => void onRunExistingBatchProject(project)}>
+                              <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project)}>
                                 {batchProjectAction === "run" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
-                                <span>{running ? "队列中" : "运行"}</span>
+                                <span>运行</span>
                               </button>
                             )}
                           </div>
@@ -3386,6 +3464,18 @@ export function App() {
                 <FolderOpen size={16} strokeWidth={1.9} />
                 <span>打开输出</span>
               </button>
+              {batchProjectCanStop && editingBatchProject && (
+                <button className="secondaryAction settingsAction runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(editingBatchProject)}>
+                  {batchProjectAction === "cancel" ? <Loader2 className="spin" size={16} /> : <Pause size={16} strokeWidth={1.9} />}
+                  <span>{editingBatchProject.status === "running" ? "当前段后停止" : "取消队列"}</span>
+                </button>
+              )}
+              {batchProjectCanResume && editingBatchProject && (
+                <button className="secondaryAction settingsAction" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(editingBatchProject)}>
+                  {batchProjectAction === "resume" ? <Loader2 className="spin" size={16} /> : <Play size={16} strokeWidth={1.9} />}
+                  <span>继续生成</span>
+                </button>
+              )}
               <button className="secondaryAction settingsAction" disabled={batchProjectLocked || Boolean(batchProjectAction)} onClick={() => void saveBatchProject(false)}>
                 {batchProjectAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
                 <span>保存草稿</span>

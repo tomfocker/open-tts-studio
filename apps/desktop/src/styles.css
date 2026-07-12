@@ -1782,6 +1782,16 @@ audio {
   background: rgba(224, 238, 244, 0.86);
 }
 
+.batchProjectSelect em.cancelling {
+  color: #8a5a38;
+  background: rgba(255, 242, 230, 0.86);
+}
+
+.batchProjectSelect em.cancelled {
+  color: #6d7d8c;
+  background: rgba(226, 234, 241, 0.82);
+}
+
 .batchProjectRowActions {
   flex: 0 0 auto;
 }
@@ -2753,6 +2763,10 @@ audio {
   background: rgba(246, 252, 248, 0.68);
 }
 
+.taskCenterItem.cancelling {
+  background: rgba(255, 249, 239, 0.7);
+}
+
 .taskCenterItem.failed {
   background: rgba(255, 247, 246, 0.68);
 }
@@ -2817,6 +2831,11 @@ audio {
 .taskCenterStatus.succeeded {
   color: #2f7a51;
   background: rgba(229, 247, 236, 0.86);
+}
+
+.taskCenterStatus.cancelling {
+  color: #8a5a38;
+  background: rgba(255, 242, 230, 0.86);
 }
 
 .taskCenterStatus.failed {

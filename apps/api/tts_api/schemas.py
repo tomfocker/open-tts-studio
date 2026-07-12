@@ -147,6 +147,8 @@ class BatchProjectStatus(StrEnum):
     draft = "draft"
     queued = "queued"
     running = "running"
+    cancelling = "cancelling"
+    cancelled = "cancelled"
     completed = "completed"
     failed = "failed"
 

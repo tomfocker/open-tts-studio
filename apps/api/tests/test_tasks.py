@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from tts_api.config import get_settings
 from tts_api.main import create_app
+from tts_api.projects import get_project_store
 
 
 def make_tasks_client(tmp_path: Path, monkeypatch) -> TestClient:
@@ -77,3 +78,28 @@ def test_failed_job_can_be_retried_from_task_api(tmp_path: Path, monkeypatch):
     assert retry_response.status_code == 200
     assert retry_response.json()["retry_of"] == original_id
     assert retry_response.json()["status"] in {"queued", "running", "failed"}
+
+
+def test_task_center_reports_a_stopped_batch_project_as_resumable(tmp_path: Path, monkeypatch):
+    client = make_tasks_client(tmp_path, monkeypatch)
+    create_response = client.post(
+        "/v1/projects",
+        json={
+            "title": "停止后继续",
+            "model": "mock-tts",
+            "segments": [{"text": "保留的片段"}],
+        },
+    )
+    assert create_response.status_code == 200
+    project_id = create_response.json()["id"]
+    store = get_project_store()
+    store.queue(project_id)
+    store.cancel(project_id)
+
+    tasks = client.get("/v1/tasks").json()["tasks"]
+    task = next(item for item in tasks if item["id"] == f"project:{project_id}")
+
+    assert task["status"] == "cancelled"
+    assert task["stage"] == "cancelled"
+    assert task["retryable"] is True
+    assert task["cancelable"] is False

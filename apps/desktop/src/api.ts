@@ -193,6 +193,14 @@ export function retryBatchProject(projectId: string): Promise<BatchProject> {
   return projectRequest<BatchProject>(`/v1/projects/${projectId}/retry`, { method: "POST" });
 }
 
+export function cancelBatchProject(projectId: string): Promise<BatchProject> {
+  return projectRequest<BatchProject>(`/v1/projects/${projectId}/cancel`, { method: "POST" });
+}
+
+export function resumeBatchProject(projectId: string): Promise<BatchProject> {
+  return projectRequest<BatchProject>(`/v1/projects/${projectId}/resume`, { method: "POST" });
+}
+
 export function fetchBatchProjectExport(projectId: string): Promise<BatchProjectExport> {
   return projectRequest<BatchProjectExport>(`/v1/projects/${projectId}/export`);
 }

@@ -20,6 +20,12 @@ def _project_task_summary(project) -> TaskSummary:
         stage = "batch_segment"
         position = running_segment.position if running_segment else min(total, completed + len(failed_segments) + 1)
         message = f"正在生成第 {position}/{total} 段。"
+    elif project.status == "cancelling":
+        stage = "stopping_after_segment"
+        message = "已收到停止请求；当前段落完成后将安全停止。"
+    elif project.status == "cancelled":
+        stage = "cancelled"
+        message = "项目已安全停止；已完成段落会保留，可继续生成。"
     elif project.status == "failed":
         stage = "failed"
         message = failed_segments[0].error if failed_segments else "项目生成失败。"
@@ -39,8 +45,8 @@ def _project_task_summary(project) -> TaskSummary:
         started_at=project.started_at,
         completed_at=project.completed_at,
         error=failed_segments[0].error if failed_segments else None,
-        retryable=project.status == "failed",
-        cancelable=False,
+        retryable=project.status.value in {"failed", "cancelled"},
+        cancelable=project.status.value in {"queued", "running"},
         events=[TaskEvent(occurred_at=project.updated_at, stage=stage, message=message, level="error" if project.status == "failed" else "info")],
     )
 
