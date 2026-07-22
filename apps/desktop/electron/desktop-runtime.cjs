@@ -238,6 +238,34 @@ async function selectReferenceAudio(dialogImpl) {
   return result.filePaths[0];
 }
 
+async function selectVoicePackage(dialogImpl) {
+  const result = await dialogImpl.showOpenDialog({
+    title: "导入音色包",
+    properties: ["openFile"],
+    filters: [{ name: "OpenTTS voice package", extensions: ["zip"] }]
+  });
+  if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+}
+
+async function saveVoicePackage(dialogImpl, fsPromises, sourcePath, defaultName) {
+  if (typeof sourcePath !== "string" || !sourcePath.trim()) {
+    throw new Error("Voice package path is required");
+  }
+  const result = await dialogImpl.showSaveDialog({
+    title: "导出音色包",
+    defaultPath: defaultName || "OpenTTS-voice.zip",
+    filters: [{ name: "OpenTTS voice package", extensions: ["zip"] }]
+  });
+  if (result.canceled || !result.filePath) {
+    return null;
+  }
+  await fsPromises.copyFile(sourcePath, result.filePath);
+  return result.filePath;
+}
+
 async function selectDirectory(dialogImpl) {
   const result = await dialogImpl.showOpenDialog({
     title: "选择目录",
@@ -321,6 +349,8 @@ module.exports = {
   selectModelArchive,
   selectSettingsBackup,
   selectReferenceAudio,
+  selectVoicePackage,
+  saveVoicePackage,
   spawnBackendProcess,
   terminateProcessTree,
   waitForBackend

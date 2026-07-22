@@ -33,6 +33,28 @@ def _default_task_log_dir() -> Path:
     if configured_settings:
         return Path(configured_settings).parent / "task-logs"
     return WORKSPACE_ROOT / "data" / "logs" / "tasks"
+
+
+def _default_voice_asset_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_VOICE_ASSET_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_library = os.environ.get("OPEN_TTS_VOICE_LIBRARY_FILE")
+    if configured_library:
+        return Path(configured_library).parent / "voice-assets"
+    return WORKSPACE_ROOT / "data" / "voices"
+
+
+def _default_voice_export_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_VOICE_EXPORT_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_library = os.environ.get("OPEN_TTS_VOICE_LIBRARY_FILE")
+    if configured_library:
+        return Path(configured_library).parent / "voice-exports"
+    return WORKSPACE_ROOT / "data" / "exports" / "voices"
+
+
 USER_SETTING_KEYS = {
     "api_host",
     "api_port",
@@ -63,6 +85,8 @@ class Settings(BaseModel):
     model_registry_path: Path = WORKSPACE_ROOT / "model-registry" / "models.json"
     settings_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_SETTINGS_FILE", str(DEFAULT_SETTINGS_FILE))))
     voice_library_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_VOICE_LIBRARY_FILE", str(WORKSPACE_ROOT / "data" / "config" / "voices.json"))))
+    voice_asset_dir: Path = Field(default_factory=_default_voice_asset_dir)
+    voice_export_dir: Path = Field(default_factory=_default_voice_export_dir)
     projects_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_PROJECTS_FILE", str(WORKSPACE_ROOT / "data" / "config" / "projects.json"))))
     model_packages_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_MODEL_PACKAGES_FILE", str(WORKSPACE_ROOT / "data" / "config" / "model-packages.json"))))
     tasks_file: Path = Field(default_factory=_default_tasks_file)

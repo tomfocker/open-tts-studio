@@ -24,6 +24,8 @@ import type {
   SpeechResult,
   SystemStatus,
   TaskSummary,
+  UpdateVoiceRequest,
+  VoicePackageExport,
   VoiceQualityReport,
   VoiceInfo
 } from "./types";
@@ -104,6 +106,43 @@ export async function deleteVoice(voiceId: string): Promise<void> {
   if (!response.ok) {
     throw new Error(`Failed to delete voice: ${response.status}`);
   }
+}
+
+export async function updateVoice(voiceId: string, request: UpdateVoiceRequest): Promise<VoiceInfo> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to update voice: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function exportVoicePackage(voiceId: string): Promise<VoicePackageExport> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}/export`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to export voice package: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function importVoicePackage(packagePath: string): Promise<VoiceInfo> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ package_path: packagePath })
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to import voice package: ${response.status}`);
+  }
+  return response.json();
 }
 
 export async function fetchVoiceQuality(voiceId: string): Promise<VoiceQualityReport> {

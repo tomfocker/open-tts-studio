@@ -171,6 +171,11 @@ export type VoiceInfo = {
   authorization_status: string;
   source_type: string;
   source_url?: string | null;
+  original_reference_audio?: string | null;
+  reference_audio_sha256?: string | null;
+  reference_audio_managed: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export type CreateVoiceRequest = {
@@ -180,6 +185,13 @@ export type CreateVoiceRequest = {
   authorization_status: string;
   source_type?: string;
   source_url?: string | null;
+};
+
+export type UpdateVoiceRequest = Partial<Pick<VoiceInfo, "name" | "reference_audio" | "reference_text" | "authorization_status" | "source_type" | "source_url">>;
+
+export type VoicePackageExport = {
+  file_name: string;
+  export_path: string;
 };
 
 export type VoiceQualityStatus = "ready" | "warning" | "error" | "unknown";

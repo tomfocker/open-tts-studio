@@ -129,6 +129,11 @@ class VoiceInfo(BaseModel):
     authorization_status: str
     source_type: str = "local_import"
     source_url: str | None = None
+    original_reference_audio: str | None = None
+    reference_audio_sha256: str | None = None
+    reference_audio_managed: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
 
 
 class CreateVoiceRequest(BaseModel):
@@ -138,6 +143,24 @@ class CreateVoiceRequest(BaseModel):
     authorization_status: str
     source_type: str = Field(default="local_import", max_length=80)
     source_url: str | None = Field(default=None, max_length=2000)
+
+
+class UpdateVoiceRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    reference_audio: str | None = Field(default=None, min_length=1)
+    reference_text: str | None = None
+    authorization_status: str | None = None
+    source_type: str | None = Field(default=None, max_length=80)
+    source_url: str | None = Field(default=None, max_length=2000)
+
+
+class VoicePackageExport(BaseModel):
+    file_name: str
+    export_path: str
+
+
+class VoicePackageImportRequest(BaseModel):
+    package_path: str = Field(min_length=1)
 
 
 class VoiceQualityStatus(StrEnum):

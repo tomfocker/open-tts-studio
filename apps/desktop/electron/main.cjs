@@ -11,10 +11,12 @@ const {
   resolveDesktopSettings,
   resolveFfmpegPath,
   saveSettingsBackup,
+  saveVoicePackage,
   selectDirectory,
   selectModelArchive,
   selectSettingsBackup,
   selectReferenceAudio,
+  selectVoicePackage,
   spawnBackendProcess,
   terminateProcessTree
 } = require("./desktop-runtime.cjs");
@@ -89,6 +91,10 @@ ipcMain.on("window:close", () => {
 ipcMain.handle("file:open-path", (_event, targetPath) => openLocalPath(targetPath, shell));
 
 ipcMain.handle("file:select-reference-audio", () => selectReferenceAudio(dialog));
+
+ipcMain.handle("file:select-voice-package", () => selectVoicePackage(dialog));
+
+ipcMain.handle("file:save-voice-package", (_event, sourcePath, defaultName) => saveVoicePackage(dialog, fs, sourcePath, defaultName));
 
 ipcMain.handle("file:select-directory", () => selectDirectory(dialog));
 

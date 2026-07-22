@@ -45,6 +45,8 @@ import {
   createSpeechJob,
   createVoice,
   createBatchProject,
+  deleteVoice,
+  exportVoicePackage,
   fetchAppSettings,
   fetchAudioAssets,
   fetchBatchProjects,
@@ -59,6 +61,7 @@ import {
   exportSettingsBackup,
   getApiBase,
   importSettingsBackup,
+  importVoicePackage,
   inspectModelPackage,
   registerModelPackage,
   retryBatchProject,
@@ -71,7 +74,8 @@ import {
   toAudioUrl,
   updateBatchProject,
   updateModelPackage,
-  updateModelInstance
+  updateModelInstance,
+  updateVoice
 } from "./api";
 import type {
   AudioAsset,
@@ -114,6 +118,8 @@ declare global {
       selectDirectory: () => Promise<string | null>;
       selectModelArchive: () => Promise<string | null>;
       selectReferenceAudio: () => Promise<string | null>;
+      selectVoicePackage: () => Promise<string | null>;
+      saveVoicePackage: (sourcePath: string, defaultName: string) => Promise<string | null>;
       saveSettingsBackup: (content: string) => Promise<string | null>;
       selectSettingsBackup: () => Promise<{ path: string; content: string } | null>;
     };
@@ -145,6 +151,13 @@ type VoicePreset = {
   authorizationStatus?: string;
   sourceType?: string;
   sourceUrl?: string;
+  referenceAudioManaged?: boolean;
+  originalReferenceAudio?: string;
+};
+
+type VoiceManagerDraft = {
+  name: string;
+  referenceText: string;
 };
 
 type GenerationProgress = {
@@ -455,7 +468,16 @@ function createImportedVoicePreset(voice: VoiceInfo): VoicePreset | null {
     referenceText: voice.reference_text ?? undefined,
     authorizationStatus: voice.authorization_status,
     sourceType: voice.source_type,
-    sourceUrl: voice.source_url ?? undefined
+    sourceUrl: voice.source_url ?? undefined,
+    referenceAudioManaged: voice.reference_audio_managed,
+    originalReferenceAudio: voice.original_reference_audio ?? undefined
+  };
+}
+
+function createVoiceManagerDraft(voice: VoicePreset | null): VoiceManagerDraft {
+  return {
+    name: voice?.name ?? "",
+    referenceText: voice?.referenceText ?? ""
   };
 }
 
@@ -1055,6 +1077,12 @@ export function App() {
   const [pendingModelSwitch, setPendingModelSwitch] = useState<PendingModelSwitch | null>(null);
   const [selectedVoice, setSelectedVoice] = useState("sample");
   const [customVoices, setCustomVoices] = useState<VoicePreset[]>([]);
+  const [voiceManagerOpen, setVoiceManagerOpen] = useState(false);
+  const [managedVoiceId, setManagedVoiceId] = useState<string | null>(null);
+  const [voiceManagerDraft, setVoiceManagerDraft] = useState<VoiceManagerDraft>(() => createVoiceManagerDraft(null));
+  const [voiceManagerAction, setVoiceManagerAction] = useState<string | null>(null);
+  const [voiceManagerMessage, setVoiceManagerMessage] = useState<string | null>(null);
+  const [voiceManagerError, setVoiceManagerError] = useState<string | null>(null);
   const [cloneMode, setCloneMode] = useState<CloneMode>("可控克隆");
   const [input, setInput] = useState("你好，这是 IndexTTS2 的本地桌面软件测试。");
   const [controlPrompt, setControlPrompt] = useState("语速自然，情绪稳定，声音清晰，有一点亲切感");
@@ -1163,6 +1191,10 @@ export function App() {
   const selectedVoiceInfo = useMemo(
     () => availableVoices.find((voice) => voice.id === selectedVoice && voice.id !== "custom") ?? availableVoices[0] ?? voicePresets[0],
     [availableVoices, selectedVoice]
+  );
+  const managedVoice = useMemo(
+    () => customVoices.find((voice) => voice.id === managedVoiceId) ?? customVoices[0] ?? null,
+    [customVoices, managedVoiceId]
   );
   const editingBatchProject = useMemo(
     () => batchProjects.find((project) => project.id === editingBatchProjectId) ?? null,
@@ -1371,6 +1403,148 @@ export function App() {
       );
     } catch {
       setCustomVoices([]);
+    }
+  }
+
+  function mergeManagedVoice(voice: VoiceInfo, select = false) {
+    const preset = createImportedVoicePreset(voice);
+    if (!preset) {
+      return;
+    }
+    setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+    setManagedVoiceId(preset.id);
+    setVoiceManagerDraft(createVoiceManagerDraft(preset));
+    if (select) {
+      setSelectedVoice(preset.id);
+      setReferenceText(preset.referenceText ?? "");
+    }
+  }
+
+  function openVoiceManager() {
+    const preferred = customVoices.find((voice) => voice.id === selectedVoice) ?? customVoices[0] ?? null;
+    setManagedVoiceId(preferred?.id ?? null);
+    setVoiceManagerDraft(createVoiceManagerDraft(preferred));
+    setVoiceManagerError(null);
+    setVoiceManagerMessage(null);
+    setVoiceManagerOpen(true);
+    void loadVoices();
+  }
+
+  function selectManagedVoice(voice: VoicePreset) {
+    setManagedVoiceId(voice.id);
+    setVoiceManagerDraft(createVoiceManagerDraft(voice));
+    setVoiceManagerError(null);
+    setVoiceManagerMessage(null);
+  }
+
+  async function onSaveVoiceManagerDetails() {
+    if (!managedVoice) {
+      return;
+    }
+    if (!voiceManagerDraft.name.trim()) {
+      setVoiceManagerError("请填写音色名称。");
+      return;
+    }
+    setVoiceManagerAction("save");
+    setVoiceManagerError(null);
+    try {
+      const updated = await updateVoice(managedVoice.id, {
+        name: voiceManagerDraft.name.trim(),
+        reference_text: voiceManagerDraft.referenceText.trim() || null
+      });
+      mergeManagedVoice(updated, selectedVoice === updated.id);
+      setVoiceManagerMessage("名称和参考文本已保存。");
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "保存音色失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
+  async function onReplaceVoiceReference() {
+    if (!managedVoice || !window.desktopFiles?.selectReferenceAudio) {
+      setVoiceManagerError("请在桌面软件中选择参考音频。");
+      return;
+    }
+    setVoiceManagerAction("replace-audio");
+    setVoiceManagerError(null);
+    try {
+      const audioPath = await window.desktopFiles.selectReferenceAudio();
+      if (!audioPath) {
+        return;
+      }
+      const updated = await updateVoice(managedVoice.id, {
+        reference_audio: audioPath,
+        reference_text: voiceManagerDraft.referenceText.trim() || null
+      });
+      mergeManagedVoice(updated, selectedVoice === updated.id);
+      setVoiceManagerMessage("参考音频已替换并复制到本软件的音色目录。");
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "替换参考音频失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
+  async function onExportVoicePackage() {
+    if (!managedVoice || !window.desktopFiles?.saveVoicePackage) {
+      setVoiceManagerError("请在桌面软件中导出音色包。");
+      return;
+    }
+    setVoiceManagerAction("export");
+    setVoiceManagerError(null);
+    try {
+      const exported = await exportVoicePackage(managedVoice.id);
+      const savedPath = await window.desktopFiles.saveVoicePackage(exported.export_path, exported.file_name);
+      setVoiceManagerMessage(savedPath ? `音色包已导出：${savedPath}` : "已取消保存音色包。");
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "导出音色包失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
+  async function onImportVoicePackage() {
+    if (!window.desktopFiles?.selectVoicePackage) {
+      setVoiceManagerError("请在桌面软件中导入音色包。");
+      return;
+    }
+    setVoiceManagerAction("import");
+    setVoiceManagerError(null);
+    try {
+      const packagePath = await window.desktopFiles.selectVoicePackage();
+      if (!packagePath) {
+        return;
+      }
+      const imported = await importVoicePackage(packagePath);
+      mergeManagedVoice(imported, true);
+      setVoiceManagerMessage(`已导入音色包：${imported.name}`);
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "导入音色包失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
+  async function onDeleteManagedVoice() {
+    if (!managedVoice || !window.confirm(`删除音色「${managedVoice.name}」？已托管的音频文件会保留，避免误删。`)) {
+      return;
+    }
+    setVoiceManagerAction("delete");
+    setVoiceManagerError(null);
+    try {
+      await deleteVoice(managedVoice.id);
+      setCustomVoices((voices) => voices.filter((voice) => voice.id !== managedVoice.id));
+      if (selectedVoice === managedVoice.id) {
+        setSelectedVoice("sample");
+      }
+      setManagedVoiceId(null);
+      setVoiceManagerDraft(createVoiceManagerDraft(null));
+      setVoiceManagerMessage("音色档案已删除，托管音频仍保留在本地。");
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "删除音色失败");
+    } finally {
+      setVoiceManagerAction(null);
     }
   }
 
@@ -2869,6 +3043,10 @@ export function App() {
                   <Download size={14} strokeWidth={1.9} />
                   <span>取样</span>
                 </button>
+                <button className="voiceImportButton" onClick={openVoiceManager}>
+                  <Settings size={14} strokeWidth={1.9} />
+                  <span>管理</span>
+                </button>
               </div>
             </div>
             {showVoiceLibrary ? (
@@ -3347,6 +3525,116 @@ export function App() {
           )}
         </aside>
       </section>
+
+      {voiceManagerOpen && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音色库管理">
+          <section className="settingsDialog voiceManagerDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>音色库管理</strong>
+                <span>每个音色只保留一条参考音频及对应提示词，可直接打包到其他生产环境。</span>
+              </div>
+              <button className="modalClose" title="关闭" onClick={() => setVoiceManagerOpen(false)}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+
+            <div className="settingsBody voiceManagerBody">
+              {customVoices.length === 0 ? (
+                <div className="voiceManagerEmpty">
+                  <Library size={24} strokeWidth={1.7} />
+                  <strong>还没有已保存的音色</strong>
+                  <span>可以从左侧导入参考音频、B 站取样，或把生成结果加入音色库。</span>
+                </div>
+              ) : (
+                <div className="voiceManagerLayout">
+                  <aside className="voiceManagerList" aria-label="音色列表">
+                    {customVoices.map((voice) => (
+                      <button
+                        key={voice.id}
+                        type="button"
+                        className={voice.id === managedVoice?.id ? "voiceManagerListItem active" : "voiceManagerListItem"}
+                        onClick={() => selectManagedVoice(voice)}
+                      >
+                        <span className="voiceAvatar" style={{ "--avatar-bg": voice.background } as CSSProperties} aria-hidden="true">{voice.initials}</span>
+                        <span>
+                          <strong>{voice.name}</strong>
+                          <small>{voice.referenceAudioManaged ? "参考音频已托管" : "外部参考路径"}</small>
+                        </span>
+                      </button>
+                    ))}
+                  </aside>
+
+                  {managedVoice && (
+                    <section className="voiceManagerDetail">
+                      <div className="voiceManagerSummary">
+                        <div>
+                          <strong>{managedVoice.referenceAudioManaged ? "文件已托管" : "外部路径"}</strong>
+                          <span>{getFileBaseName(managedVoice.referenceAudio ?? "本地音色")}</span>
+                        </div>
+                        <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null} onClick={() => void onReplaceVoiceReference()}>
+                          {voiceManagerAction === "replace-audio" ? <Loader2 className="spin" size={15} /> : <Upload size={15} strokeWidth={1.9} />}
+                          <span>替换音频</span>
+                        </button>
+                      </div>
+                      <p className="voiceManagerHint">
+                        替换后会自动复制到软件的音色目录，原文件可以移动或删除。极致克隆和 GPT-SoVITS 建议让参考文本与音频内容一致。
+                      </p>
+                      <label className="settingsField">
+                        <span>音色名称</span>
+                        <input value={voiceManagerDraft.name} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, name: event.target.value }))} />
+                      </label>
+                      <label className="settingsField voiceManagerPromptField">
+                        <span>参考文本 / 提示词</span>
+                        <textarea
+                          value={voiceManagerDraft.referenceText}
+                          placeholder="填写这条参考音频实际说的内容"
+                          onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceText: event.target.value }))}
+                        />
+                      </label>
+                      <div className="voiceManagerMetadata">
+                        <span>来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
+                        <span>授权：{managedVoice.authorizationStatus ?? "未标注"}</span>
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
+
+              {(voiceManagerError || voiceManagerMessage) && (
+                <div className={voiceManagerError ? "settingsFeedback error" : "settingsFeedback"}>
+                  {voiceManagerError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
+                  <span>{voiceManagerError ?? voiceManagerMessage}</span>
+                </div>
+              )}
+            </div>
+
+            <footer className="settingsFooter voiceManagerFooter">
+              {managedVoice && (
+                <button className="secondaryAction voiceManagerDelete" type="button" disabled={voiceManagerAction !== null} onClick={() => void onDeleteManagedVoice()}>
+                  {voiceManagerAction === "delete" ? <Loader2 className="spin" size={16} /> : <Trash2 size={16} strokeWidth={1.9} />}
+                  <span>删除档案</span>
+                </button>
+              )}
+              <span className="settingsFooterSpacer" />
+              <button className="secondaryAction settingsAction" type="button" disabled={voiceManagerAction !== null} onClick={() => void onImportVoicePackage()}>
+                {voiceManagerAction === "import" ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
+                <span>导入音色包</span>
+              </button>
+              {managedVoice && (
+                <button className="secondaryAction settingsAction" type="button" disabled={voiceManagerAction !== null} onClick={() => void onExportVoicePackage()}>
+                  {voiceManagerAction === "export" ? <Loader2 className="spin" size={16} /> : <Upload size={16} strokeWidth={1.9} />}
+                  <span>导出音色包</span>
+                </button>
+              )}
+              <button className="primaryAction settingsAction" type="button" disabled={!managedVoice || voiceManagerAction !== null} onClick={() => void onSaveVoiceManagerDetails()}>
+                {voiceManagerAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
+                <span>保存</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {audioLibraryOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音频资产库">

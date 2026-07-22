@@ -2,6 +2,176 @@
   box-sizing: border-box;
 }
 
+/* Kept intentionally small: a portable voice is one reference audio plus its matching text. */
+.voiceManagerDialog {
+  width: min(900px, calc(100vw - 48px));
+}
+
+.voiceManagerBody {
+  display: grid;
+  gap: 18px;
+}
+
+.voiceManagerLayout {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.7fr) minmax(0, 1.8fr);
+  min-height: 360px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.voiceManagerList {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
+  border-right: 1px solid var(--line);
+  background: rgba(236, 242, 246, 0.64);
+  overflow-y: auto;
+}
+
+.voiceManagerListItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+}
+
+.voiceManagerListItem:hover,
+.voiceManagerListItem.active {
+  border-color: rgba(78, 112, 126, 0.22);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.voiceManagerListItem > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.voiceManagerListItem strong,
+.voiceManagerListItem small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voiceManagerListItem small,
+.voiceManagerMetadata,
+.voiceManagerSummary span,
+.voiceManagerHint {
+  color: var(--muted);
+}
+
+.voiceManagerDetail {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 22px;
+}
+
+.voiceManagerSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.voiceManagerSummary > div {
+  display: grid;
+  gap: 3px;
+}
+
+.voiceManagerSummary strong {
+  color: var(--accent-dark);
+  font-size: 13px;
+}
+
+.voiceManagerSummary span {
+  overflow: hidden;
+  max-width: 360px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.voiceManagerHint {
+  margin: 0;
+  line-height: 1.65;
+  font-size: 12px;
+}
+
+.voiceManagerPromptField textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.voiceManagerMetadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding-top: 2px;
+  font-size: 12px;
+}
+
+.voiceManagerEmpty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 58px 24px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.voiceManagerEmpty strong {
+  color: var(--text);
+}
+
+.voiceManagerEmpty span {
+  max-width: 440px;
+  line-height: 1.6;
+}
+
+.voiceManagerDelete {
+  color: #9f3d3d;
+}
+
+@media (max-width: 720px) {
+  .voiceManagerDialog {
+    width: calc(100vw - 24px);
+  }
+
+  .voiceManagerLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .voiceManagerList {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .voiceManagerDetail {
+    padding: 16px;
+  }
+
+  .voiceManagerFooter {
+    flex-wrap: wrap;
+  }
+
+  .voiceManagerFooter .settingsFooterSpacer {
+    display: none;
+  }
+}
+
 :root {
   color-scheme: light;
   --app-bg: #e7edf2;

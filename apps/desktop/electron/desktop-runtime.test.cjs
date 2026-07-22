@@ -12,10 +12,12 @@ const {
   resolveDesktopSettings,
   resolveFfmpegPath,
   saveSettingsBackup,
+  saveVoicePackage,
   selectDirectory,
   selectModelArchive,
   selectSettingsBackup,
   selectReferenceAudio,
+  selectVoicePackage,
   terminateProcessTree
 } = require("./desktop-runtime.cjs");
 
@@ -147,6 +149,37 @@ test("selectReferenceAudio returns null when selection is cancelled", async () =
   });
 
   assert.equal(selectedPath, null);
+});
+
+test("selectVoicePackage returns the ZIP selected through the native dialog", async () => {
+  const selectedPath = await selectVoicePackage({
+    showOpenDialog: async (options) => {
+      assert.equal(options.title, "导入音色包");
+      assert.ok(options.filters[0].extensions.includes("zip"));
+      return { canceled: false, filePaths: ["D:/backups/narrator.zip"] };
+    }
+  });
+
+  assert.equal(selectedPath, "D:/backups/narrator.zip");
+});
+
+test("saveVoicePackage copies the generated package to the native save path", async () => {
+  const calls = [];
+  const savedPath = await saveVoicePackage(
+    {
+      showSaveDialog: async (options) => {
+        calls.push(options);
+        return { canceled: false, filePath: "D:/backups/narrator.zip" };
+      }
+    },
+    { copyFile: async (...args) => calls.push(args) },
+    "D:/code/tts/data/exports/narrator.zip",
+    "OpenTTS-voice-narrator.zip"
+  );
+
+  assert.equal(savedPath, "D:/backups/narrator.zip");
+  assert.equal(calls[0].title, "导出音色包");
+  assert.deepEqual(calls[1], ["D:/code/tts/data/exports/narrator.zip", "D:/backups/narrator.zip"]);
 });
 
 test("selectDirectory returns the chosen directory path", async () => {

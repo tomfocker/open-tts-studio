@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld("desktopFiles", {
   selectDirectory: () => ipcRenderer.invoke("file:select-directory"),
   selectModelArchive: () => ipcRenderer.invoke("file:select-model-archive"),
   selectReferenceAudio: () => ipcRenderer.invoke("file:select-reference-audio"),
+  selectVoicePackage: () => ipcRenderer.invoke("file:select-voice-package"),
+  saveVoicePackage: (sourcePath, defaultName) => ipcRenderer.invoke("file:save-voice-package", sourcePath, defaultName),
   saveSettingsBackup: (content) => ipcRenderer.invoke("file:save-settings-backup", content),
   selectSettingsBackup: () => ipcRenderer.invoke("file:select-settings-backup")
 });
