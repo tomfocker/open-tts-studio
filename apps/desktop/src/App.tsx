@@ -79,6 +79,7 @@ import {
 } from "./api";
 import type {
   AudioAsset,
+  AppUpdateState,
   AppSettings,
   BatchProject,
   BilibiliAudioOptionsResult,
@@ -125,6 +126,13 @@ declare global {
     };
     desktopClipboard?: {
       writeText: (content: string) => Promise<void>;
+    };
+    desktopUpdater?: {
+      getState: () => Promise<AppUpdateState>;
+      check: () => Promise<AppUpdateState>;
+      download: () => Promise<AppUpdateState>;
+      install: () => Promise<AppUpdateState>;
+      onStateChanged: (listener: (state: AppUpdateState) => void) => () => void;
     };
     desktopBilibiliSampler?: {
       getSession: () => Promise<IpcResponse<BilibiliLoginSession>>;
@@ -1125,6 +1133,7 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMigrationAction, setSettingsMigrationAction] = useState<"export" | "import" | null>(null);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateState | null>(null);
   const defaultModelAppliedRef = useRef(false);
   const startupPrewarmAttemptedRef = useRef(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
@@ -2751,6 +2760,51 @@ export function App() {
     event.target.value = "";
   }
 
+  async function onCheckAppUpdate() {
+    if (!window.desktopUpdater) {
+      return;
+    }
+    try {
+      setAppUpdate(await window.desktopUpdater.check());
+    } catch (err) {
+      setAppUpdate((current) => ({
+        status: "error",
+        currentVersion: current?.currentVersion ?? "-",
+        message: err instanceof Error ? err.message : "检查更新失败"
+      }));
+    }
+  }
+
+  async function onDownloadAppUpdate() {
+    if (!window.desktopUpdater) {
+      return;
+    }
+    try {
+      setAppUpdate(await window.desktopUpdater.download());
+    } catch (err) {
+      setAppUpdate((current) => ({
+        status: "error",
+        currentVersion: current?.currentVersion ?? "-",
+        message: err instanceof Error ? err.message : "下载更新失败"
+      }));
+    }
+  }
+
+  async function onInstallAppUpdate() {
+    if (!window.desktopUpdater) {
+      return;
+    }
+    try {
+      setAppUpdate(await window.desktopUpdater.install());
+    } catch (err) {
+      setAppUpdate((current) => ({
+        status: "error",
+        currentVersion: current?.currentVersion ?? "-",
+        message: err instanceof Error ? err.message : "安装更新失败"
+      }));
+    }
+  }
+
   useEffect(() => {
     loadModels();
     loadVoices();
@@ -2761,6 +2815,24 @@ export function App() {
     loadTaskSummaries();
     void loadBatchProjects();
     void refreshSamplerSession(false);
+  }, []);
+
+  useEffect(() => {
+    const updater = window.desktopUpdater;
+    if (!updater) {
+      return undefined;
+    }
+    let disposed = false;
+    void updater.getState().then((state) => {
+      if (!disposed) {
+        setAppUpdate(state);
+      }
+    });
+    const unsubscribe = updater.onStateChanged((state) => setAppUpdate(state));
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -4467,6 +4539,60 @@ export function App() {
             </header>
 
             <div className="settingsBody">
+              <div className="settingsGroup appUpdateGroup">
+                <div className="settingsGroupTitle">
+                  <RefreshCw size={16} strokeWidth={1.9} />
+                  <span>应用更新</span>
+                  <em>GitHub 发布版</em>
+                </div>
+                <div className="appUpdateCard">
+                  <div className="appUpdateSummary">
+                    <div>
+                      <strong>当前版本 {appUpdate?.currentVersion ?? "本地预览"}</strong>
+                      <span className={appUpdate?.status === "error" ? "updateStatus error" : "updateStatus"}>
+                        {appUpdate?.message ?? "正式安装包会从 GitHub 检查更新。"}
+                      </span>
+                    </div>
+                    {appUpdate?.availableVersion && <span className="updateVersionBadge">v{appUpdate.availableVersion}</span>}
+                  </div>
+                  {appUpdate?.status === "downloading" && (
+                    <div className="appUpdateProgress" aria-label="更新下载进度">
+                      <span style={{ width: `${appUpdate.progressPercent ?? 0}%` }} />
+                    </div>
+                  )}
+                  {appUpdate?.releaseNotes && <p className="appUpdateNotes">{appUpdate.releaseNotes}</p>}
+                  <div className="appUpdateActions">
+                    <button
+                      className="secondaryAction settingsAction"
+                      type="button"
+                      disabled={!window.desktopUpdater || appUpdate?.status === "checking" || appUpdate?.status === "downloading" || appUpdate?.status === "installing"}
+                      onClick={() => void onCheckAppUpdate()}
+                    >
+                      {appUpdate?.status === "checking" ? <Loader2 className="spin" size={16} /> : <RefreshCw size={16} strokeWidth={1.9} />}
+                      <span>检查更新</span>
+                    </button>
+                    {appUpdate?.status === "available" && (
+                      <button className="primaryAction settingsAction" type="button" onClick={() => void onDownloadAppUpdate()}>
+                        <Download size={16} strokeWidth={1.9} />
+                        <span>下载更新</span>
+                      </button>
+                    )}
+                    {appUpdate?.status === "downloading" && (
+                      <button className="primaryAction settingsAction" type="button" disabled>
+                        <Loader2 className="spin" size={16} />
+                        <span>下载 {appUpdate.progressPercent ?? 0}%</span>
+                      </button>
+                    )}
+                    {appUpdate?.status === "downloaded" && (
+                      <button className="primaryAction settingsAction" type="button" onClick={() => void onInstallAppUpdate()}>
+                        <RefreshCw size={16} strokeWidth={1.9} />
+                        <span>重启并安装</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="settingsGroup">
                 <div className="settingsGroupTitle">
                   <Cpu size={16} strokeWidth={1.9} />

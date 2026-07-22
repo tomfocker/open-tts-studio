@@ -1,6 +1,7 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const {
   chooseFrontendTarget,
   createDesktopPaths,
@@ -21,15 +22,35 @@ const {
   terminateProcessTree
 } = require("./desktop-runtime.cjs");
 const { BilibiliSamplerService } = require("./bilibili-sampler-runtime.cjs");
+const { createUpdateService } = require("./updater-runtime.cjs");
 
 let mainWindow;
 let backendProcess;
-const paths = createDesktopPaths(__dirname);
+const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
+const packagedDataRoot = app.isPackaged ? path.join(app.getPath("userData"), "data") : undefined;
+const packagedModelStoreRoot = app.isPackaged ? path.join(app.getPath("userData"), "models") : undefined;
+const paths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
+  dataRoot: packagedDataRoot,
+  modelStoreRoot: packagedModelStoreRoot,
+  apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined
+});
 let desktopSettings = resolveDesktopSettings(paths);
 const bilibiliSamplerService = new BilibiliSamplerService({
   app,
   defaultOutputDirectory: resolveBilibiliInputsDirectory(paths),
   getFfmpegPath: () => resolveFfmpegPath(paths)
+});
+const updateService = createUpdateService({
+  app,
+  autoUpdater,
+  enabled: app.isPackaged && process.env.OPEN_TTS_DISABLE_AUTO_UPDATE !== "1"
+});
+
+updateService.subscribe((state) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send("app-update:state-changed", state);
 });
 
 async function prepareBackend() {
@@ -67,6 +88,9 @@ async function createWindow() {
 app.whenReady().then(async () => {
   await prepareBackend();
   await createWindow();
+  if (app.isPackaged) {
+    setTimeout(() => void updateService.check(), 3500);
+  }
 });
 
 ipcMain.on("window:minimize", () => {
@@ -106,6 +130,14 @@ ipcMain.handle("file:save-settings-backup", (_event, content) => {
 });
 
 ipcMain.handle("file:select-settings-backup", () => selectSettingsBackup(dialog, fs));
+
+ipcMain.handle("app-update:get-state", () => updateService.getState());
+
+ipcMain.handle("app-update:check", () => updateService.check());
+
+ipcMain.handle("app-update:download", () => updateService.download());
+
+ipcMain.handle("app-update:install", () => updateService.install());
 
 ipcMain.handle("clipboard:write-text", (_event, content) => {
   if (typeof content !== "string" || !content.trim()) {

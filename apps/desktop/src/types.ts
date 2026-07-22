@@ -22,6 +22,17 @@ export type SpeechResult = {
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
+export type AppUpdateStatus = "unavailable" | "idle" | "checking" | "available" | "up-to-date" | "downloading" | "downloaded" | "installing" | "error";
+
+export type AppUpdateState = {
+  status: AppUpdateStatus;
+  currentVersion: string;
+  availableVersion?: string | null;
+  releaseNotes?: string | null;
+  progressPercent?: number | null;
+  message: string;
+};
+
 export type TaskEvent = {
   occurred_at: string;
   stage: string;

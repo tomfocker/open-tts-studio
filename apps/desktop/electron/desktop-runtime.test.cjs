@@ -44,6 +44,21 @@ test("buildBackendLaunchOptions points at the bundled API environment", () => {
   assert.equal(launchOptions.env.PYTHONIOENCODING, "utf-8");
 });
 
+test("createDesktopPaths keeps packaged user data and model weights outside application resources", () => {
+  const workspaceRoot = path.resolve("D:/OpenTTS/resources/workspace");
+  const paths = createDesktopPaths(__dirname, workspaceRoot, {
+    dataRoot: "C:/Users/test/AppData/Roaming/OpenTTS Studio/data",
+    modelStoreRoot: "D:/TTS-models"
+  });
+
+  const launchOptions = buildBackendLaunchOptions(paths, 8765);
+
+  assert.equal(paths.logsDir, path.join(paths.dataRoot, "logs"));
+  assert.equal(launchOptions.env.OPEN_TTS_OUTPUT_DIR, path.join(paths.dataRoot, "outputs"));
+  assert.equal(launchOptions.env.OPEN_TTS_INDEXTTS2_ROOT, path.join(paths.modelStoreRoot, "IndexTTS2"));
+  assert.equal(launchOptions.env.OPEN_TTS_VOICE_LIBRARY_FILE, path.join(paths.dataRoot, "config", "voices.json"));
+});
+
 test("ensureBackend reuses an already healthy local API", async () => {
   let spawnCount = 0;
   const result = await ensureBackend({

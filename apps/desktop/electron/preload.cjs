@@ -25,6 +25,19 @@ contextBridge.exposeInMainWorld("desktopClipboard", {
   writeText: (content) => ipcRenderer.invoke("clipboard:write-text", content)
 });
 
+contextBridge.exposeInMainWorld("desktopUpdater", {
+  getState: () => ipcRenderer.invoke("app-update:get-state"),
+  check: () => ipcRenderer.invoke("app-update:check"),
+  download: () => ipcRenderer.invoke("app-update:download"),
+  install: () => ipcRenderer.invoke("app-update:install"),
+  onStateChanged: (listener) => {
+    const channel = "app-update:state-changed";
+    const handler = (_event, state) => listener(state);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  }
+});
+
 contextBridge.exposeInMainWorld("desktopBilibiliSampler", {
   getSession: () => ipcRenderer.invoke("bilibili-sampler:get-session"),
   startLogin: () => ipcRenderer.invoke("bilibili-sampler:start-login"),

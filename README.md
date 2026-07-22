@@ -9,6 +9,7 @@ OpenTTS Studio 是一个 Windows 桌面端本地 TTS 工作台：统一管理可
 - 模型中心：目录选择、健康检查、启用/禁用、稳定包标记、维护备注和检查历史。
 - 运行时管理：按需启动、显示运行状态、空闲自动释放显存、手动停止；不会终止外部懒人包自行启动的服务。
 - 桌面端音色库：可将本地参考音频或生成结果一键加入音色库。
+- 便携音色包：参考音频与对应文本可导出为 ZIP，在其他生产环境一键导入。
 - B 站取样：桌面端扫码登录、视频/番剧解析、分 P/剧集选择、音频下载、FFmpeg 转 WAV/裁剪、取消任务，并直接入库。
 - 本地 API：`/v1/audio/speech` 与 `/v1/tts/speech`；根据当前稳定适配器拒绝未实现参数，防止桌面端与外部调用不一致。
 
@@ -31,6 +32,17 @@ cd apps/api
 cd apps/desktop
 npm run desktop
 ```
+
+## Windows 客户端与更新
+
+```powershell
+cd apps/desktop
+npm run package:win
+```
+
+构建输出在 `apps/desktop/release`：`Setup` 是安装版，`Portable` 是免安装版。安装包会携带 Electron、本地 API 和独立 Python 运行时；不会包含大体积模型权重。首次启动后，请在“设置 → 本地模型”中登记或下载模型目录。
+
+正式安装版会在启动后从 GitHub Releases 检查更新，也可在“设置 → 应用更新”手动检查、下载并重启安装。发布新版本时，上传 `Setup`、对应 `.blockmap` 和 `latest.yml` 到同一个 GitHub Release；便携版可作为额外下载项。
 
 ## 验证
 

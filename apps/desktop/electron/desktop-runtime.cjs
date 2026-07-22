@@ -6,17 +6,21 @@ const DEFAULT_API_PORT = 8765;
 const DEFAULT_DEV_URL = "http://127.0.0.1:5173";
 const DEFAULT_API_HOST = "127.0.0.1";
 
-function createDesktopPaths(electronDir, workspaceRoot) {
+function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
   const resolvedWorkspaceRoot = workspaceRoot || path.resolve(electronDir, "..", "..", "..");
   const apiDir = path.join(resolvedWorkspaceRoot, "apps", "api");
   const desktopDir = path.join(resolvedWorkspaceRoot, "apps", "desktop");
+  const dataRoot = options.dataRoot || path.join(resolvedWorkspaceRoot, "data");
+  const modelStoreRoot = options.modelStoreRoot || path.join(resolvedWorkspaceRoot, "models");
   return {
     workspaceRoot: resolvedWorkspaceRoot,
     apiDir,
-    apiPython: path.join(apiDir, ".venv", "Scripts", "python.exe"),
+    apiPython: options.apiPython || path.join(apiDir, ".venv", "Scripts", "python.exe"),
     desktopDir,
     distIndex: path.join(desktopDir, "dist", "index.html"),
-    logsDir: path.join(resolvedWorkspaceRoot, "data", "logs")
+    dataRoot,
+    modelStoreRoot,
+    logsDir: path.join(dataRoot, "logs")
   };
 }
 
@@ -39,7 +43,18 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       PYTHONIOENCODING: "utf-8",
       OPEN_TTS_API_HOST: settings.apiHost,
       OPEN_TTS_API_PORT: String(settings.apiPort),
-      OPEN_TTS_SETTINGS_FILE: settings.settingsFile
+      OPEN_TTS_SETTINGS_FILE: settings.settingsFile,
+      OPEN_TTS_OUTPUT_DIR: path.join(paths.dataRoot, "outputs"),
+      OPEN_TTS_VOICE_LIBRARY_FILE: path.join(paths.dataRoot, "config", "voices.json"),
+      OPEN_TTS_VOICE_ASSET_DIR: path.join(paths.dataRoot, "voices"),
+      OPEN_TTS_VOICE_EXPORT_DIR: path.join(paths.dataRoot, "exports", "voices"),
+      OPEN_TTS_PROJECTS_FILE: path.join(paths.dataRoot, "config", "projects.json"),
+      OPEN_TTS_MODEL_PACKAGES_FILE: path.join(paths.dataRoot, "config", "model-packages.json"),
+      OPEN_TTS_TASKS_FILE: path.join(paths.dataRoot, "config", "tasks.json"),
+      OPEN_TTS_TASK_LOG_DIR: path.join(paths.dataRoot, "logs", "tasks"),
+      OPEN_TTS_INDEXTTS2_ROOT: path.join(paths.modelStoreRoot, "IndexTTS2"),
+      OPEN_TTS_VOXCPM2_ROOT: path.join(paths.modelStoreRoot, "VoxCPM2"),
+      OPEN_TTS_GPTSOVITS_ROOT: path.join(paths.modelStoreRoot, "GPT-SoVITS")
     }
   };
 }
@@ -57,7 +72,7 @@ function normalizeApiHost(value) {
 }
 
 function resolveDesktopSettings(paths, options = {}) {
-  const settingsFile = options.settingsFile || path.join(paths.workspaceRoot, "data", "config", "user-settings.json");
+  const settingsFile = options.settingsFile || path.join(paths.dataRoot, "config", "user-settings.json");
   const existsSync = options.existsSync || fs.existsSync;
   const readFileSync = options.readFileSync || fs.readFileSync;
   let stored = {};
@@ -82,7 +97,7 @@ function resolveDesktopSettings(paths, options = {}) {
 }
 
 function resolveBilibiliInputsDirectory(paths) {
-  return path.join(paths.workspaceRoot, "data", "inputs", "bilibili");
+  return path.join(paths.dataRoot, "inputs", "bilibili");
 }
 
 function resolveFfmpegPath(paths, options = {}) {

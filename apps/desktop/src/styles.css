@@ -2363,6 +2363,94 @@ audio {
   font-weight: 760;
 }
 
+.appUpdateGroup .settingsGroupTitle em {
+  margin-left: auto;
+  color: #718093;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 680;
+}
+
+.appUpdateCard {
+  display: grid;
+  gap: 11px;
+  padding: 13px;
+  border: 1px solid rgba(104, 126, 145, 0.16);
+  border-radius: 10px;
+  background: rgba(246, 250, 252, 0.68);
+  box-shadow: var(--inner);
+}
+
+.appUpdateSummary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.appUpdateSummary > div {
+  display: grid;
+  gap: 4px;
+}
+
+.appUpdateSummary strong {
+  color: #33475a;
+  font-size: 13px;
+}
+
+.updateStatus {
+  color: #657584;
+  line-height: 1.5;
+  font-size: 12px;
+}
+
+.updateStatus.error {
+  color: #9f3d3d;
+}
+
+.updateVersionBadge {
+  flex: 0 0 auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  color: #327f55;
+  background: rgba(222, 245, 231, 0.84);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.appUpdateProgress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(103, 124, 142, 0.14);
+}
+
+.appUpdateProgress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 160ms ease;
+}
+
+.appUpdateNotes {
+  max-height: 92px;
+  margin: 0;
+  overflow: auto;
+  color: #586c7d;
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: 12px;
+}
+
+.appUpdateActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .settingsField {
   min-width: 0;
   display: grid;
