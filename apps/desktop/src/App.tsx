@@ -10,11 +10,13 @@ import {
   Library,
   Link2,
   Loader2,
+  Lock,
   LogIn,
   LogOut,
   Maximize2,
   Mic2,
   Minus,
+  Info,
   Pause,
   Play,
   Plus,
@@ -177,6 +179,13 @@ type PendingModelSwitch = {
   targetModelId: string;
   loadedModelIds: string[];
 };
+
+const voxcpm2ParameterHints = {
+  cfg: "控制指令的遵从程度。推荐 2.0；低于 1.5 会减弱指令，高于 2.6 可能让音色不稳定。",
+  steps: "扩散采样次数。推荐 10；提高步数会更慢，通常不建议超过 16。",
+  normalize: "生成前规范化数字、时间等文本。推荐开启；需要保留原始读法时可关闭。",
+  denoise: "对参考音频做轻度降噪。推荐关闭；仅在底噪明显时开启，可能损失部分音色细节。"
+} as const;
 
 const voicePresets: VoicePreset[] = [
   {
@@ -1170,6 +1179,13 @@ export function App() {
   const showNormalizeToggle = selectedModel === "voxcpm2";
   const showDenoiseToggle = selectedModel === "voxcpm2";
   const hasParameterControls = showCfgSteps || showSpeedControl || showNormalizeToggle || showDenoiseToggle;
+  const hasActiveBatchGeneration = batchProjects.some((project) =>
+    project.status === "queued" || project.status === "running" || project.status === "cancelling"
+  );
+  const modelSwitchLocked = loading || hasActiveBatchGeneration;
+  const modelSwitchLockMessage = loading
+    ? "当前语音任务正在生成，模型切换已锁定。任务结束后才能切换。"
+    : "批量语音任务正在执行或排队，模型切换已锁定。任务结束后才能切换。";
   const online = models.length > 0 && !error;
   const resultSavedToVoiceLibrary = Boolean(result && savedVoicePath === result.file_path);
   const canGenerate =
@@ -2355,6 +2371,9 @@ export function App() {
     if (targetModelId === selectedModel) {
       return;
     }
+    if (modelSwitchLocked) {
+      return;
+    }
     const workers = systemStatus?.workers;
     const loadedModelIds = workers
       ? (["indextts2", "voxcpm2", "gptsovits"] as const).filter(
@@ -2369,7 +2388,7 @@ export function App() {
   }
 
   function confirmModelSwitch() {
-    if (!pendingModelSwitch) {
+    if (!pendingModelSwitch || modelSwitchLocked) {
       return;
     }
     setSelectedModel(pendingModelSwitch.targetModelId);
@@ -2710,6 +2729,12 @@ export function App() {
   }, [cloneMode, supportedCloneModeKey]);
 
   useEffect(() => {
+    if (modelSwitchLocked) {
+      setPendingModelSwitch(null);
+    }
+  }, [modelSwitchLocked]);
+
+  useEffect(() => {
     if (!loading || !generationStartedAt) {
       return;
     }
@@ -2906,13 +2931,13 @@ export function App() {
             </div>
             {showCfgSteps && (
               <>
-                <label className="sliderField">
-                  <span>CFG</span>
+                <label className="sliderField parameterHint" data-tooltip={voxcpm2ParameterHints.cfg}>
+                  <span className="parameterName">CFG <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
                   <input type="range" min="1" max="3" step="0.1" value={cfg} onChange={(event) => setCfg(Number(event.target.value))} />
                   <strong>{cfg}</strong>
                 </label>
-                <label className="sliderField">
-                  <span>步数</span>
+                <label className="sliderField parameterHint" data-tooltip={voxcpm2ParameterHints.steps}>
+                  <span className="parameterName">步数 <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
                   <input type="range" min="5" max="30" step="1" value={steps} onChange={(event) => setSteps(Number(event.target.value))} />
                   <strong>{steps}</strong>
                 </label>
@@ -2929,13 +2954,21 @@ export function App() {
             {(showNormalizeToggle || showDenoiseToggle) && (
               <div className="toggleRow">
                 {showNormalizeToggle && (
-                  <button className={normalizeText ? "toggle active" : "toggle"} onClick={() => setNormalizeText((value) => !value)}>
+                  <button
+                    className={normalizeText ? "toggle active parameterHint" : "toggle parameterHint"}
+                    data-tooltip={voxcpm2ParameterHints.normalize}
+                    onClick={() => setNormalizeText((value) => !value)}
+                  >
                     <CheckCircle2 size={16} strokeWidth={1.9} />
                     <span>文本正则化</span>
                   </button>
                 )}
                 {showDenoiseToggle && (
-                  <button className={denoise ? "toggle active" : "toggle"} onClick={() => setDenoise((value) => !value)}>
+                  <button
+                    className={denoise ? "toggle active parameterHint tooltipEnd" : "toggle parameterHint tooltipEnd"}
+                    data-tooltip={voxcpm2ParameterHints.denoise}
+                    onClick={() => setDenoise((value) => !value)}
+                  >
                     <ShieldCheck size={16} strokeWidth={1.9} />
                     <span>语音降噪</span>
                   </button>
@@ -2975,7 +3008,15 @@ export function App() {
             <div className="engineStrip">
               <div className="engineHeader">
                 <Cpu size={18} strokeWidth={1.9} />
-                <span>模型引擎</span>
+                <div>
+                  <span>模型引擎</span>
+                  {modelSwitchLocked && (
+                    <small className="modelSwitchLock" title={modelSwitchLockMessage}>
+                      <Lock size={12} strokeWidth={2} />
+                      模型切换已锁定
+                    </small>
+                  )}
+                </div>
               </div>
               <div className="modelScroller">
                 {models.map((model) => (
@@ -2983,7 +3024,8 @@ export function App() {
                     key={model.id}
                     className={model.id === selectedModel ? "modelPill active" : "modelPill"}
                     onClick={() => requestModelSwitch(model.id)}
-                    title={model.display_name}
+                    title={modelSwitchLocked && model.id !== selectedModel ? modelSwitchLockMessage : model.display_name}
+                    disabled={modelSwitchLocked && model.id !== selectedModel}
                   >
                     <span>{model.display_name}</span>
                     <small>{modelBadge(model)}</small>
