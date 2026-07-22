@@ -531,6 +531,59 @@ button:disabled {
   align-items: center;
 }
 
+.cloneModeWarning {
+  min-width: 0;
+  border: 1px solid rgba(194, 139, 57, 0.24);
+  border-radius: 8px;
+  padding: 11px;
+  color: #9a6b2e;
+  background: rgba(255, 249, 235, 0.82);
+  box-shadow: var(--inner);
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+}
+
+.cloneModeWarning > div {
+  min-width: 0;
+}
+
+.cloneModeWarning strong,
+.cloneModeWarning span {
+  display: block;
+}
+
+.cloneModeWarning strong {
+  color: #80511c;
+  font-size: 12px;
+}
+
+.cloneModeWarning span {
+  margin-top: 3px;
+  color: #6f6a5e;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.cloneModeWarning button {
+  margin-top: 8px;
+  border: 0;
+  border-radius: 7px;
+  padding: 6px 9px;
+  color: #8a5a22;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: var(--inner);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.cloneModeWarning button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .controlPanel {
   padding: 12px;
   display: grid;
@@ -2211,6 +2264,69 @@ audio {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 150px;
   gap: 12px;
+}
+
+.startupModelSettings {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.startupPrewarmCard {
+  min-width: 0;
+  border-radius: 8px;
+  padding: 10px 11px;
+  background: rgba(224, 233, 241, 0.58);
+  box-shadow: var(--inner);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.startupPrewarmCard > div {
+  min-width: 0;
+}
+
+.startupPrewarmCard strong,
+.startupPrewarmCard span {
+  display: block;
+}
+
+.startupPrewarmCard strong {
+  color: #405368;
+  font-size: 12px;
+}
+
+.startupPrewarmCard > div > span {
+  margin-top: 3px;
+  color: #718093;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settingsPrewarmToggle {
+  flex: 0 0 auto;
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #718093;
+  background: rgba(248, 251, 253, 0.76);
+  box-shadow: var(--inner);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.settingsPrewarmToggle.active {
+  color: #2f6b4c;
+  background: rgba(248, 252, 250, 0.94);
 }
 
 .restartNotice {

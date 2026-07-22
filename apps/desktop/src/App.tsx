@@ -168,6 +168,8 @@ type SettingsDraft = {
   gptsovits_root: string;
   gptsovits_api_host: string;
   gptsovits_api_port: number;
+  default_model_id: "indextts2" | "voxcpm2" | "gptsovits";
+  prewarm_default_model_on_startup: boolean;
 };
 
 type ModelProfileDraft = {
@@ -411,7 +413,9 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     voxcpm2_api_port: settings?.voxcpm2_api_port ?? 8000,
     gptsovits_root: settings?.gptsovits_root ?? `${modelStoreRoot}\\GPT-SoVITS`,
     gptsovits_api_host: settings?.gptsovits_api_host ?? "127.0.0.1",
-    gptsovits_api_port: settings?.gptsovits_api_port ?? 9880
+    gptsovits_api_port: settings?.gptsovits_api_port ?? 9880,
+    default_model_id: settings?.default_model_id ?? "indextts2",
+    prewarm_default_model_on_startup: settings?.prewarm_default_model_on_startup ?? false
   };
 }
 
@@ -897,6 +901,9 @@ function capabilityHint(model: ModelInfo | undefined, mode: CloneMode) {
   if (model.id === "indextts2" && mode === "可控克隆") {
     return "IndexTTS2 会保留所选参考音色，只控制情绪表达；不能用文字重新设计性别或音色。";
   }
+  if (model.id === "voxcpm2" && mode === "可控克隆") {
+    return "VoxCPM2 会优先克隆参考音频的说话人特征；控制文字只能调表达，不能可靠地把男声改成女声。";
+  }
   if (mode === "文本生成") {
     return "当前模型只使用目标文本，不需要参考音色。";
   }
@@ -1090,6 +1097,8 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMigrationAction, setSettingsMigrationAction] = useState<"export" | "import" | null>(null);
+  const defaultModelAppliedRef = useRef(false);
+  const startupPrewarmAttemptedRef = useRef(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [checkingModelId, setCheckingModelId] = useState<string | null>(null);
@@ -1168,6 +1177,11 @@ export function App() {
   const batchProjectSegmentCount = batchProjectSegments.filter((segment) => segment.trim()).length;
 
   const supportedCloneModes = useMemo(() => getSupportedCloneModes(selectedModelInfo), [selectedModelInfo]);
+  const startupModelOptions = useMemo(() => {
+    const enabledModelIds = new Set(modelInstances.filter((instance) => instance.enabled).map((instance) => instance.model_id));
+    const enabledModels = models.filter((model) => enabledModelIds.has(model.id));
+    return enabledModels.length > 0 ? enabledModels : models;
+  }, [modelInstances, models]);
   const supportedCloneModeKey = supportedCloneModes.join("|");
   const needsReferenceAudio = cloneModeNeedsVoice(cloneMode);
   const effectiveReferenceText = referenceText.trim() || selectedVoiceInfo.referenceText || "";
@@ -2056,10 +2070,15 @@ export function App() {
         api_port: Number(settingsDraft.api_port),
         output_dir: settingsDraft.output_dir.trim(),
         indextts2_idle_timeout_seconds: Number(settingsDraft.indextts2_idle_timeout_seconds),
-        local_api_idle_timeout_seconds: Number(settingsDraft.local_api_idle_timeout_seconds)
+        local_api_idle_timeout_seconds: Number(settingsDraft.local_api_idle_timeout_seconds),
+        default_model_id: settingsDraft.default_model_id,
+        prewarm_default_model_on_startup: settingsDraft.prewarm_default_model_on_startup
       });
       setAppSettings(savedSettings);
       setSettingsDraft(createSettingsDraft(savedSettings));
+      if (models.some((model) => model.id === savedSettings.default_model_id)) {
+        setSelectedModel(savedSettings.default_model_id);
+      }
       setSettingsMessage("设置已保存");
       void loadSystemStatus();
       void loadModelInstances();
@@ -2571,6 +2590,37 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (defaultModelAppliedRef.current || !appSettings || models.length === 0) {
+      return;
+    }
+    const configuredModel = models.find((model) => model.id === appSettings.default_model_id);
+    if (configuredModel) {
+      setSelectedModel(configuredModel.id);
+    }
+    defaultModelAppliedRef.current = true;
+  }, [appSettings, models]);
+
+  useEffect(() => {
+    if (
+      startupPrewarmAttemptedRef.current ||
+      !appSettings?.prewarm_default_model_on_startup ||
+      models.length === 0 ||
+      modelInstances.length === 0
+    ) {
+      return;
+    }
+    startupPrewarmAttemptedRef.current = true;
+    const model = models.find((candidate) => candidate.id === appSettings.default_model_id);
+    const instance = modelInstances.find((candidate) => candidate.model_id === appSettings.default_model_id);
+    if (!model || !instance || !isModelInstanceUsable(instance)) {
+      setSettingsMessage("启动预热已跳过：默认模型未启用或尚不可用。");
+      return;
+    }
+    setSelectedModel(model.id);
+    void onStartModelRuntime(instance);
+  }, [appSettings, modelInstances, models]);
+
+  useEffect(() => {
     if (!window.desktopBilibiliSampler?.onStateChanged) {
       return undefined;
     }
@@ -2920,6 +2970,20 @@ export function App() {
               <div className="capabilityNote compactCapabilityNote">
                 <Sparkles size={17} strokeWidth={1.9} />
                 <span>情绪建议使用惊讶、愤怒、悲伤、恐惧或平静；音色由左侧参考音频决定。</span>
+              </div>
+            )}
+            {selectedModel === "voxcpm2" && cloneMode === "可控克隆" && (
+              <div className="cloneModeWarning">
+                <AlertCircle size={17} strokeWidth={1.9} />
+                <div>
+                  <strong>参考音色会锁定说话人特征</strong>
+                  <span>
+                    当前正在克隆「{selectedVoiceInfo.name}」。控制文字只能调表达，不能可靠地把男声改成女声；想由描述决定音色，请改用音色设计。
+                  </span>
+                  <button type="button" onClick={() => setCloneMode("音色设计")} disabled={loading}>
+                    切换到音色设计
+                  </button>
+                </div>
               </div>
             )}
           </section>
@@ -4283,6 +4347,46 @@ export function App() {
                       </div>
                     );
                   })}
+                </div>
+                <div className="startupModelSettings">
+                  <label className="settingsField">
+                    <span>启动默认模型</span>
+                    <select
+                      value={settingsDraft.default_model_id}
+                      onChange={(event) =>
+                        setSettingsDraft((draft) => ({
+                          ...draft,
+                          default_model_id: event.target.value as SettingsDraft["default_model_id"]
+                        }))
+                      }
+                    >
+                      {startupModelOptions.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.display_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="startupPrewarmCard">
+                    <div>
+                      <strong>打开软件时预热默认模型</strong>
+                      <span>后台加载模型权重，不会自动生成语音；会占用对应显存，并先处理其他本软件托管模型。</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={settingsDraft.prewarm_default_model_on_startup ? "settingsPrewarmToggle active" : "settingsPrewarmToggle"}
+                      aria-pressed={settingsDraft.prewarm_default_model_on_startup}
+                      onClick={() =>
+                        setSettingsDraft((draft) => ({
+                          ...draft,
+                          prewarm_default_model_on_startup: !draft.prewarm_default_model_on_startup
+                        }))
+                      }
+                    >
+                      <Cpu size={16} strokeWidth={1.9} />
+                      <span>{settingsDraft.prewarm_default_model_on_startup ? "已开启" : "未开启"}</span>
+                    </button>
+                  </div>
                 </div>
                 <label className="settingsField">
                   <span>IndexTTS2 空闲释放显存</span>

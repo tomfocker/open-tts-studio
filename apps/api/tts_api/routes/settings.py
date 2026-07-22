@@ -35,6 +35,8 @@ class SettingsBackupValues(BaseModel):
     output_dir: Path
     indextts2_idle_timeout_seconds: int = Field(ge=30, le=86400)
     local_api_idle_timeout_seconds: int = Field(ge=30, le=86400)
+    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits"] = "indextts2"
+    prewarm_default_model_on_startup: bool = False
 
 
 class SettingsBackupModelInstance(BaseModel):
@@ -76,6 +78,8 @@ class SettingsUpdate(BaseModel):
     gptsovits_root: Path | None = None
     gptsovits_api_host: str | None = None
     gptsovits_api_port: int | None = Field(default=None, ge=1024, le=65535)
+    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits"] | None = None
+    prewarm_default_model_on_startup: bool | None = None
 
 
 def build_settings_backup(settings) -> SettingsBackup:
@@ -99,6 +103,8 @@ def build_settings_backup(settings) -> SettingsBackup:
             output_dir=settings.output_dir,
             indextts2_idle_timeout_seconds=settings.indextts2_idle_timeout_seconds,
             local_api_idle_timeout_seconds=settings.local_api_idle_timeout_seconds,
+            default_model_id=settings.default_model_id,
+            prewarm_default_model_on_startup=settings.prewarm_default_model_on_startup,
         ),
         model_instances=model_instances,
         model_packages=list_model_packages(settings),

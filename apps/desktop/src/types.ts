@@ -460,6 +460,8 @@ export type AppSettings = {
   gptsovits_root: string;
   gptsovits_api_host: string;
   gptsovits_api_port: number;
+  default_model_id: "indextts2" | "voxcpm2" | "gptsovits";
+  prewarm_default_model_on_startup: boolean;
   settings_file: string;
   restart_required_fields: string[];
 };
@@ -479,6 +481,8 @@ export type AppSettingsUpdate = Partial<
     | "gptsovits_root"
     | "gptsovits_api_host"
     | "gptsovits_api_port"
+    | "default_model_id"
+    | "prewarm_default_model_on_startup"
   >
 >;
 
@@ -502,6 +506,8 @@ export type SettingsBackup = {
     | "output_dir"
     | "indextts2_idle_timeout_seconds"
     | "local_api_idle_timeout_seconds"
+    | "default_model_id"
+    | "prewarm_default_model_on_startup"
   >;
   model_instances: Record<string, SettingsBackupModelInstance>;
   model_packages?: ModelPackageRecord[];

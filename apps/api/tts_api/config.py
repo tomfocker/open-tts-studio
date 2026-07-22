@@ -2,6 +2,7 @@ from functools import lru_cache
 import json
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -45,6 +46,8 @@ USER_SETTING_KEYS = {
     "gptsovits_root",
     "gptsovits_api_host",
     "gptsovits_api_port",
+    "default_model_id",
+    "prewarm_default_model_on_startup",
     "model_instances",
 }
 RESTART_REQUIRED_FIELDS = ["api_host", "api_port"]
@@ -73,6 +76,8 @@ class Settings(BaseModel):
     gptsovits_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_GPTSOVITS_ROOT", str(DEFAULT_GPTSOVITS_ROOT))))
     gptsovits_api_host: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_GPTSOVITS_API_HOST", "127.0.0.1"))
     gptsovits_api_port: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_GPTSOVITS_API_PORT", "9880")))
+    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits"] = "indextts2"
+    prewarm_default_model_on_startup: bool = False
     model_instances: dict[str, dict] = Field(default_factory=dict)
 
 
@@ -114,6 +119,8 @@ def serialize_settings(settings: Settings) -> dict:
         "gptsovits_root": str(settings.gptsovits_root),
         "gptsovits_api_host": settings.gptsovits_api_host,
         "gptsovits_api_port": settings.gptsovits_api_port,
+        "default_model_id": settings.default_model_id,
+        "prewarm_default_model_on_startup": settings.prewarm_default_model_on_startup,
         "model_instances": settings.model_instances,
         "settings_file": str(settings.settings_file),
         "restart_required_fields": RESTART_REQUIRED_FIELDS,

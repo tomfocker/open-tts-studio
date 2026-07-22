@@ -29,6 +29,8 @@ def test_settings_endpoint_returns_runtime_defaults(tmp_path: Path, monkeypatch)
     assert body["gptsovits_root"] == str(DEFAULT_GPTSOVITS_ROOT)
     assert body["indextts2_idle_timeout_seconds"] == 600
     assert body["local_api_idle_timeout_seconds"] == 600
+    assert body["default_model_id"] == "indextts2"
+    assert body["prewarm_default_model_on_startup"] is False
     assert body["settings_file"] == str(settings_file)
     assert "api_port" in body["restart_required_fields"]
 
@@ -46,6 +48,8 @@ def test_settings_endpoint_persists_updates_and_refreshes_runtime(tmp_path: Path
             "indextts2_idle_timeout_seconds": 120,
             "local_api_idle_timeout_seconds": 150,
             "api_port": 8877,
+            "default_model_id": "voxcpm2",
+            "prewarm_default_model_on_startup": True,
         },
     )
 
@@ -56,6 +60,8 @@ def test_settings_endpoint_persists_updates_and_refreshes_runtime(tmp_path: Path
     assert body["indextts2_idle_timeout_seconds"] == 120
     assert body["local_api_idle_timeout_seconds"] == 150
     assert body["api_port"] == 8877
+    assert body["default_model_id"] == "voxcpm2"
+    assert body["prewarm_default_model_on_startup"] is True
     assert "api_port" in body["restart_required_fields"]
     assert settings_file.exists()
 
@@ -64,6 +70,8 @@ def test_settings_endpoint_persists_updates_and_refreshes_runtime(tmp_path: Path
     assert settings.indextts2_root == custom_index
     assert settings.indextts2_idle_timeout_seconds == 120
     assert settings.local_api_idle_timeout_seconds == 150
+    assert settings.default_model_id == "voxcpm2"
+    assert settings.prewarm_default_model_on_startup is True
 
 
 def test_settings_endpoint_syncs_model_instance_profiles(tmp_path: Path, monkeypatch):
@@ -156,6 +164,8 @@ def test_settings_export_contains_only_safe_versioned_migration_data(tmp_path: P
     assert body["schema"] == "open-tts-studio-settings"
     assert body["version"] == 1
     assert body["settings"]["indextts2_idle_timeout_seconds"] == 600
+    assert body["settings"]["default_model_id"] == "indextts2"
+    assert body["settings"]["prewarm_default_model_on_startup"] is False
     assert {package["model_id"] for package in body["model_packages"]} == {"indextts2", "voxcpm2", "gptsovits"}
     assert body["model_instances"]["indextts2"] == {
         "enabled": True,
@@ -184,6 +194,8 @@ def test_settings_import_restores_portable_settings_and_model_profiles(tmp_path:
             "output_dir": str(imported_output),
             "indextts2_idle_timeout_seconds": 180,
             "local_api_idle_timeout_seconds": 240,
+            "default_model_id": "gptsovits",
+            "prewarm_default_model_on_startup": True,
         }
     )
     backup["model_instances"]["voxcpm2"] = {
@@ -202,6 +214,8 @@ def test_settings_import_restores_portable_settings_and_model_profiles(tmp_path:
     assert import_response.json()["api_port"] == 8899
     assert import_response.json()["indextts2_idle_timeout_seconds"] == 180
     assert import_response.json()["local_api_idle_timeout_seconds"] == 240
+    assert import_response.json()["default_model_id"] == "gptsovits"
+    assert import_response.json()["prewarm_default_model_on_startup"] is True
 
     instances_response = client.get("/v1/model-instances")
     instances = {item["model_id"]: item for item in instances_response.json()["instances"]}
