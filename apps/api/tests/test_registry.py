@@ -83,3 +83,9 @@ def test_capabilities_endpoint_exposes_stable_adapter_boundaries(tmp_path: Path,
     assert body["streaming"] is False
     assert gptsovits["requires_reference_audio"] is True
     assert "reference_audio" in gptsovits["accepted_parameters"]
+    assert {item["model"]["id"] for item in body["models"]} == {"indextts2", "voxcpm2", "gptsovits"}
+
+    models_response = client.get("/v1/tts/models")
+
+    assert models_response.status_code == 200
+    assert {model["id"] for model in models_response.json()} == {"indextts2", "voxcpm2", "gptsovits"}

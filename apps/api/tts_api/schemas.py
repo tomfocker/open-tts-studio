@@ -24,6 +24,7 @@ class ModelInfo(BaseModel):
     requires_reference_audio: bool = False
     native_sample_rate: int
     adapter: str
+    internal_only: bool = False
 
 
 class SpeechRequest(BaseModel):

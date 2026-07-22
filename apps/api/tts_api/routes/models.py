@@ -12,7 +12,7 @@ router = APIRouter()
 def list_models() -> list[ModelInfo]:
     settings = get_settings()
     registry = ModelRegistry(settings.model_registry_path)
-    return registry.list_models()
+    return registry.list_models(include_internal=False)
 
 
 @router.get("/v1/tts/capabilities")
@@ -30,6 +30,6 @@ def list_model_capabilities() -> dict:
                 "accepted_parameters": ["input", *model.request_capabilities],
                 "requires_reference_audio": model.requires_reference_audio,
             }
-            for model in registry.list_models()
+            for model in registry.list_models(include_internal=False)
         ],
     }

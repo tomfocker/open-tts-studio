@@ -45,8 +45,10 @@ Invoke-RestMethod http://127.0.0.1:8765/v1/tts/capabilities -Headers $headers
 
 ```powershell
 $body = @{
-  model = "mock-tts"
+  model = "indextts2"
   input = "你好，这是一段本地 TTS API 测试。"
+  reference_audio = "D:\code\tts\models\IndexTTS2\Index-TTS\examples\voice_01.wav"
+  control_prompt = "语速自然，情绪稳定，声音清晰。"
   response_format = "wav"
 } | ConvertTo-Json
 
@@ -78,8 +80,10 @@ Invoke-RestMethod `
 
 ```powershell
 $body = @{
-  model = "mock-tts"
+  model = "indextts2"
   input = "这是一段任务队列测试。"
+  reference_audio = "D:\code\tts\models\IndexTTS2\Index-TTS\examples\voice_01.wav"
+  control_prompt = "语速自然，情绪稳定，声音清晰。"
 } | ConvertTo-Json
 
 Invoke-RestMethod `

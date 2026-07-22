@@ -11,7 +11,8 @@
     "features": ["plain_tts", "streaming"],
     "request_capabilities": [],
     "native_sample_rate": 24000,
-    "adapter": "mock"
+    "adapter": "mock",
+    "internal_only": true
   },
   {
     "id": "voxcpm2",
@@ -26,20 +27,6 @@
     "request_capabilities": ["reference_audio", "reference_text", "control_prompt", "voice_prompt"],
     "native_sample_rate": 48000,
     "adapter": "voxcpm2"
-  },
-  {
-    "id": "f5-tts",
-    "display_name": "F5-TTS",
-    "priority": "P0",
-    "source_url": "https://github.com/SWivid/F5-TTS",
-    "code_license": "MIT",
-    "weights_license": "CC-BY-NC",
-    "commercial_use": "restricted",
-    "recommended_vram_gb": 6,
-    "features": ["plain_tts", "voice_clone"],
-    "request_capabilities": ["reference_audio", "reference_text"],
-    "native_sample_rate": 24000,
-    "adapter": "f5_tts"
   },
   {
     "id": "gptsovits",

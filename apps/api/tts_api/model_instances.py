@@ -95,15 +95,6 @@ def build_default_model_instances(settings: Settings) -> list[ModelInstanceProfi
             api_host=settings.gptsovits_api_host,
             api_port=settings.gptsovits_api_port,
         ),
-        ModelInstanceProfile(
-            model_id="f5-tts",
-            display_name="F5-TTS",
-            enabled=False,
-            runtime_type=RuntimeType.reserved,
-            root_path=None,
-            status=ModelInstanceStatus.disabled,
-            last_error="F5-TTS adapter is reserved and not connected yet.",
-        ),
     ]
 
 

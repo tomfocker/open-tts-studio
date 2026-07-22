@@ -65,12 +65,12 @@ def test_registers_directory_with_bounded_read_only_inspection(tmp_path: Path, m
 
 def test_registers_archive_without_extracting_it(tmp_path: Path, monkeypatch):
     client, _ = make_model_package_client(tmp_path, monkeypatch)
-    archive = tmp_path / "F5-TTS-stable.7z"
+    archive = tmp_path / "IndexTTS2-stable.7z"
     archive.write_bytes(b"archive-placeholder")
 
     response = client.post(
         "/v1/model-packages",
-        json={"model_id": "f5-tts", "path": str(archive), "package_label": "待安装 F5-TTS"},
+        json={"model_id": "indextts2", "path": str(archive), "package_label": "待解压 IndexTTS2"},
     )
 
     assert response.status_code == 201

@@ -173,8 +173,6 @@ type ModelProfileDraft = {
   user_note: string;
 };
 
-const DEFAULT_INDEXTTS2_PROMPT = "D:\\AI\\IndexTTS2\\Index-TTS\\examples\\voice_01.wav";
-
 const voicePresets: VoicePreset[] = [
   {
     id: "sample",
@@ -182,7 +180,6 @@ const voicePresets: VoicePreset[] = [
     subtitle: "参考音频",
     initials: "样",
     background: "linear-gradient(135deg, #425466 0%, #8ea1b2 100%)",
-    referenceAudio: DEFAULT_INDEXTTS2_PROMPT
   },
   {
     id: "custom",
@@ -402,6 +399,11 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     gptsovits_api_host: settings?.gptsovits_api_host ?? "127.0.0.1",
     gptsovits_api_port: settings?.gptsovits_api_port ?? 9880
   };
+}
+
+function getDefaultIndexTts2Prompt(settings: AppSettings | null) {
+  const modelRoot = settings?.indextts2_root ?? "models\\IndexTTS2";
+  return `${modelRoot.replace(/[\\/]+$/, "")}\\Index-TTS\\examples\\voice_01.wav`;
 }
 
 function getFileBaseName(filePath: string) {
@@ -1115,9 +1117,11 @@ export function App() {
 
   const availableVoices = useMemo(() => {
     const importVoice = voicePresets.find((voice) => voice.id === "custom");
-    const builtInVoices = voicePresets.filter((voice) => voice.id !== "custom");
+    const builtInVoices = voicePresets
+      .filter((voice) => voice.id !== "custom")
+      .map((voice) => (voice.id === "sample" ? { ...voice, referenceAudio: getDefaultIndexTts2Prompt(appSettings) } : voice));
     return importVoice ? [...builtInVoices, ...customVoices, importVoice] : [...builtInVoices, ...customVoices];
-  }, [customVoices]);
+  }, [appSettings, customVoices]);
 
   const selectedVoiceInfo = useMemo(
     () => availableVoices.find((voice) => voice.id === selectedVoice && voice.id !== "custom") ?? availableVoices[0] ?? voicePresets[0],

@@ -30,7 +30,7 @@ def test_default_model_instances_are_created_from_settings(tmp_path: Path):
     instances = build_default_model_instances(settings)
     by_id = {instance.model_id: instance for instance in instances}
 
-    assert set(by_id) == {"indextts2", "voxcpm2", "gptsovits", "f5-tts"}
+    assert set(by_id) == {"indextts2", "voxcpm2", "gptsovits"}
     assert by_id["indextts2"].runtime_type == RuntimeType.worker_lazy_pack
     assert by_id["indextts2"].root_path == tmp_path / "IndexTTS2"
     assert by_id["voxcpm2"].runtime_type == RuntimeType.lazy_pack_api
@@ -38,8 +38,6 @@ def test_default_model_instances_are_created_from_settings(tmp_path: Path):
     assert by_id["voxcpm2"].api_port == 8000
     assert by_id["gptsovits"].runtime_type == RuntimeType.lazy_pack_api
     assert by_id["gptsovits"].api_port == 9880
-    assert by_id["f5-tts"].runtime_type == RuntimeType.reserved
-    assert by_id["f5-tts"].enabled is False
     assert by_id["gptsovits"].status == ModelInstanceStatus.untested
 
 
@@ -145,8 +143,8 @@ def test_model_instances_endpoint_lists_profiles(tmp_path: Path, monkeypatch):
 
     assert response.status_code == 200
     body = response.json()
-    assert {item["model_id"] for item in body["instances"]} == {"indextts2", "voxcpm2", "gptsovits", "f5-tts"}
-    assert body["instances"][0]["status"] in {"untested", "disabled"}
+    assert {item["model_id"] for item in body["instances"]} == {"indextts2", "voxcpm2", "gptsovits"}
+    assert body["instances"][0]["status"] == "untested"
 
 
 def test_model_instance_patch_persists_profile(tmp_path: Path, monkeypatch):
