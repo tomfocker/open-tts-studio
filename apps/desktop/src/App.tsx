@@ -173,6 +173,11 @@ type ModelProfileDraft = {
   user_note: string;
 };
 
+type PendingModelSwitch = {
+  targetModelId: string;
+  loadedModelIds: string[];
+};
+
 const voicePresets: VoicePreset[] = [
   {
     id: "sample",
@@ -880,6 +885,9 @@ function capabilityHint(model: ModelInfo | undefined, mode: CloneMode) {
   if (model.id === "gptsovits" && mode === "极致克隆") {
     return "GPT-SoVITS 会同时使用参考音频和参考文本，适合更稳定的音色复刻。";
   }
+  if (model.id === "indextts2" && mode === "可控克隆") {
+    return "IndexTTS2 会保留所选参考音色，只控制情绪表达；不能用文字重新设计性别或音色。";
+  }
   if (mode === "文本生成") {
     return "当前模型只使用目标文本，不需要参考音色。";
   }
@@ -890,6 +898,16 @@ function capabilityHint(model: ModelInfo | undefined, mode: CloneMode) {
     return "当前模型会使用参考音频进行克隆。";
   }
   return "当前模型会使用参考音频和对应文本进行高相似度克隆。";
+}
+
+function controlPromptPlaceholder(model: ModelInfo | undefined, mode: CloneMode) {
+  if (model?.id === "indextts2") {
+    return "情绪描述：如惊讶、愤怒、悲伤、恐惧或平静（保持参考音色不变）";
+  }
+  if (model?.id === "voxcpm2" && mode === "音色设计") {
+    return "音色设计：如成熟御姐、低沉男声、清亮少女音";
+  }
+  return "控制指令";
 }
 
 function getGenerationProgress(modelId: string, elapsedSeconds: number): GenerationProgress {
@@ -1018,6 +1036,7 @@ function getGenerationProgress(modelId: string, elapsedSeconds: number): Generat
 export function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState("indextts2");
+  const [pendingModelSwitch, setPendingModelSwitch] = useState<PendingModelSwitch | null>(null);
   const [selectedVoice, setSelectedVoice] = useState("sample");
   const [customVoices, setCustomVoices] = useState<VoicePreset[]>([]);
   const [cloneMode, setCloneMode] = useState<CloneMode>("可控克隆");
@@ -1171,6 +1190,9 @@ export function App() {
       : selectedModel === "gptsovits"
         ? systemStatus?.workers.gptsovits
         : systemStatus?.workers.indextts2;
+  const pendingSwitchLoadedModels = (pendingModelSwitch?.loadedModelIds ?? []).map(
+    (modelId) => models.find((model) => model.id === modelId)?.display_name ?? modelId
+  );
   const samplerBridgeAvailable = typeof window !== "undefined" && Boolean(window.desktopBilibiliSampler);
   const samplerSelectedItem = useMemo(() => {
     const parsedLink = samplerState.parsedLink;
@@ -1412,7 +1434,11 @@ export function App() {
         reference_audio: selectedVoiceInfo.referenceAudio,
         reference_text: effectiveReferenceText.trim() || undefined,
         emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
-        speed: showSpeedControl ? speed : 1
+        speed: showSpeedControl ? speed : 1,
+        cfg: showCfgSteps ? cfg : undefined,
+        inference_steps: showCfgSteps ? steps : undefined,
+        normalize: showNormalizeToggle ? normalizeText : undefined,
+        denoise: showDenoiseToggle ? denoise : undefined
       };
       const project = editingBatchProjectId
         ? await updateBatchProject(editingBatchProjectId, payload)
@@ -1490,6 +1516,21 @@ export function App() {
       }
     } catch (err) {
       setBatchProjectError(err instanceof Error ? err.message : "打开输出目录失败");
+    }
+  }
+
+  async function openOutputDirectory() {
+    if (!appSettings?.output_dir || !window.desktopFiles?.openPath) {
+      setError("请在桌面软件中打开输出目录");
+      return;
+    }
+    try {
+      const errorMessage = await window.desktopFiles.openPath(appSettings.output_dir);
+      if (errorMessage) {
+        throw new Error(errorMessage);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "打开输出目录失败");
     }
   }
 
@@ -2265,7 +2306,14 @@ export function App() {
     setSettingsMessage(null);
     try {
       const result = await startModelRuntime(instance.model_id);
-      setSettingsMessage(`${instance.display_name} 已发出启动请求，可在运行时状态中查看就绪情况。`);
+      const releasedNames = (result.released_models ?? [])
+        .map((modelId) => models.find((model) => model.id === modelId)?.display_name ?? modelId)
+        .join("、");
+      setSettingsMessage(
+        releasedNames
+          ? `${instance.display_name} 已发出启动请求，已释放 ${releasedNames} 的显存。`
+          : `${instance.display_name} 已发出启动请求，可在运行时状态中查看就绪情况。`
+      );
       setSystemStatus((current) =>
         current
           ? { ...current, workers: { ...current.workers, [instance.model_id]: result.worker } }
@@ -2303,6 +2351,31 @@ export function App() {
     }
   }
 
+  function requestModelSwitch(targetModelId: string) {
+    if (targetModelId === selectedModel) {
+      return;
+    }
+    const workers = systemStatus?.workers;
+    const loadedModelIds = workers
+      ? (["indextts2", "voxcpm2", "gptsovits"] as const).filter(
+          (modelId) => modelId !== targetModelId && workers[modelId]?.loaded
+        )
+      : [];
+    if (loadedModelIds.length > 0) {
+      setPendingModelSwitch({ targetModelId, loadedModelIds });
+      return;
+    }
+    setSelectedModel(targetModelId);
+  }
+
+  function confirmModelSwitch() {
+    if (!pendingModelSwitch) {
+      return;
+    }
+    setSelectedModel(pendingModelSwitch.targetModelId);
+    setPendingModelSwitch(null);
+  }
+
   async function onGenerate() {
     setLoading(true);
     setError(null);
@@ -2323,7 +2396,11 @@ export function App() {
         referenceAudio: needsReferenceAudio ? selectedVoiceInfo.referenceAudio : undefined,
         referenceText: needsExtremeReferenceText || selectedModel === "gptsovits" ? effectiveReferenceText.trim() || undefined : undefined,
         emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
-        speed: showSpeedControl ? speed : 1
+        speed: showSpeedControl ? speed : 1,
+        cfg: showCfgSteps ? cfg : undefined,
+        inferenceSteps: showCfgSteps ? steps : undefined,
+        normalize: showNormalizeToggle ? normalizeText : undefined,
+        denoise: showDenoiseToggle ? denoise : undefined
       });
       setActiveSpeechContext({ modelName: requestModelName, voiceName: requestVoiceName });
       setActiveSpeechJob(job);
@@ -2798,7 +2875,7 @@ export function App() {
                 className="controlPrompt"
                 value={controlPrompt}
                 onChange={(event) => setControlPrompt(event.target.value)}
-                placeholder="控制指令"
+                placeholder={controlPromptPlaceholder(selectedModelInfo, cloneMode)}
               />
             ) : (
               <div className="capabilityNote">
@@ -2814,6 +2891,12 @@ export function App() {
                 placeholder="参考音频对应文本"
               />
             )}
+            {selectedModel === "indextts2" && showControlPrompt && (
+              <div className="capabilityNote compactCapabilityNote">
+                <Sparkles size={17} strokeWidth={1.9} />
+                <span>情绪建议使用惊讶、愤怒、悲伤、恐惧或平静；音色由左侧参考音频决定。</span>
+              </div>
+            )}
           </section>
 
           <section className="softPanel paramsPanel">
@@ -2825,7 +2908,7 @@ export function App() {
               <>
                 <label className="sliderField">
                   <span>CFG</span>
-                  <input type="range" min="1" max="6" step="0.5" value={cfg} onChange={(event) => setCfg(Number(event.target.value))} />
+                  <input type="range" min="1" max="3" step="0.1" value={cfg} onChange={(event) => setCfg(Number(event.target.value))} />
                   <strong>{cfg}</strong>
                 </label>
                 <label className="sliderField">
@@ -2875,7 +2958,7 @@ export function App() {
             )}
 
             <div className="leftActions">
-              <button className="secondaryAction" disabled={!result}>
+              <button className="secondaryAction" disabled={!result} onClick={() => void openOutputDirectory()}>
                 <FolderOpen size={17} strokeWidth={1.9} />
                 <span>查看成品</span>
               </button>
@@ -2899,7 +2982,7 @@ export function App() {
                   <button
                     key={model.id}
                     className={model.id === selectedModel ? "modelPill active" : "modelPill"}
-                    onClick={() => setSelectedModel(model.id)}
+                    onClick={() => requestModelSwitch(model.id)}
                     title={model.display_name}
                   >
                     <span>{model.display_name}</span>
@@ -2960,8 +3043,8 @@ export function App() {
                     <Volume2 size={24} strokeWidth={1.8} />
                   </div>
                   <div>
-                    <h2>{selectedVoiceInfo.name}</h2>
-                    <p>{selectedModelInfo?.display_name ?? result.model}</p>
+                  <h2>{resultVoiceName || selectedVoiceInfo.name}</h2>
+                  <p>{resultModelName || selectedModelInfo?.display_name || result.model}</p>
                   </div>
                   <div className="resultMeta">
                     <span>{result.sample_rate} Hz</span>
@@ -2989,7 +3072,7 @@ export function App() {
                   <Trash2 size={17} strokeWidth={1.9} />
                   <span>清空文本</span>
                 </button>
-                <button className="roundAdd" title="添加任务">
+                <button className="roundAdd" title="创建批量任务" onClick={openBatchProjectWorkspace}>
                   <Plus size={18} strokeWidth={2} />
                 </button>
                 <input ref={fileInputRef} className="hiddenFile" type="file" accept=".txt,text/plain" onChange={onImportText} />
@@ -3023,7 +3106,7 @@ export function App() {
             <div className="playerInfo">
               {result ? (
                 <>
-                  <strong>{selectedModelInfo?.display_name ?? result.model}</strong>
+                  <strong>{resultModelName || selectedModelInfo?.display_name || result.model}</strong>
                   <span>{result.file_path}</span>
                 </>
               ) : (
@@ -3397,6 +3480,46 @@ export function App() {
               <button className="secondaryAction settingsAction" onClick={() => setTaskCenterOpen(false)}>
                 <X size={16} strokeWidth={1.9} />
                 <span>关闭</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {pendingModelSwitch && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="确认切换模型">
+          <section className="settingsDialog modelSwitchDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>确认切换模型</strong>
+                <span>显存与模型加载管理</span>
+              </div>
+              <button className="modalClose" title="取消" onClick={() => setPendingModelSwitch(null)}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+            <div className="settingsBody modelSwitchBody">
+              <div className="modelSwitchWarning">
+                <AlertCircle size={20} strokeWidth={1.9} />
+                <div>
+                  <strong>{pendingSwitchLoadedModels.join("、")} 仍在显存中</strong>
+                  <span>
+                    切换到 {models.find((model) => model.id === pendingModelSwitch.targetModelId)?.display_name ?? pendingModelSwitch.targetModelId}
+                    不会立刻卸载它们；只有开始生成时，软件才会自动释放其他由 OpenTTS 托管的模型，避免显存叠加。
+                  </span>
+                </div>
+              </div>
+              <p className="modelSwitchNote">
+                这样可以避免仅查看模型就反复加载权重。以后切回这些模型并再次生成时，需要重新加载到显存。
+              </p>
+            </div>
+            <footer className="settingsFooter">
+              <button className="secondaryAction settingsAction" onClick={() => setPendingModelSwitch(null)}>
+                <span>保留当前模型</span>
+              </button>
+              <button className="primaryAction settingsAction" onClick={confirmModelSwitch}>
+                <Cpu size={16} strokeWidth={1.9} />
+                <span>确认切换</span>
               </button>
             </footer>
           </section>
@@ -4063,7 +4186,7 @@ export function App() {
                           {runtimeControllable && (
                             <button
                               className="pathPickButton"
-                              title="仅在点击后启动本地模型或 API；不会自动执行。"
+                              title="仅在点击后启动本地模型或 API；为避免显存叠加，会先释放其他由本软件托管的模型。"
                               onClick={() => void onStartModelRuntime(instance)}
                               disabled={!instance.enabled || runtimeActionPending || Boolean(runtimeWorker?.loaded) || runtimeWorker?.state === "starting"}
                             >

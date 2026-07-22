@@ -22,6 +22,10 @@ def validate_speech_request_capabilities(model: ModelInfo, request: SpeechReques
     _require_capability(model, request.voice_prompt, "voice_prompt", capabilities)
     if request.speed != 1.0:
         _require_capability(model, request.speed, "speed", capabilities)
+    _require_capability(model, request.cfg, "cfg", capabilities)
+    _require_capability(model, request.inference_steps, "inference_steps", capabilities)
+    _require_capability(model, request.normalize, "normalize", capabilities)
+    _require_capability(model, request.denoise, "denoise", capabilities)
 
     if request.reference_audio:
         reference_path = Path(request.reference_audio)

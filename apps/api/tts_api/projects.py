@@ -45,6 +45,10 @@ class BatchProjectStore:
                 reference_text=payload.reference_text,
                 emotion=payload.emotion,
                 speed=payload.speed,
+                cfg=payload.cfg,
+                inference_steps=payload.inference_steps,
+                normalize=payload.normalize,
+                denoise=payload.denoise,
             )
             projects = self._load()
             projects[project.id] = project
@@ -378,6 +382,10 @@ class BatchProjectRunner:
                 emotion=project.emotion,
                 response_format="wav",
                 speed=project.speed,
+                cfg=project.cfg,
+                inference_steps=project.inference_steps,
+                normalize=project.normalize,
+                denoise=project.denoise,
             )
             try:
                 result = self.synthesize(request)

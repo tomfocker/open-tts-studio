@@ -70,9 +70,9 @@ class VoxCpm2ServiceManager:
         environment["OPEN_TTS_VOXCPM2_API_PORT"] = str(self.settings.voxcpm2_api_port)
         return environment
 
-    def is_healthy(self) -> bool:
+    def is_healthy(self, timeout_seconds: float = 2.0) -> bool:
         try:
-            response = self.http_client.get(f"{self.api_base}/health", timeout=2.0)
+            response = self.http_client.get(f"{self.api_base}/health", timeout=timeout_seconds)
             response.raise_for_status()
             return True
         except Exception:
@@ -131,8 +131,8 @@ class VoxCpm2ServiceManager:
             self.last_used_at = self.now_factory()
             self._schedule_idle_release()
 
-    def status(self) -> dict:
-        healthy = self.is_healthy()
+    def status(self, probe_timeout_seconds: float = 2.0) -> dict:
+        healthy = self.is_healthy(timeout_seconds=probe_timeout_seconds)
         managed = self.process is not None and self.process.poll() is None
         idle_timeout = self.settings.local_api_idle_timeout_seconds
         idle_seconds = int(self.now_factory() - self.last_used_at) if self.last_used_at else None
@@ -289,10 +289,10 @@ class VoxCpm2Adapter(TtsAdapter):
             "text": request.input,
             "control_instruction": request.emotion or request.voice_prompt or "",
             "prompt_text": request.reference_text,
-            "cfg_value": "2.0",
-            "inference_timesteps": "10",
-            "normalize": "true",
-            "denoise": "true",
+            "cfg_value": str(request.cfg if request.cfg is not None else 2.0),
+            "inference_timesteps": str(request.inference_steps if request.inference_steps is not None else 10),
+            "normalize": str(request.normalize if request.normalize is not None else True).lower(),
+            "denoise": str(request.denoise if request.denoise is not None else True).lower(),
         }
         files = None
         file_handle = None

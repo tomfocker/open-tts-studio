@@ -10,10 +10,11 @@ from tts_api.adapters.mock import MockTtsAdapter
 from tts_api.adapters.voxcpm2 import VoxCpm2Adapter
 from tts_api.config import get_settings
 from tts_api.errors import unknown_model_error, unsupported_adapter_error
-from tts_api.model_instances import apply_model_instance_to_settings, get_model_instance, mark_model_instance_success
+from tts_api.model_instances import get_model_instance, mark_model_instance_success
 from tts_api.model_capabilities import validate_speech_request_capabilities
 from tts_api.jobs import run_tracked_synthesis
 from tts_api.registry import ModelRegistry
+from tts_api.runtime_memory import release_conflicting_runtimes, resolve_runtime_settings
 from tts_api.schemas import SpeechRequest, SpeechResult
 
 router = APIRouter()
@@ -50,7 +51,9 @@ def synthesize_with_registered_adapter(
 
     try:
         instance = get_model_instance(request.model, settings=settings)
-        settings = apply_model_instance_to_settings(settings, instance)
+        if not instance.enabled:
+            raise HTTPException(status_code=409, detail=f"Model instance is disabled: {request.model}")
+        settings = resolve_runtime_settings(settings)
     except KeyError:
         instance = None
     except ValueError as exc:
@@ -58,6 +61,18 @@ def synthesize_with_registered_adapter(
 
     _report_progress(progress_reporter, "waiting_generation_slot", 18, "正在等待本地串行生成槽位。")
     with _synthesis_lock:
+        _report_progress(progress_reporter, "preparing_memory", 26, "正在检查并整理其他模型的显存占用。")
+        try:
+            released_models = release_conflicting_runtimes(request.model, settings)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        if released_models:
+            _report_progress(
+                progress_reporter,
+                "preparing_memory",
+                32,
+                f"已释放 {', '.join(released_models)}，正在加载 {model.display_name}。",
+            )
         _report_progress(progress_reporter, "starting_adapter", 35, "适配器已启动，模型正在处理请求。")
         if model.adapter == "mock":
             result = MockTtsAdapter(settings=settings).synthesize(request)

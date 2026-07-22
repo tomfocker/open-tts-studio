@@ -24,7 +24,7 @@
     "commercial_use": "allowed",
     "recommended_vram_gb": 8,
     "features": ["plain_tts", "streaming", "voice_design", "voice_clone", "controllable_clone", "extreme_clone"],
-    "request_capabilities": ["reference_audio", "reference_text", "control_prompt", "voice_prompt"],
+    "request_capabilities": ["reference_audio", "reference_text", "control_prompt", "voice_prompt", "cfg", "inference_steps", "normalize", "denoise"],
     "native_sample_rate": 48000,
     "adapter": "voxcpm2"
   },
@@ -52,7 +52,7 @@
     "weights_license": "Bilibili-IndexTTS",
     "commercial_use": "restricted",
     "recommended_vram_gb": 8,
-    "features": ["plain_tts", "voice_clone", "emotion_control", "duration_control"],
+    "features": ["plain_tts", "voice_clone", "emotion_control"],
     "request_capabilities": ["reference_audio", "control_prompt"],
     "native_sample_rate": 22050,
     "adapter": "indextts2"

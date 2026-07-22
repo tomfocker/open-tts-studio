@@ -38,6 +38,10 @@ class SpeechRequest(BaseModel):
     language: str | None = None
     response_format: str = "wav"
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
+    cfg: float | None = Field(default=None, ge=1.0, le=3.0)
+    inference_steps: int | None = Field(default=None, ge=1, le=50)
+    normalize: bool | None = None
+    denoise: bool | None = None
     stream: bool = False
 
 
@@ -195,6 +199,10 @@ class BatchProjectCreate(BaseModel):
     reference_text: str | None = None
     emotion: str | None = None
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
+    cfg: float | None = Field(default=None, ge=1.0, le=3.0)
+    inference_steps: int | None = Field(default=None, ge=1, le=50)
+    normalize: bool | None = None
+    denoise: bool | None = None
 
 
 class BatchProjectUpdate(BaseModel):
@@ -205,6 +213,10 @@ class BatchProjectUpdate(BaseModel):
     reference_text: str | None = None
     emotion: str | None = None
     speed: float | None = Field(default=None, ge=0.25, le=4.0)
+    cfg: float | None = Field(default=None, ge=1.0, le=3.0)
+    inference_steps: int | None = Field(default=None, ge=1, le=50)
+    normalize: bool | None = None
+    denoise: bool | None = None
 
 
 class BatchProject(BaseModel):
@@ -216,6 +228,10 @@ class BatchProject(BaseModel):
     reference_text: str | None = None
     emotion: str | None = None
     speed: float = 1.0
+    cfg: float | None = None
+    inference_steps: int | None = None
+    normalize: bool | None = None
+    denoise: bool | None = None
     status: BatchProjectStatus = BatchProjectStatus.draft
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

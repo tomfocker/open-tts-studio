@@ -6,6 +6,7 @@ from tts_api.adapters.voxcpm2 import get_voxcpm2_service_manager, get_voxcpm2_st
 from tts_api.config import Settings, get_settings
 from tts_api.model_health import check_model_instance
 from tts_api.model_instances import ModelInstanceStatus, apply_model_instance_to_settings, get_model_instance
+from tts_api.runtime_memory import release_conflicting_runtimes
 
 router = APIRouter()
 
@@ -46,6 +47,7 @@ def _assert_startable(model_id: str) -> Settings:
 def start_model_runtime(model_id: str) -> dict:
     settings = _assert_startable(model_id)
     try:
+        released_models = release_conflicting_runtimes(model_id, settings)
         if model_id == "indextts2":
             get_indextts2_worker_client(settings).start()
         elif model_id == "voxcpm2":
@@ -60,9 +62,16 @@ def start_model_runtime(model_id: str) -> dict:
             raise HTTPException(status_code=404, detail=f"Runtime controls are not available for: {model_id}")
     except HTTPException:
         raise
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"启动 {model_id} 失败：{exc}")
-    return {"model_id": model_id, "action": "start", "worker": _worker_status(model_id, settings)}
+    return {
+        "model_id": model_id,
+        "action": "start",
+        "released_models": released_models,
+        "worker": _worker_status(model_id, settings),
+    }
 
 
 @router.post("/v1/runtime/models/{model_id}/stop")

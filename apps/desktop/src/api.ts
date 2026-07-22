@@ -47,6 +47,10 @@ export type GenerateSpeechOptions = {
   referenceText?: string;
   emotion?: string;
   speed?: number;
+  cfg?: number;
+  inferenceSteps?: number;
+  normalize?: boolean;
+  denoise?: boolean;
 };
 
 function buildSpeechPayload(model: string, input: string, options: GenerateSpeechOptions = {}) {
@@ -57,7 +61,11 @@ function buildSpeechPayload(model: string, input: string, options: GenerateSpeec
     reference_text: options.referenceText,
     emotion: options.emotion,
     response_format: "wav",
-    speed: options.speed ?? 1
+    speed: options.speed ?? 1,
+    cfg: options.cfg,
+    inference_steps: options.inferenceSteps,
+    normalize: options.normalize,
+    denoise: options.denoise
   };
 }
 

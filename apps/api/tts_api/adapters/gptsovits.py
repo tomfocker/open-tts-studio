@@ -88,9 +88,9 @@ class GptSoVitsServiceManager:
         environment["PYTHONIOENCODING"] = "utf-8"
         return environment
 
-    def is_healthy(self) -> bool:
+    def is_healthy(self, timeout_seconds: float = 2.0) -> bool:
         try:
-            response = self.http_client.get(f"{self.api_base}/docs", timeout=2.0)
+            response = self.http_client.get(f"{self.api_base}/docs", timeout=timeout_seconds)
             response.raise_for_status()
             return True
         except Exception:
@@ -142,8 +142,8 @@ class GptSoVitsServiceManager:
             self.last_used_at = self.now_factory()
             self._schedule_idle_release()
 
-    def status(self) -> dict:
-        healthy = self.is_healthy()
+    def status(self, probe_timeout_seconds: float = 2.0) -> dict:
+        healthy = self.is_healthy(timeout_seconds=probe_timeout_seconds)
         managed = self.process is not None and self.process.poll() is None
         idle_timeout = self.settings.local_api_idle_timeout_seconds
         idle_seconds = int(self.now_factory() - self.last_used_at) if self.last_used_at else None

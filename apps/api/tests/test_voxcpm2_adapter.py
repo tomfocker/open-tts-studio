@@ -127,6 +127,29 @@ def test_voxcpm2_adapter_posts_voice_design_without_audio(tmp_path: Path):
     assert client.post_calls[0]["files"] is None
 
 
+def test_voxcpm2_adapter_forwards_exposed_generation_controls(tmp_path: Path):
+    settings = Settings(output_dir=tmp_path / "outputs", voxcpm2_api_port=8014)
+    client = FakeHttpClient()
+    adapter = VoxCpm2Adapter(settings=settings, http_client=client, service_manager=None)
+
+    adapter.synthesize(
+        SpeechRequest(
+            model="voxcpm2",
+            input="参数转发测试。",
+            cfg=2.7,
+            inference_steps=18,
+            normalize=False,
+            denoise=True,
+        )
+    )
+
+    payload = client.post_calls[0]["data"]
+    assert payload["cfg_value"] == "2.7"
+    assert payload["inference_timesteps"] == "18"
+    assert payload["normalize"] == "false"
+    assert payload["denoise"] == "true"
+
+
 def test_voxcpm2_managed_service_releases_after_idle_timeout(tmp_path: Path):
     current_time = [100.0]
     manager = VoxCpm2ServiceManager(

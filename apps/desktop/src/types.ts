@@ -89,6 +89,10 @@ export type SpeechRequest = {
   language?: string | null;
   response_format?: string;
   speed?: number;
+  cfg?: number | null;
+  inference_steps?: number | null;
+  normalize?: boolean | null;
+  denoise?: boolean | null;
   stream?: boolean;
 };
 
@@ -118,6 +122,10 @@ export type BatchProject = {
   reference_text?: string | null;
   emotion?: string | null;
   speed: number;
+  cfg?: number | null;
+  inference_steps?: number | null;
+  normalize?: boolean | null;
+  denoise?: boolean | null;
   status: BatchProjectStatus;
   created_at: string;
   updated_at: string;
@@ -133,6 +141,10 @@ export type BatchProjectCreate = {
   reference_text?: string;
   emotion?: string;
   speed?: number;
+  cfg?: number;
+  inference_steps?: number;
+  normalize?: boolean;
+  denoise?: boolean;
 };
 
 export type BatchProjectUpdate = Partial<BatchProjectCreate>;
@@ -340,6 +352,7 @@ export type ModelRuntimeActionResult = {
   model_id: string;
   action: "start" | "stop";
   released?: boolean;
+  released_models?: string[];
   worker: WorkerStatus;
 };
 
