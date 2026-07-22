@@ -387,17 +387,18 @@ function voiceSourceLabel(sourceType: string | undefined) {
 }
 
 function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
+  const modelStoreRoot = settings?.model_store_root ?? "models";
   return {
     api_host: settings?.api_host ?? "127.0.0.1",
     api_port: settings?.api_port ?? 8765,
     output_dir: settings?.output_dir ?? "D:\\code\\tts\\data\\outputs",
-    indextts2_root: settings?.indextts2_root ?? "D:\\AI\\IndexTTS2",
+    indextts2_root: settings?.indextts2_root ?? `${modelStoreRoot}\\IndexTTS2`,
     indextts2_idle_timeout_seconds: settings?.indextts2_idle_timeout_seconds ?? 600,
     local_api_idle_timeout_seconds: settings?.local_api_idle_timeout_seconds ?? 600,
-    voxcpm2_root: settings?.voxcpm2_root ?? "E:\\Downloads_Sorted_2026-04-16\\Folders\\VoxCPM2\\VoxCPM2",
+    voxcpm2_root: settings?.voxcpm2_root ?? `${modelStoreRoot}\\VoxCPM2`,
     voxcpm2_api_host: settings?.voxcpm2_api_host ?? "127.0.0.1",
     voxcpm2_api_port: settings?.voxcpm2_api_port ?? 8000,
-    gptsovits_root: settings?.gptsovits_root ?? "D:\\newworld\\Shinsekai\\data\\tts_bundles\\installed\\GPT-SoVITS-v2pro-20250604",
+    gptsovits_root: settings?.gptsovits_root ?? `${modelStoreRoot}\\GPT-SoVITS`,
     gptsovits_api_host: settings?.gptsovits_api_host ?? "127.0.0.1",
     gptsovits_api_port: settings?.gptsovits_api_port ?? 9880
   };

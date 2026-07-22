@@ -182,7 +182,7 @@ $package = Invoke-RestMethod `
   -ContentType "application/json" `
   -Body (@{
     model_id = "gptsovits"
-    path = "D:\AI\GPT-SoVITS-v2pro"
+    path = "D:\code\tts\models\GPT-SoVITS"
     package_label = "v2pro stable"
     user_note = "用于正式项目的本地稳定包"
   } | ConvertTo-Json)

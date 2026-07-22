@@ -7,6 +7,10 @@ from pydantic import BaseModel, Field
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
+MODEL_STORE_ROOT = WORKSPACE_ROOT / "models"
+DEFAULT_INDEXTTS2_ROOT = MODEL_STORE_ROOT / "IndexTTS2"
+DEFAULT_VOXCPM2_ROOT = MODEL_STORE_ROOT / "VoxCPM2"
+DEFAULT_GPTSOVITS_ROOT = MODEL_STORE_ROOT / "GPT-SoVITS"
 DEFAULT_SETTINGS_FILE = WORKSPACE_ROOT / "data" / "config" / "user-settings.json"
 
 
@@ -60,13 +64,13 @@ class Settings(BaseModel):
     model_packages_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_MODEL_PACKAGES_FILE", str(WORKSPACE_ROOT / "data" / "config" / "model-packages.json"))))
     tasks_file: Path = Field(default_factory=_default_tasks_file)
     task_log_dir: Path = Field(default_factory=_default_task_log_dir)
-    indextts2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_INDEXTTS2_ROOT", r"D:\AI\IndexTTS2")))
+    indextts2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_INDEXTTS2_ROOT", str(DEFAULT_INDEXTTS2_ROOT))))
     indextts2_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_INDEXTTS2_IDLE_SECONDS", "600")))
     local_api_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_LOCAL_API_IDLE_SECONDS", "600")))
-    voxcpm2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_VOXCPM2_ROOT", r"E:\Downloads_Sorted_2026-04-16\Folders\VoxCPM2\VoxCPM2")))
+    voxcpm2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_VOXCPM2_ROOT", str(DEFAULT_VOXCPM2_ROOT))))
     voxcpm2_api_host: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_VOXCPM2_API_HOST", "127.0.0.1"))
     voxcpm2_api_port: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_VOXCPM2_API_PORT", "8000")))
-    gptsovits_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_GPTSOVITS_ROOT", r"D:\newworld\Shinsekai\data\tts_bundles\installed\GPT-SoVITS-v2pro-20250604")))
+    gptsovits_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_GPTSOVITS_ROOT", str(DEFAULT_GPTSOVITS_ROOT))))
     gptsovits_api_host: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_GPTSOVITS_API_HOST", "127.0.0.1"))
     gptsovits_api_port: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_GPTSOVITS_API_PORT", "9880")))
     model_instances: dict[str, dict] = Field(default_factory=dict)
@@ -100,6 +104,7 @@ def serialize_settings(settings: Settings) -> dict:
         "api_port": settings.api_port,
         "api_access_key_required": bool(settings.api_access_key),
         "output_dir": str(settings.output_dir),
+        "model_store_root": str(MODEL_STORE_ROOT),
         "indextts2_root": str(settings.indextts2_root),
         "indextts2_idle_timeout_seconds": settings.indextts2_idle_timeout_seconds,
         "local_api_idle_timeout_seconds": settings.local_api_idle_timeout_seconds,

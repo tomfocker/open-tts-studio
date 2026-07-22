@@ -1,0 +1,4 @@
+# Model packages are local assets. Keep only this guide in version control.
+*
+!.gitignore
+!README.md

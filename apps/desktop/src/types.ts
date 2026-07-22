@@ -437,6 +437,7 @@ export type AppSettings = {
   api_host: string;
   api_port: number;
   output_dir: string;
+  model_store_root: string;
   indextts2_root: string;
   indextts2_idle_timeout_seconds: number;
   local_api_idle_timeout_seconds: number;

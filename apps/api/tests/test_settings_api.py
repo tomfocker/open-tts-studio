@@ -2,7 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tts_api.config import get_settings
+from tts_api.config import DEFAULT_GPTSOVITS_ROOT, DEFAULT_INDEXTTS2_ROOT, DEFAULT_VOXCPM2_ROOT, MODEL_STORE_ROOT, get_settings
 from tts_api.main import create_app
 
 
@@ -23,6 +23,10 @@ def test_settings_endpoint_returns_runtime_defaults(tmp_path: Path, monkeypatch)
     body = response.json()
     assert body["api_host"] == "127.0.0.1"
     assert body["api_port"] == 8765
+    assert body["model_store_root"] == str(MODEL_STORE_ROOT)
+    assert body["indextts2_root"] == str(DEFAULT_INDEXTTS2_ROOT)
+    assert body["voxcpm2_root"] == str(DEFAULT_VOXCPM2_ROOT)
+    assert body["gptsovits_root"] == str(DEFAULT_GPTSOVITS_ROOT)
     assert body["indextts2_idle_timeout_seconds"] == 600
     assert body["local_api_idle_timeout_seconds"] == 600
     assert body["settings_file"] == str(settings_file)
