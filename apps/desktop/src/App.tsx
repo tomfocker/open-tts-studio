@@ -877,7 +877,7 @@ function audioAssetSourceLabel(source: AudioAsset["source"]) {
 }
 
 function isModelInstanceUsable(instance: ModelInstanceProfile | undefined) {
-  return Boolean(instance?.enabled) && instance?.status !== "missing" && instance?.status !== "broken" && instance?.status !== "disabled";
+  return Boolean(instance?.enabled) && instance?.status === "ready";
 }
 
 function getSupportedCloneModes(model: ModelInfo | undefined): CloneMode[] {
@@ -1106,6 +1106,7 @@ export function App() {
   const [resultVoiceName, setResultVoiceName] = useState("");
   const [savedVoicePath, setSavedVoicePath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [backendError, setBackendError] = useState<string | null>(null);
   const [generationStartedAt, setGenerationStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [activeSpeechJob, setActiveSpeechJob] = useState<SpeechJob | null>(null);
@@ -1136,6 +1137,7 @@ export function App() {
   const [appUpdate, setAppUpdate] = useState<AppUpdateState | null>(null);
   const defaultModelAppliedRef = useRef(false);
   const startupPrewarmAttemptedRef = useRef(false);
+  const startupModelHealthCheckedRef = useRef(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [checkingModelId, setCheckingModelId] = useState<string | null>(null);
@@ -1241,7 +1243,8 @@ export function App() {
   const modelSwitchLockMessage = loading
     ? "当前语音任务正在生成，模型切换已锁定。任务结束后才能切换。"
     : "批量语音任务正在执行或排队，模型切换已锁定。任务结束后才能切换。";
-  const online = models.length > 0 && !error;
+  const online = models.length > 0 && !backendError;
+  const visibleError = error ?? backendError;
   const resultSavedToVoiceLibrary = Boolean(result && savedVoicePath === result.file_path);
   const canGenerate =
     input.trim().length > 0 &&
@@ -1389,7 +1392,7 @@ export function App() {
   ];
 
   async function loadModels() {
-    setError(null);
+    setBackendError(null);
     try {
       const loaded = await fetchModels();
       setModels(loaded);
@@ -1398,7 +1401,7 @@ export function App() {
         setSelectedModel(preferred.id);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "无法连接本地 API");
+      setBackendError(err instanceof Error ? err.message : "无法连接本地 API");
     }
   }
 
@@ -1777,6 +1780,29 @@ export function App() {
         }
         return next;
       });
+      const untestedEnabledInstances = instances.filter((instance) => instance.enabled && instance.status === "untested");
+      if (untestedEnabledInstances.length > 0 && !startupModelHealthCheckedRef.current) {
+        startupModelHealthCheckedRef.current = true;
+        const checks = await Promise.allSettled(untestedEnabledInstances.map((instance) => checkModelInstance(instance.model_id)));
+        setModelHealthResults((results) => {
+          const next = { ...results };
+          for (const check of checks) {
+            if (check.status === "fulfilled") {
+              next[check.value.model_id] = check.value;
+            }
+          }
+          return next;
+        });
+        const refreshedInstances = await fetchModelInstances();
+        setModelInstances(refreshedInstances);
+        setModelProfileDrafts((drafts) => {
+          const next: Record<string, ModelProfileDraft> = {};
+          for (const instance of refreshedInstances) {
+            next[instance.model_id] = drafts[instance.model_id] ?? createModelProfileDraft(instance);
+          }
+          return next;
+        });
+      }
     } catch {
       setModelInstances([]);
     }
@@ -2373,6 +2399,12 @@ export function App() {
       }
       const updated = await updateModelInstance(instance.model_id, { root_path: directoryPath });
       setModelInstances((items) => items.map((item) => (item.model_id === updated.model_id ? updated : item)));
+      const health = await checkModelInstance(updated.model_id);
+      setModelHealthResults((results) => ({ ...results, [updated.model_id]: health }));
+      await loadModelInstances();
+      if (health.status !== "ready") {
+        setSettingsError(health.repair_hint ?? "模型目录检查未通过，请重新选择完整的模型包目录。");
+      }
       void loadModelPackages();
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "选择目录失败");
@@ -3589,10 +3621,10 @@ export function App() {
             </div>
           </section>
 
-          {error && (
+          {visibleError && (
             <section className="errorPanel">
               <AlertCircle size={18} strokeWidth={1.9} />
-              <span>{error}</span>
+              <span>{visibleError}</span>
             </section>
           )}
         </aside>

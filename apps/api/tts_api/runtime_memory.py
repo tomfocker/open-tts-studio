@@ -25,8 +25,10 @@ def runtime_workers(settings: Settings, detect_external: bool = False) -> dict[s
     if not detect_external:
         return {
             "indextts2": get_indextts2_worker_status(resolved),
-            "voxcpm2": get_voxcpm2_status(resolved),
-            "gptsovits": get_gptsovits_status(resolved),
+            # The desktop polls this endpoint every few seconds. Keep stale
+            # optional model endpoints from holding up the whole UI.
+            "voxcpm2": get_voxcpm2_status(resolved, probe_timeout_seconds=0.1),
+            "gptsovits": get_gptsovits_status(resolved, probe_timeout_seconds=0.1),
         }
     return {
         "indextts2": get_indextts2_worker_client(resolved).status(),

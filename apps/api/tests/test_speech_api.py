@@ -111,3 +111,15 @@ def test_speech_endpoint_rejects_disabled_model_before_starting_runtime(tmp_path
 
     assert response.status_code == 409
     assert "disabled" in response.json()["detail"]
+
+
+def test_speech_endpoint_rejects_a_missing_model_package_before_starting_runtime(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPEN_TTS_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    monkeypatch.setenv("OPEN_TTS_VOXCPM2_ROOT", str(tmp_path / "missing-voxcpm2"))
+    get_settings.cache_clear()
+    client = TestClient(create_app())
+
+    response = client.post("/v1/audio/speech", json={"model": "voxcpm2", "input": "hello"})
+
+    assert response.status_code == 409
+    assert "模型目录" in response.json()["detail"]

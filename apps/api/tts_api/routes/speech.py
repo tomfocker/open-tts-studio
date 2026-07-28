@@ -10,6 +10,7 @@ from tts_api.adapters.mock import MockTtsAdapter
 from tts_api.adapters.voxcpm2 import VoxCpm2Adapter
 from tts_api.config import get_settings
 from tts_api.errors import unknown_model_error, unsupported_adapter_error
+from tts_api.model_health import check_model_instance
 from tts_api.model_instances import get_model_instance, mark_model_instance_success
 from tts_api.model_capabilities import validate_speech_request_capabilities
 from tts_api.jobs import run_tracked_synthesis
@@ -53,6 +54,9 @@ def synthesize_with_registered_adapter(
         instance = get_model_instance(request.model, settings=settings)
         if not instance.enabled:
             raise HTTPException(status_code=409, detail=f"Model instance is disabled: {request.model}")
+        health = check_model_instance(instance)
+        if health.status != "ready":
+            raise HTTPException(status_code=409, detail=health.repair_hint or "模型目录尚未通过检查。")
         settings = resolve_runtime_settings(settings)
     except KeyError:
         instance = None

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from tts_api.config import get_settings
+from tts_api import runtime_memory
+from tts_api.config import Settings, get_settings
 from tts_api.main import app, create_app
 
 
@@ -50,3 +51,23 @@ def test_system_status_worker_roots_use_active_model_instance_paths(tmp_path, mo
     body = response.json()
     assert body["workers"]["gptsovits"]["root"] == str(stable_gptsovits_root)
     assert body["workers"]["gptsovits"]["api_base"] == "http://127.0.0.1:9897"
+
+
+def test_system_monitor_uses_short_optional_model_probes(monkeypatch):
+    seen_timeouts = []
+    monkeypatch.setattr(runtime_memory, "get_indextts2_worker_status", lambda _settings: {"model": "indextts2"})
+    monkeypatch.setattr(
+        runtime_memory,
+        "get_voxcpm2_status",
+        lambda _settings, probe_timeout_seconds: seen_timeouts.append(probe_timeout_seconds) or {"model": "voxcpm2"},
+    )
+    monkeypatch.setattr(
+        runtime_memory,
+        "get_gptsovits_status",
+        lambda _settings, probe_timeout_seconds: seen_timeouts.append(probe_timeout_seconds) or {"model": "gptsovits"},
+    )
+
+    workers = runtime_memory.runtime_workers(Settings())
+
+    assert set(workers) == {"indextts2", "voxcpm2", "gptsovits"}
+    assert seen_timeouts == [0.1, 0.1]

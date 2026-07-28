@@ -217,7 +217,7 @@ def get_gptsovits_service_manager(settings: Settings) -> GptSoVitsServiceManager
     return _service_managers[key]
 
 
-def get_gptsovits_status(settings: Settings) -> dict:
+def get_gptsovits_status(settings: Settings, probe_timeout_seconds: float = 2.0) -> dict:
     key = (settings.gptsovits_api_host, settings.gptsovits_api_port, str(settings.gptsovits_root))
     manager = _service_managers.get(key)
     if manager is None:
@@ -236,7 +236,7 @@ def get_gptsovits_status(settings: Settings) -> dict:
             "can_stop": False,
             "active_requests": 0,
         }
-    return manager.status()
+    return manager.status(probe_timeout_seconds=probe_timeout_seconds)
 
 
 def shutdown_gptsovits_services() -> None:

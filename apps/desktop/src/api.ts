@@ -40,6 +40,21 @@ declare global {
 
 const FALLBACK_API_BASE = "http://127.0.0.1:8765";
 
+async function fetchWithTimeout(url: string, init: RequestInit | undefined, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`本地后端在 ${Math.ceil(timeoutMs / 1000)} 秒内未响应`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
+}
+
 export function getApiBase(): string {
   return window.desktopConfig?.apiBase ?? FALLBACK_API_BASE;
 }
@@ -72,7 +87,7 @@ function buildSpeechPayload(model: string, input: string, options: GenerateSpeec
 }
 
 export async function fetchModels(): Promise<ModelInfo[]> {
-  const response = await fetch(`${getApiBase()}/v1/tts/models`);
+  const response = await fetchWithTimeout(`${getApiBase()}/v1/tts/models`, undefined, 8_000);
   if (!response.ok) {
     throw new Error(`Failed to load models: ${response.status}`);
   }
@@ -362,7 +377,7 @@ export async function stopModelRuntime(modelId: string): Promise<ModelRuntimeAct
 }
 
 export async function fetchSystemStatus(): Promise<SystemStatus> {
-  const response = await fetch(`${getApiBase()}/v1/system/status`);
+  const response = await fetchWithTimeout(`${getApiBase()}/v1/system/status`, undefined, 1_500);
   if (!response.ok) {
     throw new Error(`Failed to load system status: ${response.status}`);
   }

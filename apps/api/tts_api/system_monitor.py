@@ -1,10 +1,14 @@
 import ctypes
 import shutil
 import subprocess
+import threading
 import time
+from ctypes import wintypes
 
 
 APP_STARTED_AT = time.time()
+_cpu_sample_lock = threading.Lock()
+_previous_cpu_times: tuple[int, int] | None = None
 
 
 def collect_system_status() -> dict:
@@ -23,22 +27,35 @@ def collect_system_status() -> dict:
 
 
 def get_cpu_percent() -> float | None:
-    command = [
-        "powershell",
-        "-NoProfile",
-        "-Command",
-        "(Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average",
-    ]
-    try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=2)
-    except Exception:
+    """Return overall CPU use without spawning PowerShell for every UI poll."""
+    if not hasattr(ctypes, "windll"):
         return None
-    if completed.returncode != 0:
+
+    idle_time = wintypes.FILETIME()
+    kernel_time = wintypes.FILETIME()
+    user_time = wintypes.FILETIME()
+    if not ctypes.windll.kernel32.GetSystemTimes(
+        ctypes.byref(idle_time), ctypes.byref(kernel_time), ctypes.byref(user_time)
+    ):
         return None
-    try:
-        return round(float(completed.stdout.strip()), 1)
-    except ValueError:
+
+    def file_time_to_int(value: wintypes.FILETIME) -> int:
+        return (value.dwHighDateTime << 32) + value.dwLowDateTime
+
+    idle = file_time_to_int(idle_time)
+    total = file_time_to_int(kernel_time) + file_time_to_int(user_time)
+    global _previous_cpu_times
+    with _cpu_sample_lock:
+        previous = _previous_cpu_times
+        _previous_cpu_times = (idle, total)
+    if previous is None:
         return None
+    previous_idle, previous_total = previous
+    total_delta = total - previous_total
+    idle_delta = idle - previous_idle
+    if total_delta <= 0:
+        return None
+    return round(max(0.0, min(100.0, (1 - idle_delta / total_delta) * 100)), 1)
 
 
 def get_memory_status() -> dict:
@@ -97,7 +114,7 @@ def get_gpu_status() -> dict:
         "--format=csv,noheader,nounits",
     ]
     try:
-        completed = subprocess.run(command, capture_output=True, text=True, timeout=2)
+        completed = subprocess.run(command, capture_output=True, text=True, timeout=1)
     except Exception:
         return {"available": False, "name": None, "utilization_percent": None, "memory_used_mb": None, "memory_total_mb": None, "memory_percent": None}
     if completed.returncode != 0 or not completed.stdout.strip():

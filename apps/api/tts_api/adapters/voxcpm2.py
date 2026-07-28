@@ -206,7 +206,7 @@ def get_voxcpm2_service_manager(settings: Settings) -> VoxCpm2ServiceManager:
     return _service_managers[key]
 
 
-def get_voxcpm2_status(settings: Settings) -> dict:
+def get_voxcpm2_status(settings: Settings, probe_timeout_seconds: float = 2.0) -> dict:
     key = (settings.voxcpm2_api_host, settings.voxcpm2_api_port, str(settings.voxcpm2_root))
     manager = _service_managers.get(key)
     if manager is None:
@@ -225,7 +225,7 @@ def get_voxcpm2_status(settings: Settings) -> dict:
             "can_stop": False,
             "active_requests": 0,
         }
-    return manager.status()
+    return manager.status(probe_timeout_seconds=probe_timeout_seconds)
 
 
 def shutdown_voxcpm2_services() -> None:
