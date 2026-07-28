@@ -9,7 +9,7 @@ const DEFAULT_API_HOST = "127.0.0.1";
 function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
   const resolvedWorkspaceRoot = workspaceRoot || path.resolve(electronDir, "..", "..", "..");
   const apiDir = path.join(resolvedWorkspaceRoot, "apps", "api");
-  const desktopDir = path.join(resolvedWorkspaceRoot, "apps", "desktop");
+  const desktopDir = options.desktopDir || path.join(resolvedWorkspaceRoot, "apps", "desktop");
   const dataRoot = options.dataRoot || path.join(resolvedWorkspaceRoot, "data");
   const modelStoreRoot = options.modelStoreRoot || path.join(resolvedWorkspaceRoot, "models");
   return {
@@ -17,7 +17,7 @@ function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
     apiDir,
     apiPython: options.apiPython || path.join(apiDir, ".venv", "Scripts", "python.exe"),
     desktopDir,
-    distIndex: path.join(desktopDir, "dist", "index.html"),
+    distIndex: options.distIndex || path.join(desktopDir, "dist", "index.html"),
     dataRoot,
     modelStoreRoot,
     logsDir: path.join(dataRoot, "logs")

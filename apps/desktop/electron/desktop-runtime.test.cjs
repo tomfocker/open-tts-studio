@@ -59,6 +59,19 @@ test("createDesktopPaths keeps packaged user data and model weights outside appl
   assert.equal(launchOptions.env.OPEN_TTS_VOICE_LIBRARY_FILE, path.join(paths.dataRoot, "config", "voices.json"));
 });
 
+test("createDesktopPaths can load the packaged renderer from app.asar", () => {
+  const workspaceRoot = path.resolve("D:/OpenTTS/resources/workspace");
+  const appRoot = path.resolve("D:/OpenTTS/resources/app.asar");
+  const paths = createDesktopPaths(__dirname, workspaceRoot, {
+    desktopDir: appRoot,
+    distIndex: path.join(appRoot, "dist", "index.html")
+  });
+
+  assert.equal(paths.desktopDir, appRoot);
+  assert.equal(paths.distIndex, path.join(appRoot, "dist", "index.html"));
+  assert.notEqual(paths.distIndex, path.join(workspaceRoot, "apps", "desktop", "dist", "index.html"));
+});
+
 test("ensureBackend reuses an already healthy local API", async () => {
   let spawnCount = 0;
   const result = await ensureBackend({

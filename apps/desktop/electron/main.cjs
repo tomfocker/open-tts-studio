@@ -29,10 +29,15 @@ let backendProcess;
 const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
 const packagedDataRoot = app.isPackaged ? path.join(app.getPath("userData"), "data") : undefined;
 const packagedModelStoreRoot = app.isPackaged ? path.join(app.getPath("userData"), "models") : undefined;
+// The renderer bundle is part of app.asar, while API files are copied to
+// resources/workspace. Keep those roots separate in packaged builds.
+const packagedAppRoot = app.isPackaged ? path.resolve(__dirname, "..") : undefined;
 const paths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
   dataRoot: packagedDataRoot,
   modelStoreRoot: packagedModelStoreRoot,
-  apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined
+  apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined,
+  desktopDir: packagedAppRoot,
+  distIndex: packagedAppRoot ? path.join(packagedAppRoot, "dist", "index.html") : undefined
 });
 let desktopSettings = resolveDesktopSettings(paths);
 const bilibiliSamplerService = new BilibiliSamplerService({
