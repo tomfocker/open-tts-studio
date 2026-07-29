@@ -17,7 +17,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "desktop": "npm run build && set OPEN_TTS_DESKTOP_FORCE_DIST=1&& electron electron/main.cjs",
     "electron": "electron electron/main.cjs",
-    "test:electron": "node --test electron/*.test.cjs",
+    "test:electron": "node electron/run-tests.cjs",
     "prepare:runtime": "node electron/prepare-python-runtime.cjs",
     "package:dir": "npm run prepare:runtime && npm run build && electron-builder --win dir --x64",
     "package:portable": "npm run prepare:runtime && npm run build && electron-builder --win portable --x64 --publish never",
