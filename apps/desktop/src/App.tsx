@@ -1247,6 +1247,7 @@ export function App() {
   const [taskCenterMessage, setTaskCenterMessage] = useState<string | null>(null);
   const [taskHistoryClearConfirmOpen, setTaskHistoryClearConfirmOpen] = useState(false);
   const [audioLibraryOpen, setAudioLibraryOpen] = useState(false);
+  const [monitorPanelOpen, setMonitorPanelOpen] = useState(false);
   const [audioAssets, setAudioAssets] = useState<AudioAsset[]>([]);
   const [selectedAudioAssetPath, setSelectedAudioAssetPath] = useState<string | null>(null);
   const [audioLibrarySearch, setAudioLibrarySearch] = useState("");
@@ -1580,6 +1581,119 @@ export function App() {
       available: gpuAvailable
     }
   ];
+
+  function renderSystemMonitorPanels() {
+    return (
+      <>
+        <section className="softPanel inspectorPanel">
+          <div className="panelTitle">
+            <Server size={17} strokeWidth={1.9} />
+            <span>运行状态</span>
+          </div>
+          <div className="workerSummary">
+            <div className="statusBadgeRow">
+              <span className={isDoubao ? (doubaoUsable ? "workerBadge loaded" : "workerBadge warning") : workerStatus?.loaded ? "workerBadge loaded" : "workerBadge"}>
+                {isDoubao ? (doubaoUsable ? "云端就绪" : "需要登录") : workerBadgeText(workerStatus, selectedModel)}
+              </span>
+              <strong>{workerReleaseText(workerStatus, selectedModel)}</strong>
+            </div>
+            <span className="workerDetail">
+              {isDoubao && doubaoStateError ? doubaoStateError : workerDetailText(workerStatus, selectedModel)}
+            </span>
+          </div>
+          <div className="inspectorRows">
+            <div>
+              <span>当前模型</span>
+              <strong>{selectedModelInfo?.display_name ?? selectedModel}</strong>
+            </div>
+            <div>
+              <span>模型健康</span>
+              <strong>{isDoubao ? (doubaoUsable ? "账号可用" : "等待账号") : modelInstanceStatusLabel(selectedModelInstance?.status)}</strong>
+            </div>
+            <div>
+              <span>后端运行</span>
+              <strong>{systemStatus ? formatUptime(systemStatus.api.uptime_seconds) : "-"}</strong>
+            </div>
+            <div>
+              <span>显存建议</span>
+              <strong>{isDoubao ? "不占用本地显存" : selectedModelInfo ? `${selectedModelInfo.recommended_vram_gb} GB` : "-"}</strong>
+            </div>
+            <div>
+              <span>采样率</span>
+              <strong>{selectedModelInfo ? `${selectedModelInfo.native_sample_rate} Hz` : "-"}</strong>
+            </div>
+            <div>
+              <span>商用状态</span>
+              <strong>{selectedModelInfo?.commercial_use ?? "-"}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="softPanel resourcePanel">
+          <div className="panelTitle">
+            <Cpu size={17} strokeWidth={1.9} />
+            <span>系统监控</span>
+          </div>
+          <div className="resourceList">
+            {resourceMetrics.map((metric) => (
+              <div key={metric.id} className={metric.available ? "resourceMetric" : "resourceMetric unavailable"}>
+                <div className="metricHeader">
+                  <span>{metric.label}</span>
+                  <strong>{metric.detail}</strong>
+                </div>
+                <div className="metricTrack" aria-label={metric.label}>
+                  <span style={{ width: `${metric.available ? clampPercent(metric.value) : 0}%` }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="monitorNote">
+            {gpuAvailable
+              ? systemStatus?.gpu.name ?? "GPU 状态已接入"
+              : "未检测到 NVIDIA GPU，显存数据会保持为空。"}
+          </p>
+        </section>
+
+        <section className="softPanel meterPanel">
+          <div className="panelTitle">
+            <Gauge size={17} strokeWidth={1.9} />
+            <span>任务监控</span>
+          </div>
+          <div className="taskStatusCard">
+            <div className="taskState">
+              <span className={loading ? "taskStateIcon active" : "taskStateIcon"}>
+                {loading ? <Loader2 className="spin" size={18} /> : <Gauge size={18} strokeWidth={1.9} />}
+              </span>
+              <div>
+                <strong>{loading ? generationProgress.phaseTitle : result ? "生成完成" : "等待任务"}</strong>
+                <span>
+                  {loading
+                    ? generationProgress.detail
+                    : result
+                      ? "音频已写入本地输出目录。"
+                      : "输入文本后点击开始生成。"}
+                </span>
+              </div>
+            </div>
+            <div className="sideProgress">
+              <span style={{ width: `${loading ? generationProgress.percent : result ? 100 : 0}%` }} />
+            </div>
+          </div>
+          <div className="meterMeta">
+            <span>{loading ? "推理中" : "空闲"}</span>
+            <strong>{loading ? formatDuration(elapsedSeconds) : result ? formatDuration(result.duration_seconds) : "0:00"}</strong>
+          </div>
+        </section>
+
+        {visibleError && (
+          <section className="errorPanel">
+            <AlertCircle size={18} strokeWidth={1.9} />
+            <span>{visibleError}</span>
+          </section>
+        )}
+      </>
+    );
+  }
 
   async function loadModels() {
     setBackendError(null);
@@ -3585,46 +3699,54 @@ export function App() {
         </div>
 
         <div className="windowTools">
-          <button className="toolButton" title="刷新状态" onClick={() => {
-            void loadModels();
-            void loadSystemStatus();
-            void loadModelInstances();
-            void loadModelPackages();
-            void loadTaskSummaries();
-            void loadDoubaoState();
-          }}>
-            <RefreshCw size={17} strokeWidth={1.9} />
-          </button>
-          <button className="toolButton" title="任务中心" onClick={() => {
-            setTaskCenterError(null);
-            setTaskCenterMessage(null);
-            setTaskHistoryClearConfirmOpen(false);
-            void loadTaskSummaries();
-            setTaskCenterOpen(true);
-          }}>
-            <Gauge size={17} strokeWidth={1.9} />
-          </button>
-          <button className="toolButton" title="批量项目" onClick={openBatchProjectWorkspace}>
-            <FileText size={17} strokeWidth={1.9} />
-          </button>
-          <button className="toolButton" title="豆包账号、阅读与缓存管理" onClick={() => setDoubaoWorkspaceOpen(true)}>
-            <Cloud size={17} strokeWidth={1.9} />
-          </button>
-          <button className="toolButton" title="设置" onClick={openSettings}>
-            <Settings size={17} strokeWidth={1.9} />
-          </button>
-          <button className="toolButton" title="音频资产库" onClick={openAudioLibrary}>
-            <Library size={17} strokeWidth={1.9} />
-          </button>
-          <button className="toolButton" title="最小化" onClick={() => window.desktopWindow?.minimize()}>
-            <Minus size={18} strokeWidth={2} />
-          </button>
-          <button className="toolButton" title="最大化" onClick={() => window.desktopWindow?.maximize()}>
-            <Maximize2 size={16} strokeWidth={1.9} />
-          </button>
-          <button className="toolButton close" title="关闭" onClick={() => window.desktopWindow?.close()}>
-            <X size={18} strokeWidth={2} />
-          </button>
+          <div className="toolGroup workspaceToolGroup" role="group" aria-label="工作台工具">
+            <button className="toolButton" title="刷新状态" onClick={() => {
+              void loadModels();
+              void loadSystemStatus();
+              void loadModelInstances();
+              void loadModelPackages();
+              void loadTaskSummaries();
+              void loadDoubaoState();
+            }}>
+              <RefreshCw size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton" title="任务中心" onClick={() => {
+              setTaskCenterError(null);
+              setTaskCenterMessage(null);
+              setTaskHistoryClearConfirmOpen(false);
+              void loadTaskSummaries();
+              setTaskCenterOpen(true);
+            }}>
+              <Gauge size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton" title="批量项目" onClick={openBatchProjectWorkspace}>
+              <FileText size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton" title="豆包账号、阅读与缓存管理" onClick={() => setDoubaoWorkspaceOpen(true)}>
+              <Cloud size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton" title="音频资产库" onClick={openAudioLibrary}>
+              <Library size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton" title="设置" onClick={openSettings}>
+              <Settings size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton monitorToolButton" title="系统监控" onClick={() => setMonitorPanelOpen(true)}>
+              <Cpu size={17} strokeWidth={1.9} />
+              <span className={online ? "toolStatusDot online" : "toolStatusDot"} aria-hidden="true" />
+            </button>
+          </div>
+          <div className="toolGroup windowControlGroup" role="group" aria-label="窗口控制">
+            <button className="toolButton" title="最小化" onClick={() => window.desktopWindow?.minimize()}>
+              <Minus size={18} strokeWidth={2} />
+            </button>
+            <button className="toolButton" title="最大化" onClick={() => window.desktopWindow?.maximize()}>
+              <Maximize2 size={16} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton close" title="关闭" onClick={() => window.desktopWindow?.close()}>
+              <X size={18} strokeWidth={2} />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -3984,14 +4106,10 @@ export function App() {
               </div>
             )}
 
-            <div className="leftActions">
+            <div className="leftActions singleAction">
               <button className="secondaryAction" disabled={!result} onClick={() => void openOutputDirectory()}>
                 <FolderOpen size={17} strokeWidth={1.9} />
                 <span>查看成品</span>
-              </button>
-              <button className="primaryAction" disabled={!canGenerate} onClick={onGenerate}>
-                {loading ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} strokeWidth={1.9} />}
-                <span>{loading ? "生成中" : "开始生成"}</span>
               </button>
             </div>
           </section>
@@ -4023,6 +4141,7 @@ export function App() {
                   <button
                     key={model.id}
                     className={model.id === selectedModel ? "modelPill active" : "modelPill"}
+                    aria-pressed={model.id === selectedModel}
                     onClick={() => requestModelSwitch(model.id)}
                     title={
                       model.id === "doubao-web"
@@ -4033,7 +4152,10 @@ export function App() {
                     }
                     disabled={modelSwitchLocked && model.id !== selectedModel}
                   >
-                    <span>{model.display_name}</span>
+                    <span className="modelPillTitle">
+                      <span className="modelPillLabel">{model.display_name}</span>
+                      {model.id === selectedModel && <CheckCircle2 size={14} strokeWidth={2.1} aria-hidden="true" />}
+                    </span>
                     <small>{modelBadge(model)}</small>
                   </button>
                 ))}
@@ -4127,6 +4249,10 @@ export function App() {
                 <button className="roundAdd" title="创建批量任务" onClick={openBatchProjectWorkspace}>
                   <Plus size={18} strokeWidth={2} />
                 </button>
+                <button className="primaryAction editorGenerateButton" disabled={!canGenerate} onClick={onGenerate}>
+                  {loading ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} strokeWidth={1.9} />}
+                  <span>{loading ? "生成中" : "开始生成"}</span>
+                </button>
                 <input ref={fileInputRef} className="hiddenFile" type="file" accept=".txt,text/plain" onChange={onImportText} />
               </div>
               <textarea
@@ -4186,115 +4312,39 @@ export function App() {
           </section>
         </section>
 
-        <aside className="rightRail">
-          <section className="softPanel inspectorPanel">
-            <div className="panelTitle">
-              <Server size={17} strokeWidth={1.9} />
-              <span>运行状态</span>
-            </div>
-            <div className="workerSummary">
-              <div className="statusBadgeRow">
-                <span className={isDoubao ? (doubaoUsable ? "workerBadge loaded" : "workerBadge warning") : workerStatus?.loaded ? "workerBadge loaded" : "workerBadge"}>
-                  {isDoubao ? (doubaoUsable ? "云端就绪" : "需要登录") : workerBadgeText(workerStatus, selectedModel)}
-                </span>
-                <strong>{workerReleaseText(workerStatus, selectedModel)}</strong>
-              </div>
-              <span className="workerDetail">
-                {isDoubao && doubaoStateError ? doubaoStateError : workerDetailText(workerStatus, selectedModel)}
-              </span>
-            </div>
-            <div className="inspectorRows">
-              <div>
-                <span>当前模型</span>
-                <strong>{selectedModelInfo?.display_name ?? selectedModel}</strong>
-              </div>
-              <div>
-                <span>模型健康</span>
-                <strong>{isDoubao ? (doubaoUsable ? "账号可用" : "等待账号") : modelInstanceStatusLabel(selectedModelInstance?.status)}</strong>
-              </div>
-              <div>
-                <span>后端运行</span>
-                <strong>{systemStatus ? formatUptime(systemStatus.api.uptime_seconds) : "-"}</strong>
-              </div>
-              <div>
-                <span>显存建议</span>
-                <strong>{isDoubao ? "不占用本地显存" : selectedModelInfo ? `${selectedModelInfo.recommended_vram_gb} GB` : "-"}</strong>
-              </div>
-              <div>
-                <span>采样率</span>
-                <strong>{selectedModelInfo ? `${selectedModelInfo.native_sample_rate} Hz` : "-"}</strong>
-              </div>
-              <div>
-                <span>商用状态</span>
-                <strong>{selectedModelInfo?.commercial_use ?? "-"}</strong>
-              </div>
-            </div>
-          </section>
-
-          <section className="softPanel resourcePanel">
-            <div className="panelTitle">
-              <Cpu size={17} strokeWidth={1.9} />
-              <span>系统监控</span>
-            </div>
-            <div className="resourceList">
-              {resourceMetrics.map((metric) => (
-                <div key={metric.id} className={metric.available ? "resourceMetric" : "resourceMetric unavailable"}>
-                  <div className="metricHeader">
-                    <span>{metric.label}</span>
-                    <strong>{metric.detail}</strong>
-                  </div>
-                  <div className="metricTrack" aria-label={metric.label}>
-                    <span style={{ width: `${metric.available ? clampPercent(metric.value) : 0}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="monitorNote">
-              {gpuAvailable
-                ? systemStatus?.gpu.name ?? "GPU 状态已接入"
-                : "未检测到 NVIDIA GPU，显存数据会保持为空。"}
-            </p>
-          </section>
-
-          <section className="softPanel meterPanel">
-            <div className="panelTitle">
-              <Gauge size={17} strokeWidth={1.9} />
-              <span>任务监控</span>
-            </div>
-            <div className="taskStatusCard">
-              <div className="taskState">
-                <span className={loading ? "taskStateIcon active" : "taskStateIcon"}>
-                  {loading ? <Loader2 className="spin" size={18} /> : <Gauge size={18} strokeWidth={1.9} />}
-                </span>
-                <div>
-                  <strong>{loading ? generationProgress.phaseTitle : result ? "生成完成" : "等待任务"}</strong>
-                  <span>
-                    {loading
-                      ? generationProgress.detail
-                      : result
-                        ? "音频已写入本地输出目录。"
-                        : "输入文本后点击开始生成。"}
-                  </span>
-                </div>
-              </div>
-              <div className="sideProgress">
-                <span style={{ width: `${loading ? generationProgress.percent : result ? 100 : 0}%` }} />
-              </div>
-            </div>
-            <div className="meterMeta">
-              <span>{loading ? "推理中" : "空闲"}</span>
-              <strong>{loading ? formatDuration(elapsedSeconds) : result ? formatDuration(result.duration_seconds) : "0:00"}</strong>
-            </div>
-          </section>
-
-          {visibleError && (
-            <section className="errorPanel">
-              <AlertCircle size={18} strokeWidth={1.9} />
-              <span>{visibleError}</span>
-            </section>
-          )}
+        <aside className="rightRail" aria-label="运行与系统监控">
+          {renderSystemMonitorPanels()}
         </aside>
       </section>
+
+      {monitorPanelOpen && (
+        <div
+          className="monitorDrawerOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="运行与系统监控"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setMonitorPanelOpen(false);
+            }
+          }}
+        >
+          <aside className="monitorDrawer">
+            <header className="monitorDrawerHeader">
+              <div>
+                <strong>运行与系统监控</strong>
+                <span>模型、硬件资源和当前任务状态</span>
+              </div>
+              <button className="modalClose" title="关闭系统监控" onClick={() => setMonitorPanelOpen(false)}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+            <div className="monitorDrawerBody">
+              {renderSystemMonitorPanels()}
+            </div>
+          </aside>
+        </div>
+      )}
 
       {voiceManagerOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音色库管理">

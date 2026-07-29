@@ -178,10 +178,10 @@
   --panel: #edf2f6;
   --panel-strong: #f7fafc;
   --text: #263441;
-  --muted: #738191;
-  --line: rgba(114, 130, 148, 0.18);
-  --shadow: 0 22px 52px rgba(91, 111, 130, 0.24);
-  --shadow-soft: 0 12px 26px rgba(91, 111, 130, 0.18);
+  --muted: #5c6d7d;
+  --line: rgba(83, 103, 122, 0.24);
+  --shadow: 0 16px 36px rgba(91, 111, 130, 0.17);
+  --shadow-soft: 0 8px 20px rgba(91, 111, 130, 0.14);
   --inner: inset 1px 1px 0 rgba(255, 255, 255, 0.86), inset -1px -1px 0 rgba(116, 132, 148, 0.08);
   --accent: #4fba6f;
   --accent-dark: #327f55;
@@ -213,6 +213,15 @@ button:disabled {
   cursor: default;
 }
 
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline: 2px solid rgba(50, 127, 85, 0.66);
+  outline-offset: 2px;
+}
+
 .studioShell {
   height: 100dvh;
   min-height: 0;
@@ -225,9 +234,9 @@ button:disabled {
 
 .desktopTopbar {
   -webkit-app-region: drag;
-  border: 1px solid rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(83, 103, 122, 0.14);
   border-radius: 8px;
-  background: rgba(232, 239, 245, 0.86);
+  background: rgba(239, 244, 248, 0.94);
   box-shadow: var(--shadow-soft), var(--inner);
   display: grid;
   grid-template-columns: minmax(270px, 1fr) auto minmax(290px, 1fr);
@@ -313,8 +322,19 @@ button:disabled {
   justify-self: end;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
+}
+
+.toolGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.windowControlGroup {
+  padding-left: 12px;
+  border-left: 1px solid var(--line);
 }
 
 .toolButton,
@@ -347,6 +367,26 @@ button:disabled {
   display: grid;
   place-items: center;
   box-shadow: 0 10px 20px rgba(79, 95, 113, 0.18), var(--inner);
+}
+
+.monitorToolButton {
+  position: relative;
+  display: none;
+}
+
+.toolStatusDot {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 7px;
+  height: 7px;
+  border: 2px solid #eef3f7;
+  border-radius: 999px;
+  background: #a17232;
+}
+
+.toolStatusDot.online {
+  background: var(--accent);
 }
 
 .toolButton:hover {
@@ -410,9 +450,9 @@ button:disabled {
 }
 
 .softPanel {
-  border: 1px solid rgba(255, 255, 255, 0.68);
+  border: 1px solid rgba(83, 103, 122, 0.14);
   border-radius: 8px;
-  background: rgba(232, 239, 245, 0.82);
+  background: rgba(239, 244, 248, 0.94);
   box-shadow: var(--shadow), var(--inner);
   min-width: 0;
 }
@@ -573,7 +613,7 @@ button:disabled {
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 7px 9px;
-  color: #6d7d8c;
+  color: #5c6d7d;
   background: rgba(247, 250, 252, 0.5);
   box-shadow: var(--inner);
   display: grid;
@@ -1278,6 +1318,10 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 10px;
 }
 
+.leftActions.singleAction {
+  grid-template-columns: 1fr;
+}
+
 .secondaryAction,
 .primaryAction {
   min-width: 0;
@@ -1293,7 +1337,7 @@ input[type="range"]::-webkit-slider-thumb {
 
 .secondaryAction {
   background: rgba(247, 250, 252, 0.72);
-  color: #738191;
+  color: #5c6d7d;
 }
 
 .primaryAction {
@@ -1345,6 +1389,7 @@ input[type="range"]::-webkit-slider-thumb {
   flex: 0 0 150px;
   min-width: 0;
   height: 54px;
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 8px 11px;
   background: rgba(247, 250, 252, 0.55);
@@ -1366,15 +1411,29 @@ input[type="range"]::-webkit-slider-thumb {
   font-weight: 760;
 }
 
+.modelPill span.modelPillTitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow: visible;
+}
+
+.modelPillTitle svg {
+  flex: 0 0 auto;
+  color: var(--accent-dark);
+}
+
 .modelPill small {
   margin-top: 4px;
-  color: #738191;
+  color: #5c6d7d;
   font-size: 11px;
 }
 
 .modelPill.active {
-  background: rgba(250, 253, 255, 0.94);
-  box-shadow: 0 10px 22px rgba(83, 102, 121, 0.14), var(--inner);
+  border-color: rgba(50, 127, 85, 0.46);
+  background: rgba(237, 249, 242, 0.96);
+  box-shadow: 0 8px 18px rgba(67, 126, 91, 0.13), var(--inner);
 }
 
 .modelPill.active small {
@@ -1667,7 +1726,16 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.editorGenerateButton {
+  min-width: 142px;
+  height: 42px;
+  padding: 0 18px;
+  margin-left: 2px;
+  box-shadow: 0 10px 20px rgba(50, 127, 85, 0.2), var(--inner);
 }
 
 .dockButton {
@@ -1712,7 +1780,7 @@ input[type="range"]::-webkit-slider-thumb {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  color: #718093;
+  color: #5c6d7d;
   font-size: 12px;
 }
 
@@ -1806,7 +1874,7 @@ audio {
 }
 
 .playerInfo span {
-  color: #718093;
+  color: #5c6d7d;
   font-size: 12px;
 }
 
@@ -1883,7 +1951,7 @@ audio {
   display: inline-grid;
   place-items: center;
   padding: 0 9px;
-  color: #738191;
+  color: #5c6d7d;
   background: rgba(226, 234, 241, 0.74);
   font-size: 12px;
   font-weight: 760;
@@ -1902,7 +1970,7 @@ audio {
 
 .workerDetail,
 .monitorNote {
-  color: #758493;
+  color: #5c6d7d;
   font-size: 12px;
   line-height: 1.45;
 }
@@ -1925,7 +1993,7 @@ audio {
 }
 
 .inspectorRows span {
-  color: #7a8795;
+  color: #5c6d7d;
   font-size: 12px;
 }
 
@@ -1954,7 +2022,7 @@ audio {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  color: #718093;
+  color: #5c6d7d;
   font-size: 12px;
 }
 
@@ -2026,7 +2094,7 @@ audio {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: #718093;
+  color: #5c6d7d;
   font-size: 13px;
 }
 
@@ -2109,6 +2177,77 @@ audio {
   gap: 9px;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.monitorDrawerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 22;
+  display: flex;
+  justify-content: flex-end;
+  padding: 18px;
+  background: rgba(49, 65, 80, 0.2);
+  backdrop-filter: blur(4px);
+  animation: monitorBackdropIn 160ms ease-out both;
+}
+
+.monitorDrawer {
+  width: min(380px, calc(100vw - 36px));
+  max-height: calc(100dvh - 36px);
+  border: 1px solid rgba(83, 103, 122, 0.18);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #eaf0f5;
+  box-shadow: 0 24px 58px rgba(49, 65, 80, 0.28), var(--inner);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  animation: monitorDrawerIn 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.monitorDrawerHeader {
+  min-width: 0;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: 12px;
+  background: rgba(244, 248, 251, 0.9);
+}
+
+.monitorDrawerHeader strong,
+.monitorDrawerHeader span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitorDrawerHeader strong {
+  color: #263441;
+  font-size: 17px;
+}
+
+.monitorDrawerHeader span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.monitorDrawerBody {
+  min-height: 0;
+  padding: 14px;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(83, 103, 122, 0.34) transparent;
+}
+
+.monitorDrawerBody .softPanel {
+  box-shadow: 0 10px 24px rgba(91, 111, 130, 0.13), var(--inner);
 }
 
 .settingsOverlay {
@@ -4209,6 +4348,28 @@ audio {
   animation: spin 1s linear infinite;
 }
 
+@keyframes monitorBackdropIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes monitorDrawerIn {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -4234,6 +4395,10 @@ audio {
 
   .rightRail {
     display: none;
+  }
+
+  .monitorToolButton {
+    display: grid;
   }
 
   .desktopTopbar {
@@ -4312,6 +4477,15 @@ audio {
 @media (max-width: 640px) {
   .studioShell {
     padding: 10px;
+  }
+
+  .monitorDrawerOverlay {
+    padding: 10px;
+  }
+
+  .monitorDrawer {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
   }
 
   .brandMark strong {
@@ -4481,5 +4655,12 @@ audio {
 
   .resultMeta {
     justify-items: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monitorDrawerOverlay,
+  .monitorDrawer {
+    animation-duration: 1ms;
   }
 }
