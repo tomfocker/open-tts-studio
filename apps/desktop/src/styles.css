@@ -804,6 +804,81 @@ button:disabled {
   line-height: 1.55;
 }
 
+.promptPresetSection {
+  min-width: 0;
+  padding: 10px 11px 11px;
+  border: 1px solid rgba(132, 151, 169, 0.16);
+  border-radius: 8px;
+  background: rgba(247, 250, 252, 0.52);
+  box-shadow: var(--inner);
+  display: grid;
+  gap: 9px;
+}
+
+.promptPresetHeader {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.promptPresetHeader > span {
+  color: #4e6274;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.promptPresetHeader small {
+  min-width: 0;
+  color: #7b8997;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.promptPresetList {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.promptPreset {
+  min-height: 29px;
+  border: 1px solid rgba(122, 143, 162, 0.18);
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: #647587;
+  background: rgba(239, 244, 248, 0.72);
+  box-shadow: 0 4px 10px rgba(83, 102, 121, 0.08), inset 0 1px rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 730;
+  transition: transform 120ms ease, color 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+
+.promptPreset:hover {
+  color: #405a6e;
+  border-color: rgba(94, 139, 112, 0.3);
+  transform: translateY(-1px);
+}
+
+.promptPreset.active {
+  color: #315d42;
+  border-color: rgba(72, 132, 95, 0.32);
+  background: rgba(218, 238, 225, 0.82);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.66), 0 5px 12px rgba(70, 116, 87, 0.12);
+}
+
+.promptPreset:focus-visible {
+  outline: 2px solid rgba(69, 129, 93, 0.5);
+  outline-offset: 2px;
+}
+
 .referencePrompt {
   min-height: 68px;
 }
@@ -3537,8 +3612,50 @@ audio {
   line-height: 1;
 }
 
-.taskCenterSummary > .pathPickButton {
+.taskCenterSummaryActions {
   align-self: center;
+  display: grid;
+  gap: 8px;
+}
+
+.taskHistoryClearConfirm {
+  padding: 13px 14px;
+  border: 1px solid rgba(171, 87, 87, 0.24);
+  border-radius: 8px;
+  color: #9b4747;
+  background: rgba(255, 246, 246, 0.72);
+  box-shadow: var(--inner);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.taskHistoryClearConfirm > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.taskHistoryClearConfirm strong,
+.taskHistoryClearConfirm span {
+  display: block;
+}
+
+.taskHistoryClearConfirm strong {
+  color: #7f4141;
+  font-size: 13px;
+}
+
+.taskHistoryClearConfirm > div > span {
+  color: #886565;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.taskHistoryClearActions {
+  display: flex;
+  gap: 8px;
 }
 
 .taskCenterEmpty {
@@ -3916,6 +4033,14 @@ audio {
     grid-template-columns: 1fr;
   }
 
+  .promptPresetHeader {
+    grid-template-columns: 1fr;
+  }
+
+  .promptPresetHeader small {
+    text-align: left;
+  }
+
   .voicePanelTitle,
   .samplerLoginRow {
     align-items: flex-start;
@@ -3961,6 +4086,24 @@ audio {
   .audioLibraryControls,
   .audioLibraryLayout {
     grid-template-columns: 1fr;
+  }
+
+  .taskCenterSummaryActions,
+  .taskHistoryClearActions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .taskCenterSummaryActions {
+    display: grid;
+  }
+
+  .taskHistoryClearConfirm {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .taskHistoryClearActions {
+    grid-column: 1 / -1;
+    display: grid;
   }
 
   .modelPackageNoteField {

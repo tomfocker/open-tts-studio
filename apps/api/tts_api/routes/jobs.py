@@ -21,6 +21,11 @@ def list_jobs() -> list[JobInfo]:
     return get_job_store().list()
 
 
+@router.delete("/v1/tts/jobs/history")
+def clear_job_history() -> dict[str, int]:
+    return get_job_store().clear_terminal()
+
+
 @router.get("/v1/tts/jobs/{job_id}", response_model=JobInfo)
 def get_job(job_id: str) -> JobInfo:
     job = get_job_store().get(job_id)

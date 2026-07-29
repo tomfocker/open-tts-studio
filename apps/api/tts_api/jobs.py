@@ -32,6 +32,37 @@ class JobStore:
         with self._lock:
             return self._load().get(job_id)
 
+    def clear_terminal(self) -> dict[str, int]:
+        """Remove finished speech-job records and their diagnostic logs.
+
+        Generated audio files are intentionally retained, and queued/running
+        jobs are never removed while the local runner may still reference them.
+        """
+        with self._lock:
+            jobs = self._load()
+            terminal_statuses = {JobStatus.succeeded, JobStatus.failed, JobStatus.cancelled}
+            removed = [job for job in jobs.values() if job.status in terminal_statuses]
+            retained = {job_id: job for job_id, job in jobs.items() if job.status not in terminal_statuses}
+            self._save(retained)
+
+            removed_logs = 0
+            for job in removed:
+                if not job.log_file:
+                    continue
+                try:
+                    log_path = Path(job.log_file)
+                    if log_path.is_file():
+                        log_path.unlink()
+                        removed_logs += 1
+                except OSError:
+                    continue
+
+            return {
+                "removed_jobs": len(removed),
+                "removed_logs": removed_logs,
+                "retained_active_jobs": len(retained),
+            }
+
     def create(self, request: SpeechRequest, retry_of: str | None = None) -> JobInfo:
         with self._lock:
             job_id = uuid4().hex

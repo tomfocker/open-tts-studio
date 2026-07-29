@@ -228,6 +228,14 @@ export function retrySpeechJob(jobId: string): Promise<SpeechJob> {
   return jobRequest<SpeechJob>(`/v1/tts/jobs/${jobId}/retry`, { method: "POST" });
 }
 
+export function clearSpeechJobHistory(): Promise<{
+  removed_jobs: number;
+  removed_logs: number;
+  retained_active_jobs: number;
+}> {
+  return jobRequest("/v1/tts/jobs/history", { method: "DELETE" });
+}
+
 export async function fetchTaskSummaries(): Promise<TaskSummary[]> {
   const payload = await jobRequest<{ tasks: TaskSummary[] }>("/v1/tasks");
   return payload.tasks;

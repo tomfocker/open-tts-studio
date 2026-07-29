@@ -6,6 +6,16 @@ const test = require("node:test");
 
 const { expectedReleaseAssetNames, sha256, verifyReleaseAssets } = require("./release-assets.cjs");
 
+test("desktop package includes the IndexTTS2 worker scripts", async () => {
+  const packagePath = path.resolve(__dirname, "..", "package.json");
+  const packageJson = JSON.parse(await fs.readFile(packagePath, "utf8"));
+  const workerResource = packageJson.build.extraResources.find((entry) => entry.to === "workspace/apps/api/tools");
+
+  assert.ok(workerResource, "IndexTTS2 worker resource configuration is missing");
+  assert.equal(workerResource.from, "../api/tools");
+  assert.deepEqual(workerResource.filter, ["*.py"]);
+});
+
 async function createReleaseFixture(version = "0.1.2") {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "open-tts-release-assets-"));
   const releaseDirectory = path.join(root, "release");

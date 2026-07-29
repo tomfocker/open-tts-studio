@@ -83,3 +83,36 @@ def test_restart_recovery_marks_running_jobs_retryable_and_keeps_queued_jobs(tmp
     assert recovered_running.stage == "interrupted"
     assert "重启" in (recovered_running.error or "")
     assert queued_job_ids == [queued.id]
+
+
+def test_clear_job_history_removes_terminal_records_and_logs_but_keeps_active_jobs(tmp_path: Path):
+    store = JobStore(tmp_path / "tasks.json", tmp_path / "task-logs")
+    completed = store.create(SpeechRequest(model="mock-tts", input="已完成"))
+    active = store.create(SpeechRequest(model="mock-tts", input="仍在排队"))
+    store.mark_running(completed.id)
+    store.mark_failed(completed.id, "测试失败记录")
+
+    completed_log = Path(store.get(completed.id).log_file)
+    assert completed_log.is_file()
+
+    result = store.clear_terminal()
+
+    assert result == {"removed_jobs": 1, "removed_logs": 1, "retained_active_jobs": 1}
+    assert store.get(completed.id) is None
+    assert store.get(active.id) is not None
+    assert not completed_log.exists()
+
+
+def test_clear_job_history_api_keeps_generated_audio_files(tmp_path: Path, monkeypatch):
+    client = make_jobs_client(tmp_path, monkeypatch)
+    response = client.post("/v1/tts/jobs", json={"model": "mock-tts", "input": "保留音频"})
+    completed = wait_for_terminal_job(client, response.json()["id"])
+    output_path = Path(completed["result"]["file_path"])
+    assert output_path.is_file()
+
+    clear_response = client.delete("/v1/tts/jobs/history")
+
+    assert clear_response.status_code == 200
+    assert clear_response.json()["removed_jobs"] == 1
+    assert output_path.is_file()
+    assert client.get("/v1/tts/jobs").json() == []

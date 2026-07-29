@@ -42,6 +42,7 @@ import {
   cancelBatchProject,
   cancelSpeechJob,
   checkModelInstance,
+  clearSpeechJobHistory,
   createSpeechJob,
   createVoice,
   createBatchProject,
@@ -223,6 +224,42 @@ const voicePresets: VoicePreset[] = [
 
 const cloneModeLabels = ["文本生成", "音色设计", "可控克隆", "极致克隆"] as const;
 type CloneMode = (typeof cloneModeLabels)[number];
+
+type ControlPromptPreset = {
+  label: string;
+  prompt: string;
+};
+
+const INDEXTTS2_EMOTION_PRESETS: ControlPromptPreset[] = [
+  { label: "跟随原音", prompt: "" },
+  { label: "平静", prompt: "平静" },
+  { label: "开心", prompt: "开心" },
+  { label: "悲伤", prompt: "悲伤" },
+  { label: "愤怒", prompt: "愤怒" },
+  { label: "惊喜", prompt: "惊喜" },
+  { label: "恐惧", prompt: "恐惧" },
+  { label: "低落", prompt: "低落" },
+  { label: "厌恶", prompt: "厌恶" }
+];
+
+const VOXCPM2_VOICE_DESIGN_PRESETS: ControlPromptPreset[] = [
+  { label: "温柔女声", prompt: "年轻女性，音色清亮温柔，普通话自然，语速适中，亲切且有感染力。" },
+  { label: "沉稳男声", prompt: "成年男性，音色低沉浑厚，表达沉稳可信，吐字清晰，语速稍慢。" },
+  { label: "活泼少女", prompt: "年轻少女，声音明亮活泼，带自然笑意，语速稍快，情绪轻快。" },
+  { label: "知性旁白", prompt: "成熟女性，知性克制，声音温暖，吐字清晰，纪录片旁白风格。" },
+  { label: "故事爷爷", prompt: "年长男性，声音温厚慈祥，节奏舒缓，像在安静地讲睡前故事。" },
+  { label: "清冷青年", prompt: "年轻男性，音色清冷干净，表达克制，语速自然，带轻微疏离感。" }
+];
+
+const VOXCPM2_CLONE_STYLE_PRESETS: ControlPromptPreset[] = [
+  { label: "自然跟随", prompt: "" },
+  { label: "温柔平静", prompt: "用温柔、平静的语气表达，语速稍慢，情绪自然克制。" },
+  { label: "开心明快", prompt: "用开心、明快的语气表达，带自然笑意，语速稍快。" },
+  { label: "严肃坚定", prompt: "用严肃、坚定的语气表达，吐字清晰，停顿有力。" },
+  { label: "悲伤克制", prompt: "用悲伤但克制的语气表达，语速稍慢，保留自然停顿。" },
+  { label: "轻声耳语", prompt: "用轻柔的耳语感表达，音量较低，语速缓慢，保持自然。" },
+  { label: "激昂有力", prompt: "用激昂、有力量的语气表达，节奏明快，重音清晰。" }
+];
 
 const featureLabels: Record<string, string> = {
   plain_tts: "文本生成",
@@ -920,7 +957,7 @@ function capabilityHint(model: ModelInfo | undefined, mode: CloneMode) {
     return "GPT-SoVITS 会同时使用参考音频和参考文本，适合更稳定的音色复刻。";
   }
   if (model.id === "indextts2" && mode === "可控克隆") {
-    return "IndexTTS2 会保留所选参考音色，只控制情绪表达；不能用文字重新设计性别或音色。";
+    return "IndexTTS2 会保留所选参考音色，并调用上游情感文本控制；留空时按参考音频完整克隆。";
   }
   if (model.id === "voxcpm2" && mode === "可控克隆") {
     return "VoxCPM2 会优先克隆参考音频的说话人特征；控制文字只能调表达，不能可靠地把男声改成女声。";
@@ -948,6 +985,29 @@ function controlPromptPlaceholder(model: ModelInfo | undefined, mode: CloneMode)
     return "音色设计：如成熟御姐、低沉男声、清亮少女音";
   }
   return "控制指令";
+}
+
+function getControlPromptPresets(model: ModelInfo | undefined, mode: CloneMode): ControlPromptPreset[] {
+  if (model?.id === "indextts2" && mode === "可控克隆") {
+    return INDEXTTS2_EMOTION_PRESETS;
+  }
+  if (model?.id === "voxcpm2" && mode === "音色设计") {
+    return VOXCPM2_VOICE_DESIGN_PRESETS;
+  }
+  if (model?.id === "voxcpm2" && mode === "可控克隆") {
+    return VOXCPM2_CLONE_STYLE_PRESETS;
+  }
+  return [];
+}
+
+function controlPromptGuide(model: ModelInfo | undefined, mode: CloneMode) {
+  if (model?.id === "indextts2") {
+    return "推荐只写一种明确情绪；留空会跟随参考音频的原始表达。";
+  }
+  if (model?.id === "voxcpm2" && mode === "音色设计") {
+    return "推荐结构：年龄与性别 + 音色 + 情绪 + 语速 + 使用场景。";
+  }
+  return "推荐结构：情绪 + 强度 + 语速或停顿；参考音频仍决定说话人音色。";
 }
 
 function getGenerationProgress(modelId: string, elapsedSeconds: number): GenerationProgress {
@@ -1087,7 +1147,7 @@ export function App() {
   const [voiceManagerError, setVoiceManagerError] = useState<string | null>(null);
   const [cloneMode, setCloneMode] = useState<CloneMode>("可控克隆");
   const [input, setInput] = useState("你好，这是 IndexTTS2 的本地桌面软件测试。");
-  const [controlPrompt, setControlPrompt] = useState("语速自然，情绪稳定，声音清晰，有一点亲切感");
+  const [controlPromptDrafts, setControlPromptDrafts] = useState<Record<string, string>>({});
   const [referenceText, setReferenceText] = useState("你好，这是参考音频的原始文本。");
   const [cfg, setCfg] = useState(2);
   const [steps, setSteps] = useState(10);
@@ -1110,6 +1170,7 @@ export function App() {
   const [taskCenterAction, setTaskCenterAction] = useState<string | null>(null);
   const [taskCenterError, setTaskCenterError] = useState<string | null>(null);
   const [taskCenterMessage, setTaskCenterMessage] = useState<string | null>(null);
+  const [taskHistoryClearConfirmOpen, setTaskHistoryClearConfirmOpen] = useState(false);
   const [audioLibraryOpen, setAudioLibraryOpen] = useState(false);
   const [audioAssets, setAudioAssets] = useState<AudioAsset[]>([]);
   const [selectedAudioAssetPath, setSelectedAudioAssetPath] = useState<string | null>(null);
@@ -1222,6 +1283,12 @@ export function App() {
   const effectiveReferenceText = referenceText.trim() || selectedVoiceInfo.referenceText || "";
   const needsExtremeReferenceText = cloneModeNeedsReferenceText(cloneMode);
   const showControlPrompt = supportsControlPrompt(selectedModelInfo, cloneMode);
+  const controlPromptContextKey = `${selectedModel}:${cloneMode}`;
+  const controlPrompt = controlPromptDrafts[controlPromptContextKey] ?? "";
+  const controlPromptPresets = getControlPromptPresets(selectedModelInfo, cloneMode);
+  const setControlPrompt = (value: string) => {
+    setControlPromptDrafts((drafts) => ({ ...drafts, [controlPromptContextKey]: value }));
+  };
   const showVoiceLibrary = needsReferenceAudio;
   const showCfgSteps = selectedModel === "voxcpm2";
   const showSpeedControl = hasFeature(selectedModelInfo, "duration_control");
@@ -1333,6 +1400,12 @@ export function App() {
     const allTasks = samplerTask ? [samplerTask, ...remoteTasks] : remoteTasks;
     return [...allTasks].sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
   }, [remoteTasks, samplerTask]);
+  const clearableSpeechTaskCount = useMemo(
+    () => remoteTasks.filter(
+      (task) => task.source === "speech" && ["succeeded", "failed", "cancelled"].includes(task.status)
+    ).length,
+    [remoteTasks]
+  );
   const visibleAudioAssets = useMemo(() => {
     const search = audioLibrarySearch.trim().toLocaleLowerCase();
     return audioAssets.filter((asset) => {
@@ -2772,6 +2845,26 @@ export function App() {
     }
   }
 
+  async function onClearSpeechHistory() {
+    setTaskCenterAction("clear-history");
+    setTaskCenterError(null);
+    setTaskCenterMessage(null);
+    try {
+      const result = await clearSpeechJobHistory();
+      setTaskHistoryClearConfirmOpen(false);
+      await loadTaskSummaries();
+      setTaskCenterMessage(
+        result.removed_jobs > 0
+          ? `已清理 ${result.removed_jobs} 条单句生成记录和 ${result.removed_logs} 份诊断日志；生成音频仍保留在输出目录。`
+          : "没有可清理的已结束单句任务；进行中的任务已保留。"
+      );
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "清理生成历史失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
   async function openTaskLog(task: TaskSummary) {
     if (!task.log_file || !window.desktopFiles?.openPath) {
       setTaskCenterError("当前任务没有可打开的本地日志文件。");
@@ -3143,6 +3236,7 @@ export function App() {
           <button className="toolButton" title="任务中心" onClick={() => {
             setTaskCenterError(null);
             setTaskCenterMessage(null);
+            setTaskHistoryClearConfirmOpen(false);
             void loadTaskSummaries();
             setTaskCenterOpen(true);
           }}>
@@ -3267,12 +3361,40 @@ export function App() {
               ))}
             </div>
             {showControlPrompt ? (
-              <textarea
-                className="controlPrompt"
-                value={controlPrompt}
-                onChange={(event) => setControlPrompt(event.target.value)}
-                placeholder={controlPromptPlaceholder(selectedModelInfo, cloneMode)}
-              />
+              <>
+                <textarea
+                  className="controlPrompt"
+                  value={controlPrompt}
+                  onChange={(event) => setControlPrompt(event.target.value)}
+                  placeholder={controlPromptPlaceholder(selectedModelInfo, cloneMode)}
+                  aria-label={`${selectedModelInfo?.display_name ?? selectedModel} ${cloneMode}提示词`}
+                />
+                {controlPromptPresets.length > 0 && (
+                  <div className="promptPresetSection">
+                    <div className="promptPresetHeader">
+                      <span><Wand2 size={15} strokeWidth={1.9} />快速预设</span>
+                      <small>{controlPromptGuide(selectedModelInfo, cloneMode)}</small>
+                    </div>
+                    <div className="promptPresetList" aria-label="提示词快速预设">
+                      {controlPromptPresets.map((preset) => {
+                        const selected = controlPrompt.trim() === preset.prompt;
+                        return (
+                          <button
+                            key={`${selectedModel}-${cloneMode}-${preset.label}`}
+                            type="button"
+                            className={selected ? "promptPreset active" : "promptPreset"}
+                            aria-pressed={selected}
+                            title={preset.prompt || "不添加控制提示，跟随参考音频"}
+                            onClick={() => setControlPrompt(preset.prompt)}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <div className="capabilityNote">
                 <Sparkles size={17} strokeWidth={1.9} />
@@ -3290,7 +3412,7 @@ export function App() {
             {selectedModel === "indextts2" && showControlPrompt && (
               <div className="capabilityNote compactCapabilityNote">
                 <Sparkles size={17} strokeWidth={1.9} />
-                <span>情绪建议使用惊讶、愤怒、悲伤、恐惧或平静；音色由左侧参考音频决定。</span>
+                <span>情绪文本控制来自 IndexTTS2 上游实验能力；建议使用惊讶、愤怒、悲伤、恐惧或平静。留空则完整复刻参考音色及表达。</span>
               </div>
             )}
             {selectedModel === "voxcpm2" && cloneMode === "可控克隆" && (
@@ -3922,7 +4044,10 @@ export function App() {
                 <strong>任务中心</strong>
                 <span>真实后端阶段 · 串行队列 · 失败诊断</span>
               </div>
-              <button className="modalClose" title="关闭" onClick={() => setTaskCenterOpen(false)}>
+              <button className="modalClose" title="关闭" onClick={() => {
+                setTaskHistoryClearConfirmOpen(false);
+                setTaskCenterOpen(false);
+              }}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -3941,11 +4066,44 @@ export function App() {
                   <span>可重试</span>
                   <strong>{taskCenterTasks.filter((task) => task.retryable).length}</strong>
                 </div>
-                <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void loadTaskSummaries()}>
-                  <RefreshCw size={15} strokeWidth={1.9} />
-                  <span>刷新</span>
-                </button>
+                <span className="taskCenterSummaryActions">
+                  <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void loadTaskSummaries()}>
+                    <RefreshCw size={15} strokeWidth={1.9} />
+                    <span>刷新</span>
+                  </button>
+                  <button
+                    className="pathPickButton runtimeStopButton"
+                    disabled={taskCenterAction !== null || clearableSpeechTaskCount === 0}
+                    onClick={() => {
+                      setTaskCenterError(null);
+                      setTaskCenterMessage(null);
+                      setTaskHistoryClearConfirmOpen(true);
+                    }}
+                  >
+                    <Trash2 size={15} strokeWidth={1.9} />
+                    <span>清理历史</span>
+                  </button>
+                </span>
               </div>
+
+              {taskHistoryClearConfirmOpen && (
+                <div className="taskHistoryClearConfirm" role="alertdialog" aria-label="确认清理生成历史">
+                  <Trash2 size={21} strokeWidth={1.8} />
+                  <div>
+                    <strong>清理 {clearableSpeechTaskCount} 条已结束的单句生成记录？</strong>
+                    <span>任务记录和诊断日志会删除，输出目录中的 WAV 音频不会删除；排队及生成中的任务也会保留。</span>
+                  </div>
+                  <span className="taskHistoryClearActions">
+                    <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => setTaskHistoryClearConfirmOpen(false)}>
+                      取消
+                    </button>
+                    <button className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onClearSpeechHistory()}>
+                      {taskCenterAction === "clear-history" ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
+                      <span>{taskCenterAction === "clear-history" ? "清理中" : "确认清理"}</span>
+                    </button>
+                  </span>
+                </div>
+              )}
 
               {taskCenterTasks.length === 0 ? (
                 <div className="taskCenterEmpty">
@@ -4027,7 +4185,10 @@ export function App() {
             )}
 
             <footer className="settingsFooter">
-              <button className="secondaryAction settingsAction" onClick={() => setTaskCenterOpen(false)}>
+              <button className="secondaryAction settingsAction" onClick={() => {
+                setTaskHistoryClearConfirmOpen(false);
+                setTaskCenterOpen(false);
+              }}>
                 <X size={16} strokeWidth={1.9} />
                 <span>关闭</span>
               </button>

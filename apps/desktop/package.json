@@ -1,6 +1,6 @@
 {
   "name": "open-tts-desktop",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "A local desktop workstation for managing open-source TTS models.",
   "author": "tomfocker",
   "homepage": "https://github.com/tomfocker/open-tts-studio",
@@ -67,6 +67,13 @@
           "!.pytest_cache{,/**/*}",
           "!*.egg-info{,/**/*}",
           "!**/__pycache__{,/**/*}"
+        ]
+      },
+      {
+        "from": "../api/tools",
+        "to": "workspace/apps/api/tools",
+        "filter": [
+          "*.py"
         ]
       },
       {
