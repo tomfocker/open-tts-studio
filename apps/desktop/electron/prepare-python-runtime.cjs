@@ -27,6 +27,14 @@ function shouldCopyBaseFile(sourceRoot, sourcePath) {
   ].some((ignored) => ignored.every((segment, index) => segments[index] === segment));
 }
 
+function basePythonCopyOptions(basePythonRoot) {
+  return {
+    recursive: true,
+    dereference: true,
+    filter: (sourcePath) => shouldCopyBaseFile(basePythonRoot, sourcePath)
+  };
+}
+
 async function preparePythonRuntime(options = {}) {
   const desktopRoot = options.desktopRoot || path.resolve(__dirname, "..");
   const apiRoot = options.apiRoot || path.resolve(desktopRoot, "..", "api");
@@ -47,10 +55,7 @@ async function preparePythonRuntime(options = {}) {
 
   await fs.rm(runtimeRoot, { recursive: true, force: true });
   await fs.mkdir(runtimeRoot, { recursive: true });
-  await fs.cp(basePythonRoot, runtimeRoot, {
-    recursive: true,
-    filter: (sourcePath) => shouldCopyBaseFile(basePythonRoot, sourcePath)
-  });
+  await fs.cp(basePythonRoot, runtimeRoot, basePythonCopyOptions(basePythonRoot));
   await fs.cp(apiSitePackages, path.join(runtimeRoot, "Lib", "site-packages"), { recursive: true });
   await fs.writeFile(
     path.join(runtimeRoot, "opentts-runtime.json"),
@@ -77,5 +82,6 @@ if (require.main === module) {
 module.exports = {
   parseVenvHome,
   preparePythonRuntime,
+  basePythonCopyOptions,
   shouldCopyBaseFile
 };
