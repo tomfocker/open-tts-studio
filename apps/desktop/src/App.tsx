@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   CheckCircle2,
+  Cloud,
   Copy,
   Cpu,
   Download,
@@ -79,6 +80,7 @@ import {
   updateModelInstance,
   updateVoice
 } from "./api";
+import { DoubaoWorkspace } from "./DoubaoWorkspace";
 import type {
   AudioAsset,
   AppUpdateState,
@@ -128,6 +130,9 @@ declare global {
     };
     desktopClipboard?: {
       writeText: (content: string) => Promise<void>;
+    };
+    desktopExternal?: {
+      openLegadoImport: (targetUrl: string) => Promise<string>;
     };
     desktopUpdater?: {
       getState: () => Promise<AppUpdateState>;
@@ -205,11 +210,26 @@ type PendingModelSwitch = {
   loadedModelIds: string[];
 };
 
+type ModelWarmupState = {
+  modelId: string;
+  status: "waiting" | "warming" | "ready" | "failed";
+  message: string;
+};
+
 const voxcpm2ParameterHints = {
   cfg: "控制指令的遵从程度。推荐 2.0；低于 1.5 会减弱指令，高于 2.6 可能让音色不稳定。",
   steps: "扩散采样次数。推荐 10；提高步数会更慢，通常不建议超过 16。",
   normalize: "生成前规范化数字、时间等文本。推荐开启；需要保留原始读法时可关闭。",
   denoise: "对参考音频做轻度降噪。推荐关闭；仅在底噪明显时开启，可能损失部分音色细节。"
+} as const;
+
+const indexTts2ParameterHints = {
+  temperature: "控制采样随机性。推荐 0.8；降低会更稳定，提高会更有变化，但过高可能出现错字或异常韵律。",
+  topP: "只从累计概率最高的一组候选中采样。推荐 0.8；降低更保守，提高会增加表达变化。",
+  topK: "每一步最多保留的候选数量。推荐 30；降低更稳定，提高会增加多样性。",
+  numBeams: "并行比较的候选序列数量。推荐 3；提高可能更稳定，但会明显增加生成时间和显存开销。",
+  repetitionPenalty: "抑制重复音节和循环。推荐 10；过低可能重复，过高可能损伤自然度。",
+  maxMelTokens: "单段最多生成的音频 Token。推荐 1500；太小会截断，增大只提高长度上限，不等同于生成步数。"
 } as const;
 
 const voicePresets: VoicePreset[] = [
@@ -655,6 +675,9 @@ function modelBadge(model: ModelInfo | undefined) {
   }
   if (model.id === "indextts2" || model.id === "voxcpm2" || model.id === "gptsovits") {
     return "已接入";
+  }
+  if (model.id === "doubao-web") {
+    return "独立工作台";
   }
   if (model.adapter === "mock") {
     return "演示";
@@ -1151,6 +1174,12 @@ export function App() {
   const [referenceText, setReferenceText] = useState("你好，这是参考音频的原始文本。");
   const [cfg, setCfg] = useState(2);
   const [steps, setSteps] = useState(10);
+  const [indexTemperature, setIndexTemperature] = useState(0.8);
+  const [indexTopP, setIndexTopP] = useState(0.8);
+  const [indexTopK, setIndexTopK] = useState(30);
+  const [indexNumBeams, setIndexNumBeams] = useState(3);
+  const [indexRepetitionPenalty, setIndexRepetitionPenalty] = useState(10);
+  const [indexMaxMelTokens, setIndexMaxMelTokens] = useState(1500);
   const [speed, setSpeed] = useState(1);
   const [normalizeText, setNormalizeText] = useState(true);
   const [denoise, setDenoise] = useState(false);
@@ -1199,12 +1228,14 @@ export function App() {
   const [checkingModelId, setCheckingModelId] = useState<string | null>(null);
   const [savingProfileModelId, setSavingProfileModelId] = useState<string | null>(null);
   const [runtimeActionModelId, setRuntimeActionModelId] = useState<string | null>(null);
+  const [modelWarmupState, setModelWarmupState] = useState<ModelWarmupState | null>(null);
   const [modelHealthResults, setModelHealthResults] = useState<Record<string, ModelHealthResult>>({});
   const [modelPackageModelId, setModelPackageModelId] = useState("indextts2");
   const [modelPackageLabel, setModelPackageLabel] = useState("");
   const [modelPackageNote, setModelPackageNote] = useState("");
   const [modelPackageAction, setModelPackageAction] = useState<string | null>(null);
   const [voiceImporting, setVoiceImporting] = useState(false);
+  const [recognizingVoiceIds, setRecognizingVoiceIds] = useState<string[]>([]);
   const [voiceSaving, setVoiceSaving] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const [voiceQuality, setVoiceQuality] = useState<VoiceQualityReport | null>(null);
@@ -1221,6 +1252,7 @@ export function App() {
   const [samplerReferenceText, setSamplerReferenceText] = useState("");
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
   const [batchProjectOpen, setBatchProjectOpen] = useState(false);
+  const [doubaoWorkspaceOpen, setDoubaoWorkspaceOpen] = useState(false);
   const [batchProjects, setBatchProjects] = useState<BatchProject[]>([]);
   const [editingBatchProjectId, setEditingBatchProjectId] = useState<string | null>(null);
   const [batchProjectTitle, setBatchProjectTitle] = useState("未命名配音项目");
@@ -1237,6 +1269,11 @@ export function App() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
   const lastSamplerDefaultNameRef = useRef("");
+  const selectedModelRef = useRef(selectedModel);
+  const selectedVoiceRef = useRef(selectedVoice);
+  const managedVoiceIdRef = useRef(managedVoiceId);
+  const voiceRecognitionRequestsRef = useRef(new Map<string, Promise<void>>());
+  const pendingModelWarmupRef = useRef<string | null>(null);
 
   const selectedModelInfo = useMemo(
     () => models.find((model) => model.id === selectedModel),
@@ -1291,23 +1328,28 @@ export function App() {
   };
   const showVoiceLibrary = needsReferenceAudio;
   const showCfgSteps = selectedModel === "voxcpm2";
+  const showIndexSampling = selectedModel === "indextts2";
   const showSpeedControl = hasFeature(selectedModelInfo, "duration_control");
   const showNormalizeToggle = selectedModel === "voxcpm2";
   const showDenoiseToggle = selectedModel === "voxcpm2";
-  const hasParameterControls = showCfgSteps || showSpeedControl || showNormalizeToggle || showDenoiseToggle;
+  const hasParameterControls = showCfgSteps || showIndexSampling || showSpeedControl || showNormalizeToggle || showDenoiseToggle;
   const hasActiveBatchGeneration = batchProjects.some((project) =>
     project.status === "queued" || project.status === "running" || project.status === "cancelling"
   );
-  const modelSwitchLocked = loading || hasActiveBatchGeneration;
+  const modelWarmupBusy = modelWarmupState?.status === "waiting" || modelWarmupState?.status === "warming";
+  const modelSwitchLocked = loading || hasActiveBatchGeneration || modelWarmupBusy;
   const modelSwitchLockMessage = loading
     ? "当前语音任务正在生成，模型切换已锁定。任务结束后才能切换。"
-    : "批量语音任务正在执行或排队，模型切换已锁定。任务结束后才能切换。";
+    : hasActiveBatchGeneration
+      ? "批量语音任务正在执行或排队，模型切换已锁定。任务结束后才能切换。"
+      : modelWarmupState?.message ?? "模型正在预热，完成后才能继续切换。";
   const online = models.length > 0 && !backendError;
   const visibleError = error ?? backendError;
   const resultSavedToVoiceLibrary = Boolean(result && savedVoicePath === result.file_path);
   const canGenerate =
     input.trim().length > 0 &&
     !loading &&
+    !modelWarmupBusy &&
     isModelInstanceUsable(selectedModelInstance) &&
     (!needsReferenceAudio || Boolean(selectedVoiceInfo.referenceAudio)) &&
     (!needsExtremeReferenceText || effectiveReferenceText.trim().length > 0);
@@ -1489,12 +1531,75 @@ export function App() {
       return;
     }
     setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+    managedVoiceIdRef.current = preset.id;
     setManagedVoiceId(preset.id);
     setVoiceManagerDraft(createVoiceManagerDraft(preset));
     if (select) {
+      selectedVoiceRef.current = preset.id;
       setSelectedVoice(preset.id);
       setReferenceText(preset.referenceText ?? "");
     }
+  }
+
+  function applyRecognizedVoice(voice: VoiceInfo) {
+    const preset = createImportedVoicePreset(voice);
+    if (!preset) {
+      return;
+    }
+    setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+    if (selectedVoiceRef.current === preset.id) {
+      setReferenceText(preset.referenceText ?? "");
+    }
+    if (managedVoiceIdRef.current === preset.id) {
+      setVoiceManagerDraft((draft) => ({ ...draft, referenceText: preset.referenceText ?? "" }));
+    }
+  }
+
+  function startAutomaticVoiceRecognition(voice: VoiceInfo) {
+    if (!voice.reference_audio || voiceRecognitionRequestsRef.current.has(voice.id)) {
+      return;
+    }
+
+    setRecognizingVoiceIds((ids) => [...new Set([...ids, voice.id])]);
+    if (selectedVoiceRef.current === voice.id) {
+      setVoiceMessage(`${voice.name} 已导入，正在后台识别参考文本…`);
+    }
+    if (managedVoiceIdRef.current === voice.id) {
+      setVoiceManagerError(null);
+      setVoiceManagerMessage("新参考音频已保存，正在后台识别对应原文…");
+    }
+
+    const recognition = (async () => {
+      try {
+        const result = await recognizeVoiceReference(voice.id);
+        const updated = await updateVoice(voice.id, { reference_text: result.text });
+        applyRecognizedVoice(updated);
+        if (selectedVoiceRef.current === voice.id) {
+          setVoiceMessage(`${voice.name} 的参考文本已自动识别，请在生成前核对。`);
+        }
+        if (managedVoiceIdRef.current === voice.id) {
+          setVoiceManagerMessage("参考文本已自动识别并保存，建议核对后再用于极致克隆。");
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "参考音频识别失败";
+        if (selectedVoiceRef.current === voice.id) {
+          setVoiceMessage(`自动识别未完成：${message}。可以稍后在音色库中重试。`);
+        }
+        if (managedVoiceIdRef.current === voice.id) {
+          setVoiceManagerError(`自动识别未完成：${message}`);
+        }
+      } finally {
+        voiceRecognitionRequestsRef.current.delete(voice.id);
+        setRecognizingVoiceIds((ids) => ids.filter((id) => id !== voice.id));
+        if (voiceRecognitionRequestsRef.current.size === 0 && pendingModelWarmupRef.current) {
+          const modelId = pendingModelWarmupRef.current;
+          void runModelWarmup(modelId);
+        }
+      }
+    })();
+
+    voiceRecognitionRequestsRef.current.set(voice.id, recognition);
+    queueModelWarmup(selectedModelRef.current);
   }
 
   function openVoiceManager() {
@@ -1552,10 +1657,14 @@ export function App() {
       }
       const updated = await updateVoice(managedVoice.id, {
         reference_audio: audioPath,
-        reference_text: voiceManagerDraft.referenceText.trim() || null
+        reference_text: null
       });
       mergeManagedVoice(updated, selectedVoice === updated.id);
-      setVoiceManagerMessage("参考音频已替换并复制到本软件的音色目录。");
+      if (selectedVoice === updated.id) {
+        setReferenceText("");
+      }
+      setVoiceManagerMessage("参考音频已替换并复制到本软件的音色目录，正在自动识别原文。");
+      startAutomaticVoiceRecognition(updated);
     } catch (err) {
       setVoiceManagerError(err instanceof Error ? err.message : "替换参考音频失败");
     } finally {
@@ -1571,6 +1680,12 @@ export function App() {
     setVoiceManagerAction("recognize");
     setVoiceManagerError(null);
     setVoiceManagerMessage(null);
+    pendingModelWarmupRef.current = selectedModelRef.current;
+    setModelWarmupState({
+      modelId: selectedModelRef.current,
+      status: "waiting",
+      message: "正在识别参考音频，完成后会恢复并预热当前模型。"
+    });
     try {
       const result = await recognizeVoiceReference(managedVoice.id);
       setVoiceManagerDraft((draft) => ({ ...draft, referenceText: result.text }));
@@ -1582,6 +1697,7 @@ export function App() {
       setVoiceManagerError(err instanceof Error ? err.message : "参考音频识别失败");
     } finally {
       setVoiceManagerAction(null);
+      queueModelWarmup(selectedModelRef.current);
     }
   }
 
@@ -1617,7 +1733,11 @@ export function App() {
       }
       const imported = await importVoicePackage(packagePath);
       mergeManagedVoice(imported, true);
+      selectedVoiceRef.current = imported.id;
       setVoiceManagerMessage(`已导入音色包：${imported.name}`);
+      if (!imported.reference_text) {
+        startAutomaticVoiceRecognition(imported);
+      }
     } catch (err) {
       setVoiceManagerError(err instanceof Error ? err.message : "导入音色包失败");
     } finally {
@@ -1684,6 +1804,19 @@ export function App() {
     setBatchProjectTitle(project.title);
     setBatchProjectModel(project.model);
     setBatchProjectSegments(project.segments.map((segment) => segment.text));
+    if (project.model === "voxcpm2") {
+      setCfg(project.cfg ?? 2);
+      setSteps(project.inference_steps ?? 10);
+      setNormalizeText(project.normalize ?? true);
+      setDenoise(project.denoise ?? false);
+    } else if (project.model === "indextts2") {
+      setIndexTemperature(project.temperature ?? 0.8);
+      setIndexTopP(project.top_p ?? 0.8);
+      setIndexTopK(project.top_k ?? 30);
+      setIndexNumBeams(project.num_beams ?? 3);
+      setIndexRepetitionPenalty(project.repetition_penalty ?? 10);
+      setIndexMaxMelTokens(project.max_mel_tokens ?? 1500);
+    }
     setBatchProjectError(null);
     setBatchProjectMessage(`正在编辑：${project.title}`);
   }
@@ -1738,10 +1871,16 @@ export function App() {
         reference_text: effectiveReferenceText.trim() || undefined,
         emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
         speed: showSpeedControl ? speed : 1,
-        cfg: showCfgSteps ? cfg : undefined,
-        inference_steps: showCfgSteps ? steps : undefined,
-        normalize: showNormalizeToggle ? normalizeText : undefined,
-        denoise: showDenoiseToggle ? denoise : undefined
+        cfg: batchProjectModel === "voxcpm2" ? cfg : undefined,
+        inference_steps: batchProjectModel === "voxcpm2" ? steps : undefined,
+        temperature: batchProjectModel === "indextts2" ? indexTemperature : undefined,
+        top_p: batchProjectModel === "indextts2" ? indexTopP : undefined,
+        top_k: batchProjectModel === "indextts2" ? indexTopK : undefined,
+        num_beams: batchProjectModel === "indextts2" ? indexNumBeams : undefined,
+        repetition_penalty: batchProjectModel === "indextts2" ? indexRepetitionPenalty : undefined,
+        max_mel_tokens: batchProjectModel === "indextts2" ? indexMaxMelTokens : undefined,
+        normalize: batchProjectModel === "voxcpm2" ? normalizeText : undefined,
+        denoise: batchProjectModel === "voxcpm2" ? denoise : undefined
       };
       const project = editingBatchProjectId
         ? await updateBatchProject(editingBatchProjectId, payload)
@@ -1973,12 +2112,16 @@ export function App() {
       const preset = createImportedVoicePreset(voice);
       if (preset) {
         setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+        selectedVoiceRef.current = preset.id;
         setSelectedVoice(preset.id);
         if (preset.referenceText) {
           setReferenceText(preset.referenceText);
         }
       }
       setAudioLibraryMessage(`${asset.file_name} 已加入音色库。`);
+      if (!asset.text) {
+        startAutomaticVoiceRecognition(voice);
+      }
     } catch (err) {
       setAudioLibraryError(err instanceof Error ? err.message : "将音频加入音色库失败");
     } finally {
@@ -2237,6 +2380,7 @@ export function App() {
         throw new Error("取样音频已生成，但音色库没有返回参考音频路径");
       }
       setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+      selectedVoiceRef.current = preset.id;
       setSelectedVoice(preset.id);
       if (samplerReferenceText.trim()) {
         setReferenceText(samplerReferenceText.trim());
@@ -2247,6 +2391,9 @@ export function App() {
       setSamplerMessage(`已加入音色库：${preset.name}，${formatDuration(response.data.durationSeconds)}`);
       setSamplerOpen(false);
       void loadVoices();
+      if (!samplerReferenceText.trim()) {
+        startAutomaticVoiceRecognition(voice);
+      }
     } catch (err) {
       setSamplerFailure(err instanceof Error ? err.message : "取样失败");
     } finally {
@@ -2293,18 +2440,17 @@ export function App() {
       const createdVoice = await createVoice({
         name: getFileBaseName(audioPath),
         reference_audio: audioPath,
-        reference_text: referenceText.trim() || undefined,
         authorization_status: "authorized",
         source_type: "local_import"
       });
       const preset = createImportedVoicePreset(createdVoice);
       if (preset) {
         setCustomVoices((voices) => [...voices.filter((voice) => voice.id !== preset.id), preset]);
+        selectedVoiceRef.current = preset.id;
         setSelectedVoice(preset.id);
-        if (preset.referenceText) {
-          setReferenceText(preset.referenceText);
-        }
-        setVoiceMessage(`已导入 ${preset.name}`);
+        setReferenceText("");
+        setVoiceMessage(`已导入 ${preset.name}，正在自动识别参考文本…`);
+        startAutomaticVoiceRecognition(createdVoice);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "导入音色失败");
@@ -2643,6 +2789,55 @@ export function App() {
     }
   }
 
+  function selectModel(modelId: string) {
+    selectedModelRef.current = modelId;
+    setSelectedModel(modelId);
+  }
+
+  async function runModelWarmup(modelId: string) {
+    const model = models.find((candidate) => candidate.id === modelId);
+    const instance = modelInstances.find((candidate) => candidate.model_id === modelId);
+    const displayName = model?.display_name ?? instance?.display_name ?? modelId;
+    if (!instance || !isModelInstanceUsable(instance)) {
+      setModelWarmupState({
+        modelId,
+        status: "failed",
+        message: `${displayName} 尚未配置可用模型实例，已跳过预热。`
+      });
+      return;
+    }
+    pendingModelWarmupRef.current = null;
+    setModelWarmupState({ modelId, status: "warming", message: `${displayName} 正在加载到显存…` });
+    try {
+      const result = await startModelRuntime(modelId);
+      setSystemStatus((current) =>
+        current ? { ...current, workers: { ...current.workers, [modelId]: result.worker } } : current
+      );
+      setModelWarmupState({ modelId, status: "ready", message: `${displayName} 已预热，可以直接开始生成。` });
+      await loadSystemStatus();
+    } catch (err) {
+      setModelWarmupState({
+        modelId,
+        status: "failed",
+        message: err instanceof Error ? `预热失败：${err.message}` : `${displayName} 预热失败。`
+      });
+    }
+  }
+
+  function queueModelWarmup(modelId: string) {
+    const displayName = models.find((candidate) => candidate.id === modelId)?.display_name ?? modelId;
+    pendingModelWarmupRef.current = modelId;
+    if (voiceRecognitionRequestsRef.current.size > 0) {
+      setModelWarmupState({
+        modelId,
+        status: "waiting",
+        message: `正在识别参考音频，完成后将自动预热 ${displayName}。`
+      });
+      return;
+    }
+    void runModelWarmup(modelId);
+  }
+
   async function onStartModelRuntime(instance: ModelInstanceProfile) {
     setRuntimeActionModelId(instance.model_id);
     setSettingsError(null);
@@ -2654,8 +2849,8 @@ export function App() {
         .join("、");
       setSettingsMessage(
         releasedNames
-          ? `${instance.display_name} 已发出启动请求，已释放 ${releasedNames} 的显存。`
-          : `${instance.display_name} 已发出启动请求，可在运行时状态中查看就绪情况。`
+          ? `${instance.display_name} 已完成预热，并释放了 ${releasedNames} 的显存。`
+          : `${instance.display_name} 已完成预热，可以直接开始生成。`
       );
       setSystemStatus((current) =>
         current
@@ -2711,14 +2906,16 @@ export function App() {
       setPendingModelSwitch({ targetModelId, loadedModelIds });
       return;
     }
-    setSelectedModel(targetModelId);
+    selectModel(targetModelId);
+    queueModelWarmup(targetModelId);
   }
 
   function confirmModelSwitch() {
     if (!pendingModelSwitch || modelSwitchLocked) {
       return;
     }
-    setSelectedModel(pendingModelSwitch.targetModelId);
+    selectModel(pendingModelSwitch.targetModelId);
+    queueModelWarmup(pendingModelSwitch.targetModelId);
     setPendingModelSwitch(null);
   }
 
@@ -2745,6 +2942,12 @@ export function App() {
         speed: showSpeedControl ? speed : 1,
         cfg: showCfgSteps ? cfg : undefined,
         inferenceSteps: showCfgSteps ? steps : undefined,
+        temperature: showIndexSampling ? indexTemperature : undefined,
+        topP: showIndexSampling ? indexTopP : undefined,
+        topK: showIndexSampling ? indexTopK : undefined,
+        numBeams: showIndexSampling ? indexNumBeams : undefined,
+        repetitionPenalty: showIndexSampling ? indexRepetitionPenalty : undefined,
+        maxMelTokens: showIndexSampling ? indexMaxMelTokens : undefined,
         normalize: showNormalizeToggle ? normalizeText : undefined,
         denoise: showDenoiseToggle ? denoise : undefined
       });
@@ -2980,6 +3183,18 @@ export function App() {
     void loadBatchProjects();
     void refreshSamplerSession(false);
   }, []);
+
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+  }, [selectedModel]);
+
+  useEffect(() => {
+    selectedVoiceRef.current = selectedVoice;
+  }, [selectedVoice]);
+
+  useEffect(() => {
+    managedVoiceIdRef.current = managedVoiceId;
+  }, [managedVoiceId]);
 
   useEffect(() => {
     const updater = window.desktopUpdater;
@@ -3245,6 +3460,9 @@ export function App() {
           <button className="toolButton" title="批量项目" onClick={openBatchProjectWorkspace}>
             <FileText size={17} strokeWidth={1.9} />
           </button>
+          <button className="toolButton" title="豆包与阅读" onClick={() => setDoubaoWorkspaceOpen(true)}>
+            <Cloud size={17} strokeWidth={1.9} />
+          </button>
           <button className="toolButton" title="设置" onClick={openSettings}>
             <Settings size={17} strokeWidth={1.9} />
           </button>
@@ -3272,7 +3490,7 @@ export function App() {
                 <span>音色库</span>
               </span>
               <div className="voicePanelActions">
-                <button className="voiceImportButton" disabled={voiceImporting} onClick={() => void onImportVoice()}>
+                <button className="voiceImportButton" disabled={voiceImporting || modelWarmupBusy} onClick={() => void onImportVoice()} title={modelWarmupBusy ? "模型预热完成后再导入参考音频" : "导入后自动识别参考文本"}>
                   {voiceImporting ? <Loader2 className="spin" size={14} /> : <Upload size={14} strokeWidth={1.9} />}
                   <span>导入</span>
                 </button>
@@ -3450,6 +3668,49 @@ export function App() {
                 </label>
               </>
             )}
+            {showIndexSampling && (
+              <>
+                <div className="capabilityNote compactCapabilityNote indexSamplingNote">
+                  <Info size={17} strokeWidth={1.9} />
+                  <span>IndexTTS2 是自回归模型，没有扩散“步数”；以下参数控制 GPT 音频 Token 采样。</span>
+                </div>
+                <details className="indexAdvancedParameters">
+                  <summary>IndexTTS2 高级采样参数</summary>
+                  <div className="indexAdvancedParameterList">
+                    <label className="sliderField parameterHint" data-tooltip={indexTts2ParameterHints.temperature}>
+                      <span className="parameterName">温度 <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
+                      <input type="range" min="0.1" max="2" step="0.1" value={indexTemperature} onChange={(event) => setIndexTemperature(Number(event.target.value))} />
+                      <strong>{indexTemperature.toFixed(1)}</strong>
+                    </label>
+                    <label className="sliderField parameterHint" data-tooltip={indexTts2ParameterHints.topP}>
+                      <span className="parameterName">Top-P <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
+                      <input type="range" min="0" max="1" step="0.01" value={indexTopP} onChange={(event) => setIndexTopP(Number(event.target.value))} />
+                      <strong>{indexTopP.toFixed(2)}</strong>
+                    </label>
+                    <label className="sliderField parameterHint" data-tooltip={indexTts2ParameterHints.topK}>
+                      <span className="parameterName">Top-K <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
+                      <input type="range" min="0" max="100" step="1" value={indexTopK} onChange={(event) => setIndexTopK(Number(event.target.value))} />
+                      <strong>{indexTopK}</strong>
+                    </label>
+                    <label className="sliderField parameterHint" data-tooltip={indexTts2ParameterHints.numBeams}>
+                      <span className="parameterName">束数 <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
+                      <input type="range" min="1" max="10" step="1" value={indexNumBeams} onChange={(event) => setIndexNumBeams(Number(event.target.value))} />
+                      <strong>{indexNumBeams}</strong>
+                    </label>
+                    <label className="sliderField parameterHint" data-tooltip={indexTts2ParameterHints.repetitionPenalty}>
+                      <span className="parameterName">重复 <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
+                      <input type="range" min="0.1" max="20" step="0.1" value={indexRepetitionPenalty} onChange={(event) => setIndexRepetitionPenalty(Number(event.target.value))} />
+                      <strong>{indexRepetitionPenalty.toFixed(1)}</strong>
+                    </label>
+                    <label className="sliderField parameterHint" data-tooltip={indexTts2ParameterHints.maxMelTokens}>
+                      <span className="parameterName">长度 <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
+                      <input type="range" min="50" max="1815" step="5" value={indexMaxMelTokens} onChange={(event) => setIndexMaxMelTokens(Number(event.target.value))} />
+                      <strong>{indexMaxMelTokens}</strong>
+                    </label>
+                  </div>
+                </details>
+              </>
+            )}
             {showSpeedControl && (
               <label className="sliderField">
                 <span>语速</span>
@@ -3523,6 +3784,12 @@ export function App() {
                       模型切换已锁定
                     </small>
                   )}
+                  {modelWarmupState?.modelId === selectedModel && (
+                    <small className={`modelWarmupStatus ${modelWarmupState.status}`} title={modelWarmupState.message}>
+                      {(modelWarmupState.status === "waiting" || modelWarmupState.status === "warming") && <Loader2 className="spin" size={12} />}
+                      {modelWarmupState.message}
+                    </small>
+                  )}
                 </div>
               </div>
               <div className="modelScroller">
@@ -3530,9 +3797,15 @@ export function App() {
                   <button
                     key={model.id}
                     className={model.id === selectedModel ? "modelPill active" : "modelPill"}
-                    onClick={() => requestModelSwitch(model.id)}
-                    title={modelSwitchLocked && model.id !== selectedModel ? modelSwitchLockMessage : model.display_name}
-                    disabled={modelSwitchLocked && model.id !== selectedModel}
+                    onClick={() => model.id === "doubao-web" ? setDoubaoWorkspaceOpen(true) : requestModelSwitch(model.id)}
+                    title={
+                      model.id === "doubao-web"
+                        ? "打开豆包合成、账号与阅读工作台"
+                        : modelSwitchLocked && model.id !== selectedModel
+                          ? modelSwitchLockMessage
+                          : model.display_name
+                    }
+                    disabled={model.id !== "doubao-web" && modelSwitchLocked && model.id !== selectedModel}
                   >
                     <span>{model.display_name}</span>
                     <small>{modelBadge(model)}</small>
@@ -3841,13 +4114,13 @@ export function App() {
                           <strong>{managedVoice.referenceAudioManaged ? "文件已托管" : "外部路径"}</strong>
                           <span>{getFileBaseName(managedVoice.referenceAudio ?? "本地音色")}</span>
                         </div>
-                        <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null} onClick={() => void onReplaceVoiceReference()}>
+                        <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null || recognizingVoiceIds.includes(managedVoice.id)} onClick={() => void onReplaceVoiceReference()}>
                           {voiceManagerAction === "replace-audio" ? <Loader2 className="spin" size={15} /> : <Upload size={15} strokeWidth={1.9} />}
                           <span>替换音频</span>
                         </button>
                       </div>
                       <p className="voiceManagerHint">
-                        替换后会自动复制到软件的音色目录，原文件可以移动或删除。极致克隆和 GPT-SoVITS 建议让参考文本与音频内容一致。
+                        替换后会自动复制到音色目录并后台识别原文，原文件可以移动或删除。极致克隆和 GPT-SoVITS 使用前仍建议核对文本。
                       </p>
                       <label className="settingsField">
                         <span>音色名称（可重命名）</span>
@@ -3858,17 +4131,18 @@ export function App() {
                         <textarea
                           value={voiceManagerDraft.referenceText}
                           placeholder="填写这条参考音频实际说的内容"
+                          disabled={recognizingVoiceIds.includes(managedVoice.id)}
                           onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceText: event.target.value }))}
                         />
                       </label>
                       <button
                         className="pathPickButton"
                         type="button"
-                        disabled={voiceManagerAction !== null || !managedVoice.referenceAudio}
+                        disabled={voiceManagerAction !== null || !managedVoice.referenceAudio || recognizingVoiceIds.includes(managedVoice.id)}
                         onClick={() => void onRecognizeManagedVoiceReference()}
                       >
-                        {voiceManagerAction === "recognize" ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} strokeWidth={1.9} />}
-                        <span>识别参考文本</span>
+                        {voiceManagerAction === "recognize" || recognizingVoiceIds.includes(managedVoice.id) ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} strokeWidth={1.9} />}
+                        <span>{recognizingVoiceIds.includes(managedVoice.id) ? "正在自动识别" : "识别参考文本"}</span>
                       </button>
                       <div className="voiceManagerMetadata">
                         <span>来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
@@ -3913,6 +4187,8 @@ export function App() {
           </section>
         </div>
       )}
+
+      {doubaoWorkspaceOpen && <DoubaoWorkspace onClose={() => setDoubaoWorkspaceOpen(false)} />}
 
       {audioLibraryOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音频资产库">
@@ -4216,12 +4492,12 @@ export function App() {
                   <strong>{pendingSwitchLoadedModels.join("、")} 仍在显存中</strong>
                   <span>
                     切换到 {models.find((model) => model.id === pendingModelSwitch.targetModelId)?.display_name ?? pendingModelSwitch.targetModelId}
-                    不会立刻卸载它们；只有开始生成时，软件才会自动释放其他由 OpenTTS 托管的模型，避免显存叠加。
+                    后会立即释放这些由 OpenTTS 托管的模型，并开始预热新模型，避免生成时才临时加载。
                   </span>
                 </div>
               </div>
               <p className="modelSwitchNote">
-                这样可以避免仅查看模型就反复加载权重。以后切回这些模型并再次生成时，需要重新加载到显存。
+                预热期间模型切换会暂时锁定；完成后可以直接生成。以后切回原模型时仍需重新加载到显存。
               </p>
             </div>
             <footer className="settingsFooter">

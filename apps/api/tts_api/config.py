@@ -15,6 +15,23 @@ DEFAULT_GPTSOVITS_ROOT = MODEL_STORE_ROOT / "GPT-SoVITS"
 DEFAULT_SETTINGS_FILE = WORKSPACE_ROOT / "data" / "config" / "user-settings.json"
 
 
+def get_app_version() -> str:
+    """Return the desktop release version without coupling the API to Electron."""
+    explicit_version = os.environ.get("OPEN_TTS_APP_VERSION", "").strip()
+    if explicit_version:
+        return explicit_version.removeprefix("v")
+
+    package_file = WORKSPACE_ROOT / "apps" / "desktop" / "package.json"
+    try:
+        package = json.loads(package_file.read_text(encoding="utf-8"))
+        version = str(package.get("version", "")).strip()
+        if version:
+            return version.removeprefix("v")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        pass
+    return "0.1.0"
+
+
 def _default_tasks_file() -> Path:
     explicit_path = os.environ.get("OPEN_TTS_TASKS_FILE")
     if explicit_path:
@@ -55,6 +72,26 @@ def _default_voice_export_dir() -> Path:
     return WORKSPACE_ROOT / "data" / "exports" / "voices"
 
 
+def _default_doubao_cookie_file() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_DOUBAO_COOKIE_FILE")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_settings = os.environ.get("OPEN_TTS_SETTINGS_FILE")
+    if configured_settings:
+        return Path(configured_settings).parent / "doubao-cookies.json"
+    return WORKSPACE_ROOT / "data" / "config" / "doubao-cookies.json"
+
+
+def _default_doubao_data_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_DOUBAO_DATA_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_settings = os.environ.get("OPEN_TTS_SETTINGS_FILE")
+    if configured_settings:
+        return Path(configured_settings).parent / "doubao-data"
+    return WORKSPACE_ROOT / "data" / "doubao"
+
+
 USER_SETTING_KEYS = {
     "api_host",
     "api_port",
@@ -70,6 +107,13 @@ USER_SETTING_KEYS = {
     "gptsovits_api_port",
     "default_model_id",
     "prewarm_default_model_on_startup",
+    "doubao_timeout_seconds",
+    "doubao_retry_count",
+    "doubao_request_interval_delay_seconds",
+    "legado_timeout_seconds",
+    "book_cache_concurrency",
+    "doubao_data_dir",
+    "ffmpeg_path",
     "model_instances",
 }
 RESTART_REQUIRED_FIELDS = ["api_host", "api_port"]
@@ -100,7 +144,36 @@ class Settings(BaseModel):
     gptsovits_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_GPTSOVITS_ROOT", str(DEFAULT_GPTSOVITS_ROOT))))
     gptsovits_api_host: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_GPTSOVITS_API_HOST", "127.0.0.1"))
     gptsovits_api_port: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_GPTSOVITS_API_PORT", "9880")))
-    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits"] = "indextts2"
+    doubao_cookie_file: Path = Field(default_factory=_default_doubao_cookie_file)
+    doubao_data_dir: Path = Field(default_factory=_default_doubao_data_dir)
+    doubao_voice_catalog_path: Path = WORKSPACE_ROOT / "model-registry" / "doubao-voices.json"
+    doubao_timeout_seconds: float = Field(
+        default_factory=lambda: float(os.environ.get("OPEN_TTS_DOUBAO_TIMEOUT_SECONDS", "30")),
+        ge=3,
+        le=120,
+    )
+    doubao_retry_count: int = Field(
+        default_factory=lambda: int(os.environ.get("OPEN_TTS_DOUBAO_RETRY_COUNT", "3")),
+        ge=0,
+        le=5,
+    )
+    doubao_request_interval_delay_seconds: float = Field(
+        default_factory=lambda: float(os.environ.get("OPEN_TTS_DOUBAO_REQUEST_INTERVAL_SECONDS", "3")),
+        ge=0,
+        le=60,
+    )
+    legado_timeout_seconds: float = Field(
+        default_factory=lambda: float(os.environ.get("OPEN_TTS_LEGADO_TIMEOUT_SECONDS", "10")),
+        ge=1,
+        le=120,
+    )
+    book_cache_concurrency: int = Field(
+        default_factory=lambda: int(os.environ.get("OPEN_TTS_BOOK_CACHE_CONCURRENCY", "20")),
+        ge=1,
+        le=50,
+    )
+    ffmpeg_path: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_FFMPEG_PATH", "ffmpeg"))
+    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits", "doubao-web"] = "indextts2"
     prewarm_default_model_on_startup: bool = False
     model_instances: dict[str, dict] = Field(default_factory=dict)
 
@@ -143,6 +216,14 @@ def serialize_settings(settings: Settings) -> dict:
         "gptsovits_root": str(settings.gptsovits_root),
         "gptsovits_api_host": settings.gptsovits_api_host,
         "gptsovits_api_port": settings.gptsovits_api_port,
+        "doubao_timeout_seconds": settings.doubao_timeout_seconds,
+        "doubao_retry_count": settings.doubao_retry_count,
+        "doubao_request_interval_delay_seconds": settings.doubao_request_interval_delay_seconds,
+        "legado_timeout_seconds": settings.legado_timeout_seconds,
+        "book_cache_concurrency": settings.book_cache_concurrency,
+        "doubao_cookie_configured": settings.doubao_cookie_file.exists(),
+        "doubao_data_dir": str(settings.doubao_data_dir),
+        "ffmpeg_path": settings.ffmpeg_path,
         "default_model_id": settings.default_model_id,
         "prewarm_default_model_on_startup": settings.prewarm_default_model_on_startup,
         "model_instances": settings.model_instances,
@@ -158,4 +239,5 @@ def get_settings() -> Settings:
     if user_settings:
         settings = Settings(**{**settings.model_dump(), **user_settings})
     settings.output_dir.mkdir(parents=True, exist_ok=True)
+    settings.doubao_data_dir.mkdir(parents=True, exist_ok=True)
     return settings

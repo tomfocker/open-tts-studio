@@ -21,6 +21,12 @@ def test_indextts2_adapter_builds_lazy_pack_command(tmp_path: Path):
         input="hello",
         reference_audio="D:/AI/IndexTTS2/Index-TTS/examples/voice_01.wav",
         emotion="calm and natural",
+        temperature=0.7,
+        top_p=0.75,
+        top_k=24,
+        num_beams=2,
+        repetition_penalty=8.5,
+        max_mel_tokens=1200,
     )
 
     command, output_path = adapter.build_command(request)
@@ -37,6 +43,12 @@ def test_indextts2_adapter_builds_lazy_pack_command(tmp_path: Path):
     assert "D:/AI/IndexTTS2/Index-TTS/examples/voice_01.wav" in command
     assert "--emotion-text" in command
     assert "calm and natural" in command
+    assert command[command.index("--temperature") + 1] == "0.7"
+    assert command[command.index("--top-p") + 1] == "0.75"
+    assert command[command.index("--top-k") + 1] == "24"
+    assert command[command.index("--num-beams") + 1] == "2"
+    assert command[command.index("--repetition-penalty") + 1] == "8.5"
+    assert command[command.index("--max-mel-tokens") + 1] == "1200"
     assert "--fp16" in command
     assert output_path.suffix == ".wav"
 

@@ -38,8 +38,15 @@ class SpeechRequest(BaseModel):
     language: str | None = None
     response_format: str = "wav"
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
+    pitch: int = Field(default=0, ge=-12, le=12)
     cfg: float | None = Field(default=None, ge=1.0, le=3.0)
     inference_steps: int | None = Field(default=None, ge=1, le=50)
+    temperature: float | None = Field(default=None, ge=0.1, le=2.0)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    top_k: int | None = Field(default=None, ge=0, le=100)
+    num_beams: int | None = Field(default=None, ge=1, le=10)
+    repetition_penalty: float | None = Field(default=None, ge=0.1, le=20.0)
+    max_mel_tokens: int | None = Field(default=None, ge=50, le=1815)
     normalize: bool | None = None
     denoise: bool | None = None
     stream: bool = False
@@ -224,6 +231,12 @@ class BatchProjectCreate(BaseModel):
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
     cfg: float | None = Field(default=None, ge=1.0, le=3.0)
     inference_steps: int | None = Field(default=None, ge=1, le=50)
+    temperature: float | None = Field(default=None, ge=0.1, le=2.0)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    top_k: int | None = Field(default=None, ge=0, le=100)
+    num_beams: int | None = Field(default=None, ge=1, le=10)
+    repetition_penalty: float | None = Field(default=None, ge=0.1, le=20.0)
+    max_mel_tokens: int | None = Field(default=None, ge=50, le=1815)
     normalize: bool | None = None
     denoise: bool | None = None
 
@@ -238,6 +251,12 @@ class BatchProjectUpdate(BaseModel):
     speed: float | None = Field(default=None, ge=0.25, le=4.0)
     cfg: float | None = Field(default=None, ge=1.0, le=3.0)
     inference_steps: int | None = Field(default=None, ge=1, le=50)
+    temperature: float | None = Field(default=None, ge=0.1, le=2.0)
+    top_p: float | None = Field(default=None, ge=0.0, le=1.0)
+    top_k: int | None = Field(default=None, ge=0, le=100)
+    num_beams: int | None = Field(default=None, ge=1, le=10)
+    repetition_penalty: float | None = Field(default=None, ge=0.1, le=20.0)
+    max_mel_tokens: int | None = Field(default=None, ge=50, le=1815)
     normalize: bool | None = None
     denoise: bool | None = None
 
@@ -253,6 +272,12 @@ class BatchProject(BaseModel):
     speed: float = 1.0
     cfg: float | None = None
     inference_steps: int | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    num_beams: int | None = None
+    repetition_penalty: float | None = None
+    max_mel_tokens: int | None = None
     normalize: bool | None = None
     denoise: bool | None = None
     status: BatchProjectStatus = BatchProjectStatus.draft

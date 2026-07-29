@@ -7,12 +7,12 @@ def validate_speech_request_capabilities(model: ModelInfo, request: SpeechReques
     """Validate only the request surface exposed by this stable adapter."""
     capabilities = set(model.request_capabilities)
 
-    if request.response_format.lower() != "wav":
-        raise ValueError("当前本地后端只支持 WAV 输出。")
+    supported_formats = {"wav", "mp3"} if model.adapter == "doubao_web" else {"wav"}
+    if request.response_format.lower() not in supported_formats:
+        raise ValueError(f"{model.display_name} 只支持 {', '.join(sorted(supported_formats)).upper()} 输出。")
     if request.stream:
         raise ValueError("当前本地后端尚未提供流式音频响应。")
-    if request.voice:
-        raise ValueError("当前稳定适配器不支持 voice 参数，请改用 reference_audio。")
+    _require_capability(model, request.voice, "voice", capabilities)
     if model.requires_reference_audio and not request.reference_audio:
         raise ValueError(f"{model.display_name} 必须提供 reference_audio。")
 
@@ -22,8 +22,16 @@ def validate_speech_request_capabilities(model: ModelInfo, request: SpeechReques
     _require_capability(model, request.voice_prompt, "voice_prompt", capabilities)
     if request.speed != 1.0:
         _require_capability(model, request.speed, "speed", capabilities)
+    if request.pitch != 0:
+        _require_capability(model, request.pitch, "pitch", capabilities)
     _require_capability(model, request.cfg, "cfg", capabilities)
     _require_capability(model, request.inference_steps, "inference_steps", capabilities)
+    _require_capability(model, request.temperature, "temperature", capabilities)
+    _require_capability(model, request.top_p, "top_p", capabilities)
+    _require_capability(model, request.top_k, "top_k", capabilities)
+    _require_capability(model, request.num_beams, "num_beams", capabilities)
+    _require_capability(model, request.repetition_penalty, "repetition_penalty", capabilities)
+    _require_capability(model, request.max_mel_tokens, "max_mel_tokens", capabilities)
     _require_capability(model, request.normalize, "normalize", capabilities)
     _require_capability(model, request.denoise, "denoise", capabilities)
 

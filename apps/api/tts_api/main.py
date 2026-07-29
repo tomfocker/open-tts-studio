@@ -7,10 +7,10 @@ from fastapi.responses import JSONResponse
 from tts_api.adapters.gptsovits import shutdown_gptsovits_services
 from tts_api.adapters.indextts2_worker import shutdown_indextts2_workers
 from tts_api.adapters.voxcpm2 import shutdown_voxcpm2_services
-from tts_api.config import get_settings
+from tts_api.config import get_app_version, get_settings
 from tts_api.jobs import get_job_runner
 from tts_api.projects import get_project_runner
-from tts_api.routes import audio_assets, health, jobs, model_directories, model_instances, model_packages, models, outputs, projects, runtime, settings as settings_routes, speech, system, tasks, voices
+from tts_api.routes import audio_assets, doubao, doubao_legacy, health, jobs, legado, model_directories, model_instances, model_packages, models, outputs, projects, runtime, settings as settings_routes, speech, system, tasks, voices
 
 
 def create_app() -> FastAPI:
@@ -25,7 +25,7 @@ def create_app() -> FastAPI:
         shutdown_voxcpm2_services()
         shutdown_gptsovits_services()
 
-    app = FastAPI(title="Open TTS Desktop API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Open TTS Desktop API", version=get_app_version(), lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -58,6 +58,9 @@ def create_app() -> FastAPI:
     app.include_router(model_instances.router)
     app.include_router(model_packages.router)
     app.include_router(tasks.router)
+    app.include_router(doubao.router)
+    app.include_router(legado.router)
+    app.include_router(doubao_legacy.router)
     return app
 
 

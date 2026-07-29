@@ -79,13 +79,27 @@ def test_capabilities_endpoint_exposes_stable_adapter_boundaries(tmp_path: Path,
     assert response.status_code == 200
     body = response.json()
     gptsovits = next(item for item in body["models"] if item["model"]["id"] == "gptsovits")
-    assert body["response_formats"] == ["wav"]
+    assert body["response_formats"] == ["wav", "mp3"]
     assert body["streaming"] is False
     assert gptsovits["requires_reference_audio"] is True
     assert "reference_audio" in gptsovits["accepted_parameters"]
-    assert {item["model"]["id"] for item in body["models"]} == {"indextts2", "voxcpm2", "gptsovits"}
+    assert {item["model"]["id"] for item in body["models"]} == {
+        "indextts2",
+        "voxcpm2",
+        "gptsovits",
+        "doubao-web",
+    }
+    doubao = next(item for item in body["models"] if item["model"]["id"] == "doubao-web")
+    assert doubao["instance"] is None
+    assert doubao["response_formats"] == ["wav", "mp3"]
+    assert {"voice", "speed", "pitch"}.issubset(doubao["accepted_parameters"])
 
     models_response = client.get("/v1/tts/models")
 
     assert models_response.status_code == 200
-    assert {model["id"] for model in models_response.json()} == {"indextts2", "voxcpm2", "gptsovits"}
+    assert {model["id"] for model in models_response.json()} == {
+        "indextts2",
+        "voxcpm2",
+        "gptsovits",
+        "doubao-web",
+    }

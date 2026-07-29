@@ -57,7 +57,17 @@ def test_worker_client_sends_json_synthesis_request(tmp_path: Path):
         indextts2_root=Path("D:/AI/IndexTTS2"),
     )
     client = IndexTts2WorkerClient(settings=settings, python_executable="python", popen=fake_popen)
-    request = SpeechRequest(model="indextts2", input="hello", emotion="calm")
+    request = SpeechRequest(
+        model="indextts2",
+        input="hello",
+        emotion="calm",
+        temperature=0.7,
+        top_p=0.75,
+        top_k=24,
+        num_beams=2,
+        repetition_penalty=8.5,
+        max_mel_tokens=1200,
+    )
 
     output = client.synthesize(request, Path("D:/out.wav"), "D:/prompt.wav")
 
@@ -68,6 +78,12 @@ def test_worker_client_sends_json_synthesis_request(tmp_path: Path):
     assert sent["text"] == "hello"
     assert sent["prompt_audio"] == "D:/prompt.wav"
     assert sent["emotion_text"] == "calm"
+    assert sent["temperature"] == 0.7
+    assert sent["top_p"] == 0.75
+    assert sent["top_k"] == 24
+    assert sent["num_beams"] == 2
+    assert sent["repetition_penalty"] == 8.5
+    assert sent["max_mel_tokens"] == 1200
 
 
 def test_worker_client_stops_and_logs_an_unresponsive_inference(tmp_path: Path):

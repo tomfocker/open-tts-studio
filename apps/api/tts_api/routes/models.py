@@ -20,16 +20,18 @@ def list_model_capabilities() -> dict:
     settings = get_settings()
     registry = ModelRegistry(settings.model_registry_path)
     instances = {instance.model_id: instance for instance in list_model_instances(settings)}
+    models = registry.list_models(include_internal=False)
     return {
-        "response_formats": ["wav"],
+        "response_formats": ["wav", "mp3"],
         "streaming": False,
         "models": [
             {
                 "model": model.model_dump(mode="json"),
                 "instance": instances[model.id].serializable() if model.id in instances else None,
                 "accepted_parameters": ["input", *model.request_capabilities],
+                "response_formats": ["wav", "mp3"] if model.adapter == "doubao_web" else ["wav"],
                 "requires_reference_audio": model.requires_reference_audio,
             }
-            for model in registry.list_models(include_internal=False)
+            for model in models
         ],
     }

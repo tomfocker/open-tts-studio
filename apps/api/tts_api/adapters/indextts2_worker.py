@@ -138,6 +138,12 @@ class IndexTts2WorkerClient:
                 "output": str(output_path),
                 "emotion_text": request.emotion,
                 "max_text_tokens_per_segment": 120,
+                "temperature": request.temperature,
+                "top_p": request.top_p,
+                "top_k": request.top_k,
+                "num_beams": request.num_beams,
+                "repetition_penalty": request.repetition_penalty,
+                "max_mel_tokens": request.max_mel_tokens,
             }
             assert self.process is not None
             assert self.process.stdin is not None

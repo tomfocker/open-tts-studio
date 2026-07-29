@@ -35,7 +35,7 @@ class SettingsBackupValues(BaseModel):
     output_dir: Path
     indextts2_idle_timeout_seconds: int = Field(ge=30, le=86400)
     local_api_idle_timeout_seconds: int = Field(ge=30, le=86400)
-    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits"] = "indextts2"
+    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits", "doubao-web"] = "indextts2"
     prewarm_default_model_on_startup: bool = False
 
 
@@ -78,7 +78,14 @@ class SettingsUpdate(BaseModel):
     gptsovits_root: Path | None = None
     gptsovits_api_host: str | None = None
     gptsovits_api_port: int | None = Field(default=None, ge=1024, le=65535)
-    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits"] | None = None
+    doubao_timeout_seconds: float | None = Field(default=None, ge=3, le=120)
+    doubao_retry_count: int | None = Field(default=None, ge=0, le=5)
+    doubao_request_interval_delay_seconds: float | None = Field(default=None, ge=0, le=60)
+    legado_timeout_seconds: float | None = Field(default=None, ge=1, le=120)
+    book_cache_concurrency: int | None = Field(default=None, ge=1, le=50)
+    doubao_data_dir: Path | None = None
+    ffmpeg_path: str | None = Field(default=None, min_length=1, max_length=2000)
+    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits", "doubao-web"] | None = None
     prewarm_default_model_on_startup: bool | None = None
 
 

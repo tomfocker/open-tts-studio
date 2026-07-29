@@ -7,6 +7,23 @@ import type {
   BatchProjectExport,
   BatchProjectUpdate,
   CreateVoiceRequest,
+  DoubaoApiEnvelope,
+  DoubaoCacheStats,
+  DoubaoCachedBook,
+  DoubaoCachedChapter,
+  DoubaoCookieRecord,
+  DoubaoCookieStats,
+  DoubaoDeviceId,
+  DoubaoDocument,
+  DoubaoLegacySettings,
+  DoubaoPrefetchTask,
+  DoubaoPrefetchCacheDetail,
+  DoubaoQrSession,
+  DoubaoQrStatus,
+  DoubaoStatus,
+  DoubaoVoice,
+  LegadoBook,
+  LegadoChapter,
   ModelHealthResult,
   ModelDirectoriesResponse,
   ModelDirectory,
@@ -59,6 +76,21 @@ export function getApiBase(): string {
   return window.desktopConfig?.apiBase ?? FALLBACK_API_BASE;
 }
 
+export function normalizeLegadoServiceBase(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  try {
+    const parsed = new URL(candidate);
+    if (!(["http:", "https:"] as string[]).includes(parsed.protocol)) return null;
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) return null;
+    if (parsed.pathname !== "/") return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
 export type GenerateSpeechOptions = {
   referenceAudio?: string;
   referenceText?: string;
@@ -66,6 +98,12 @@ export type GenerateSpeechOptions = {
   speed?: number;
   cfg?: number;
   inferenceSteps?: number;
+  temperature?: number;
+  topP?: number;
+  topK?: number;
+  numBeams?: number;
+  repetitionPenalty?: number;
+  maxMelTokens?: number;
   normalize?: boolean;
   denoise?: boolean;
 };
@@ -81,6 +119,12 @@ function buildSpeechPayload(model: string, input: string, options: GenerateSpeec
     speed: options.speed ?? 1,
     cfg: options.cfg,
     inference_steps: options.inferenceSteps,
+    temperature: options.temperature,
+    top_p: options.topP,
+    top_k: options.topK,
+    num_beams: options.numBeams,
+    repetition_penalty: options.repetitionPenalty,
+    max_mel_tokens: options.maxMelTokens,
     normalize: options.normalize,
     denoise: options.denoise
   };
@@ -173,7 +217,7 @@ export async function recognizeVoiceReference(voiceId: string): Promise<{ voice_
   const response = await fetchWithTimeout(
     `${getApiBase()}/v1/tts/voices/${voiceId}/recognize`,
     { method: "POST" },
-    120_000
+    360_000
   );
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
@@ -449,4 +493,370 @@ export async function importSettingsBackup(backup: SettingsBackup): Promise<AppS
 
 export function toAudioUrl(audioUrl: string): string {
   return `${getApiBase()}${audioUrl}`;
+}
+
+async function doubaoRequest<T>(path: string, init?: RequestInit, timeoutMs = 30_000): Promise<T> {
+  const response = await fetchWithTimeout(`${getApiBase()}${path}`, init, timeoutMs);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as
+      | { detail?: string | Array<{ msg?: string }>; message?: string }
+      | null;
+    const detail = Array.isArray(payload?.detail)
+      ? payload?.detail.map((item) => item.msg).filter(Boolean).join("；")
+      : payload?.detail;
+    throw new Error(detail || payload?.message || `豆包服务请求失败：${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function doubaoData<T>(path: string, init?: RequestInit, timeoutMs = 30_000): Promise<T> {
+  const payload = await doubaoRequest<DoubaoApiEnvelope<T>>(path, init, timeoutMs);
+  if (!payload.success) {
+    throw new Error(payload.message || "豆包服务返回失败");
+  }
+  return payload.data;
+}
+
+function jsonRequest(method: string, body?: unknown): RequestInit {
+  return {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  };
+}
+
+export function fetchDoubaoStatus(): Promise<DoubaoStatus> {
+  return doubaoData<DoubaoStatus>("/v1/doubao/status");
+}
+
+export async function fetchDoubaoVoices(query = "", gender = ""): Promise<DoubaoVoice[]> {
+  const parameters = new URLSearchParams();
+  if (query.trim()) parameters.set("query", query.trim());
+  if (gender) parameters.set("gender", gender);
+  const suffix = parameters.size ? `?${parameters}` : "";
+  return doubaoData<DoubaoVoice[]>(`/v1/doubao/voices${suffix}`);
+}
+
+export async function generateDoubaoSpeech(options: {
+  input: string;
+  voice: string;
+  speed: number;
+  pitch: number;
+  responseFormat: "mp3" | "wav";
+}): Promise<SpeechResult> {
+  return doubaoRequest<SpeechResult>(
+    "/v1/audio/speech",
+    jsonRequest("POST", {
+      model: "doubao-web",
+      input: options.input,
+      voice: options.voice,
+      speed: options.speed,
+      pitch: options.pitch,
+      response_format: options.responseFormat
+    }),
+    120_000
+  );
+}
+
+export async function fetchDoubaoCookies(): Promise<{ cookies: DoubaoCookieRecord[]; stats: DoubaoCookieStats }> {
+  const payload = await doubaoRequest<DoubaoApiEnvelope<DoubaoCookieRecord[]> & { stats: DoubaoCookieStats }>(
+    "/v1/doubao/cookies"
+  );
+  return { cookies: payload.data, stats: payload.stats };
+}
+
+export function fetchDoubaoCookie(cookieId: string, reveal = true): Promise<DoubaoCookieRecord> {
+  return doubaoData<DoubaoCookieRecord>(`/v1/doubao/cookies/${encodeURIComponent(cookieId)}?reveal=${reveal}`);
+}
+
+export function createDoubaoCookie(payload: { name: string; value: string; description?: string }): Promise<DoubaoCookieRecord> {
+  return doubaoData<DoubaoCookieRecord>("/v1/doubao/cookies", jsonRequest("POST", payload));
+}
+
+export function updateDoubaoCookie(
+  cookieId: string,
+  payload: { name?: string; value?: string; description?: string }
+): Promise<DoubaoCookieRecord> {
+  return doubaoData<DoubaoCookieRecord>(
+    `/v1/doubao/cookies/${encodeURIComponent(cookieId)}`,
+    jsonRequest("PUT", payload)
+  );
+}
+
+export function deleteDoubaoCookie(cookieId: string): Promise<unknown> {
+  return doubaoRequest(`/v1/doubao/cookies/${encodeURIComponent(cookieId)}`, { method: "DELETE" });
+}
+
+export function clearDoubaoCookies(): Promise<{ deleted: number }> {
+  return doubaoData<{ deleted: number }>("/v1/doubao/cookies", { method: "DELETE" });
+}
+
+export function testDoubaoCookie(cookieId: string): Promise<DoubaoCookieRecord & { isValid: boolean; validationMessage: string }> {
+  return doubaoData(`/v1/doubao/cookies/${encodeURIComponent(cookieId)}/test`, { method: "POST" }, 60_000);
+}
+
+export function testAllDoubaoCookies(indexes: number[]): Promise<{
+  successCount: number;
+  failCount: number;
+  total: number;
+  results: Array<{
+    index: number;
+    cookieId?: string;
+    name?: string;
+    success: boolean;
+    error?: string;
+    result?: { isValid: boolean; message: string; checkedAt: string | null; duration: number | null };
+  }>;
+}> {
+  return doubaoData("/v1/doubao/cookies/batch/test", jsonRequest("POST", { indexes }), 120_000);
+}
+
+export function toggleDoubaoCookie(cookieId: string): Promise<DoubaoCookieRecord> {
+  return doubaoData(`/v1/doubao/cookies/${encodeURIComponent(cookieId)}/toggle`, { method: "POST" });
+}
+
+export function rotateDoubaoCookie(cookieId?: string): Promise<DoubaoCookieRecord> {
+  return doubaoData("/v1/doubao/cookies/rotate", jsonRequest("POST", { cookieId: cookieId || null }));
+}
+
+export function configureDoubaoCookieRotation(payload: {
+  usageLimitEnabled: boolean;
+  usageCountPerCookie: number;
+}): Promise<DoubaoCookieStats["rotation"]> {
+  return doubaoData("/v1/doubao/cookies/rotation-config", jsonRequest("POST", payload));
+}
+
+export function setDoubaoCookieUsageLimit(cookieId: string, limit: number): Promise<{ id: string; name: string; limit: number }> {
+  return doubaoData(
+    `/v1/doubao/cookies/${encodeURIComponent(cookieId)}/usage-limit`,
+    jsonRequest("PUT", { limit })
+  );
+}
+
+export function startDoubaoQrLogin(): Promise<DoubaoQrSession> {
+  return doubaoData("/v1/doubao/auth/qr-code", { method: "POST" }, 45_000);
+}
+
+export function pollDoubaoQrLogin(sessionId: string): Promise<DoubaoQrStatus> {
+  return doubaoData("/v1/doubao/auth/qr-status", jsonRequest("POST", { sessionId }), 45_000);
+}
+
+export function confirmDoubaoQrLogin(sessionId: string, cookieName: string): Promise<{ id: string; name: string }> {
+  return doubaoData("/v1/doubao/auth/qr-confirm", jsonRequest("POST", { sessionId, cookieName }));
+}
+
+export function fetchLegadoBooks(serverIp: string, serverPort: number): Promise<LegadoBook[]> {
+  return doubaoData("/api/legado/proxy/bookshelf", jsonRequest("POST", { serverIp, serverPort }), 60_000);
+}
+
+export function fetchLegadoChapters(serverIp: string, serverPort: number, bookUrl: string): Promise<LegadoChapter[]> {
+  return doubaoData(
+    "/api/legado/proxy/chapters",
+    jsonRequest("POST", { serverIp, serverPort, bookUrl }),
+    60_000
+  );
+}
+
+export function fetchLegadoChapterContent(
+  serverIp: string,
+  serverPort: number,
+  bookUrl: string,
+  chapterIndex: number
+): Promise<unknown> {
+  return doubaoData(
+    "/api/legado/proxy/content",
+    jsonRequest("POST", { serverIp, serverPort, bookUrl, chapterIndex }),
+    60_000
+  );
+}
+
+export function generateLegadoBookId(bookUrl: string): Promise<{ bookId: string; bookUrl: string }> {
+  return doubaoData(`/api/legado/book-id/generate?bookUrl=${encodeURIComponent(bookUrl)}`);
+}
+
+export function startDoubaoPrefetch(payload: {
+  bookInfo: { bookId: string; bookName: string; bookUrl: string };
+  chaptersInfo: Array<{
+    chapterId: string;
+    chapterTitle: string;
+    chapterUrl?: string;
+    chapterIndex: number;
+  }>;
+  options: Record<string, unknown>;
+}): Promise<{ taskId: string; status: string; progress: { total: number; completed: number; failed: number } }> {
+  return doubaoData("/api/legado/prefetch/batch-start", jsonRequest("POST", payload));
+}
+
+export function fetchDoubaoPrefetchTasks(): Promise<DoubaoPrefetchTask[]> {
+  return doubaoData("/api/legado/prefetch/tasks");
+}
+
+export function pauseDoubaoPrefetch(taskId: string): Promise<unknown> {
+  return doubaoRequest(`/api/legado/prefetch/pause/${encodeURIComponent(taskId)}`, { method: "POST" });
+}
+
+export function resumeDoubaoPrefetch(taskId: string): Promise<unknown> {
+  return doubaoRequest(`/api/legado/prefetch/resume/${encodeURIComponent(taskId)}`, { method: "POST" });
+}
+
+export function cancelDoubaoPrefetch(taskId: string): Promise<unknown> {
+  return doubaoRequest(`/api/legado/prefetch/cancel/${encodeURIComponent(taskId)}`, { method: "POST" });
+}
+
+export function retryDoubaoPrefetch(taskId: string, chapterId?: string): Promise<unknown> {
+  return doubaoRequest(
+    `/api/legado/prefetch/retry/${encodeURIComponent(taskId)}`,
+    jsonRequest("POST", chapterId ? { chapterId } : {})
+  );
+}
+
+export function deleteDoubaoPrefetchTask(taskId: string): Promise<unknown> {
+  return doubaoRequest(`/api/legado/prefetch/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+}
+
+export function deleteDoubaoPrefetchFiles(taskId: string): Promise<unknown> {
+  return doubaoRequest(`/api/legado/prefetch/files/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+}
+
+export function fetchDoubaoPrefetchCacheDetail(bookId: string, chapterId: string): Promise<DoubaoPrefetchCacheDetail> {
+  return doubaoData(
+    `/api/legado/prefetch/cache/${encodeURIComponent(bookId)}/${encodeURIComponent(chapterId)}`
+  );
+}
+
+export function deleteDoubaoPrefetchChapter(bookId: string, chapterId: string): Promise<unknown> {
+  return doubaoRequest(
+    `/api/legado/prefetch/chapter/${encodeURIComponent(bookId)}/${encodeURIComponent(chapterId)}`,
+    { method: "DELETE" }
+  );
+}
+
+export function startLegadoBookCache(
+  bookInfo: LegadoBook,
+  serverIp: string,
+  serverPort: number
+): Promise<Record<string, unknown>> {
+  return doubaoData(
+    "/api/legado/book-cache/start",
+    jsonRequest("POST", { bookInfo, serverIp, serverPort }),
+    30 * 60_000
+  );
+}
+
+export function cancelLegadoBookCache(bookUrl: string): Promise<unknown> {
+  return doubaoRequest("/api/legado/book-cache/cancel", jsonRequest("POST", { bookUrl }));
+}
+
+export function fetchDoubaoCachedBooks(source?: "cache" | "prefetch"): Promise<DoubaoCachedBook[]> {
+  const suffix = source ? `?source=${source}` : "";
+  return doubaoData(`/api/legado/book-cache/list${suffix}`);
+}
+
+export function fetchDoubaoCacheStats(): Promise<DoubaoCacheStats> {
+  return doubaoData("/api/legado/book-cache/stats");
+}
+
+export function fetchDoubaoCachedChapters(
+  bookUrl: string,
+  source?: "cache" | "prefetch" | string
+): Promise<DoubaoCachedChapter[]> {
+  const parameters = new URLSearchParams({ bookUrl });
+  if (source) parameters.set("source", source);
+  return doubaoData(`/api/legado/book-cache/chapters?${parameters}`);
+}
+
+export function fetchDoubaoCachedChapter(bookUrl: string, chapterIndex: number): Promise<Record<string, unknown>> {
+  const parameters = new URLSearchParams({ bookUrl, chapterIndex: String(chapterIndex) });
+  return doubaoData(`/api/legado/book-cache/chapter?${parameters}`);
+}
+
+export function deleteDoubaoCachedBook(bookUrl: string): Promise<unknown> {
+  return doubaoRequest(`/api/legado/book-cache/delete?bookUrl=${encodeURIComponent(bookUrl)}`, { method: "DELETE" });
+}
+
+export function clearDoubaoBookCache(type: "cache" | "prefetch" | "all"): Promise<{
+  cacheDeletedCount: number;
+  prefetchDeletedCount: number;
+  totalDeletedCount: number;
+}> {
+  return doubaoData(`/api/legado/book-cache/clear?type=${type}`, { method: "DELETE" });
+}
+
+export function fetchDoubaoLegacySettings(): Promise<DoubaoLegacySettings> {
+  return doubaoData("/api/settings");
+}
+
+export function saveDoubaoLegacySettings(settings: Partial<DoubaoLegacySettings>): Promise<DoubaoLegacySettings> {
+  return doubaoData("/api/settings", jsonRequest("POST", settings));
+}
+
+export function resetDoubaoLegacySettings(): Promise<DoubaoLegacySettings> {
+  return doubaoData("/api/settings/reset", { method: "POST" });
+}
+
+export function fetchDoubaoDeviceId(): Promise<DoubaoDeviceId> {
+  return doubaoData("/api/settings/device-id");
+}
+
+export function regenerateDoubaoDeviceId(): Promise<DoubaoDeviceId> {
+  return doubaoData("/api/settings/device-id/regenerate", { method: "POST" });
+}
+
+export function setDoubaoDeviceIdAutoGenerate(enabled: boolean): Promise<DoubaoDeviceId> {
+  return doubaoData("/api/settings/device-id/auto-generate", jsonRequest("POST", { enabled }));
+}
+
+export function fetchDoubaoDocuments(query = ""): Promise<DoubaoDocument[]> {
+  return query.trim()
+    ? doubaoData(`/api/docs/search?q=${encodeURIComponent(query.trim())}`)
+    : doubaoData("/api/docs");
+}
+
+export function fetchDoubaoDocument(documentId: string): Promise<DoubaoDocument> {
+  return doubaoData(`/api/docs/${encodeURIComponent(documentId)}`);
+}
+
+export function cleanDoubaoLogCache(): Promise<{ deletedCount: number; totalSize: number }> {
+  return doubaoData("/api/console/clean-cache");
+}
+
+export function deleteDoubaoAudio(filename: string): Promise<{ deleted: boolean }> {
+  return doubaoData(`/api/audio/${encodeURIComponent(filename)}`, { method: "DELETE" });
+}
+
+export function getLegadoRealtimeConfigUrl(voiceId: string, delay: number, serviceBase = getApiBase()): string {
+  const base = normalizeLegadoServiceBase(serviceBase);
+  if (!base) return "";
+  const parameters = new URLSearchParams({ voiceId, delay: String(delay) });
+  return `${base}/api/legado/tts-config?${parameters}`;
+}
+
+export function getLegadoPrefabConfigUrl(serviceBase = getApiBase()): string {
+  const base = normalizeLegadoServiceBase(serviceBase);
+  return base ? `${base}/api/legado/tts-config-prefab` : "";
+}
+
+export function getLegadoImportUrl(configUrl: string): string {
+  const trimmed = configUrl.trim();
+  if (!trimmed) return "";
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return "";
+  }
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) return "";
+  return `legado://import/httpTTS?src=${encodeURIComponent(parsed.toString())}`;
+}
+
+export async function testLegadoTtsConfig(configUrl: string): Promise<{ name: string; streamUrl: string }> {
+  const response = await fetchWithTimeout(configUrl, { headers: { Accept: "application/json" } }, 12_000);
+  if (!response.ok) {
+    throw new Error(`阅读配置地址返回 ${response.status}`);
+  }
+  const payload = (await response.json().catch(() => null)) as { name?: unknown; url?: unknown } | null;
+  if (!payload || typeof payload.name !== "string" || !payload.name.trim() || typeof payload.url !== "string" || !payload.url.trim()) {
+    throw new Error("配置响应缺少有效的 name 或 url 字段");
+  }
+  return { name: payload.name, streamUrl: payload.url };
 }

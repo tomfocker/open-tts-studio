@@ -1,0 +1,2746 @@
+.doubao-workspace-open {
+  height: 100dvh;
+  overflow: hidden !important;
+}
+
+.doubaoWorkspace {
+  --dw-bg: #eef2f5;
+  --dw-bg-soft: #e5ebf0;
+  --dw-panel: rgba(250, 252, 253, 0.94);
+  --dw-panel-solid: #f8fafb;
+  --dw-panel-subtle: #f0f4f6;
+  --dw-text: #22303b;
+  --dw-text-soft: #526372;
+  --dw-muted: #778793;
+  --dw-line: rgba(77, 98, 113, 0.16);
+  --dw-line-strong: rgba(77, 98, 113, 0.25);
+  --dw-accent: #327f55;
+  --dw-accent-strong: #286d47;
+  --dw-accent-soft: #e3f2e8;
+  --dw-info: #426f8d;
+  --dw-info-soft: #e7f0f6;
+  --dw-warn: #a66d2f;
+  --dw-warn-soft: #f8eddf;
+  --dw-danger: #a44747;
+  --dw-danger-soft: #f7e7e5;
+  --dw-shadow: 0 18px 48px rgba(73, 91, 105, 0.16);
+  --dw-shadow-soft: 0 8px 22px rgba(73, 91, 105, 0.11);
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--dw-text);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.54), rgba(220, 228, 234, 0.24)),
+    var(--dw-bg);
+}
+
+.doubaoWorkspace[data-theme="dark"] {
+  color-scheme: dark;
+  --dw-bg: #182027;
+  --dw-bg-soft: #202a32;
+  --dw-panel: rgba(34, 44, 52, 0.96);
+  --dw-panel-solid: #242f37;
+  --dw-panel-subtle: #1e2830;
+  --dw-text: #edf2f4;
+  --dw-text-soft: #b4c0c8;
+  --dw-muted: #8f9da7;
+  --dw-line: rgba(191, 205, 215, 0.13);
+  --dw-line-strong: rgba(191, 205, 215, 0.23);
+  --dw-accent: #69bf85;
+  --dw-accent-strong: #87d09d;
+  --dw-accent-soft: #243b2d;
+  --dw-info: #80b5d4;
+  --dw-info-soft: #243743;
+  --dw-warn: #e0aa69;
+  --dw-warn-soft: #3d3328;
+  --dw-danger: #e18a87;
+  --dw-danger-soft: #432d2d;
+  --dw-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  --dw-shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.22);
+  background:
+    linear-gradient(145deg, rgba(94, 113, 126, 0.09), rgba(0, 0, 0, 0.11)),
+    var(--dw-bg);
+}
+
+.doubaoWorkspace *,
+.doubaoWorkspace *::before,
+.doubaoWorkspace *::after {
+  box-sizing: border-box;
+}
+
+.doubaoWorkspace button,
+.doubaoWorkspace input,
+.doubaoWorkspace textarea,
+.doubaoWorkspace select {
+  font: inherit;
+}
+
+.doubaoWorkspace button {
+  color: inherit;
+}
+
+.doubaoWorkspace button:focus-visible,
+.doubaoWorkspace input:focus-visible,
+.doubaoWorkspace textarea:focus-visible,
+.doubaoWorkspace select:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--dw-accent) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.doubaoWorkspaceHeader {
+  -webkit-app-region: drag;
+  flex: 0 0 72px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(224px, 0.72fr) minmax(500px, 1.55fr) minmax(270px, 0.9fr);
+  align-items: center;
+  gap: 18px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--dw-line);
+  background: color-mix(in srgb, var(--dw-panel-solid) 88%, transparent);
+  box-shadow: 0 8px 28px rgba(67, 84, 98, 0.08);
+}
+
+.doubaoBrand,
+.doubaoBrand > div,
+.doubaoSectionHeading > div,
+.doubaoSectionHeading > div > span,
+.doubaoCookieHeader > div,
+.doubaoTaskHeader > div,
+.doubaoVoiceItem > span:nth-child(2),
+.doubaoBookList button > span:nth-child(2),
+.doubaoCachedBookGrid article > div {
+  min-width: 0;
+}
+
+.doubaoBrand {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.doubaoBrandIcon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--dw-accent) 24%, transparent);
+  border-radius: 9px;
+  color: var(--dw-accent);
+  background: var(--dw-accent-soft);
+  box-shadow: var(--dw-shadow-soft);
+}
+
+.doubaoBrand strong,
+.doubaoBrand span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoBrand strong {
+  font-size: 18px;
+  font-weight: 760;
+}
+
+.doubaoBrand > div > span {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+}
+
+.doubaoTabs,
+.doubaoHeaderActions,
+.doubaoTabs button,
+.doubaoIconButton,
+.doubaoPrimaryButton,
+.doubaoSecondaryButton,
+.doubaoGhostButton,
+.doubaoButtonRow,
+.doubaoHealth,
+.doubaoFeedback,
+.doubaoFeedback button,
+.doubaoSectionHeading,
+.doubaoSectionHeading > div,
+.doubaoInlineNotice,
+.doubaoFormatSwitch,
+.doubaoComposerFooter,
+.doubaoVoiceFilters,
+.doubaoVoiceFilters label,
+.doubaoVoiceItem,
+.doubaoCookieHeader,
+.doubaoRotationBar,
+.doubaoRotationBar label,
+.doubaoCookieActions,
+.doubaoLimitInput,
+.doubaoLimitInput > span,
+.doubaoChapterToolbar,
+.doubaoChapterList article,
+.doubaoChapterList article label,
+.doubaoPrefetchBar,
+.doubaoConfigLink,
+.doubaoTaskMeta,
+.doubaoTaskActions,
+.doubaoCheck,
+.doubaoDeviceValues label,
+.doubaoDocsToolbar,
+.doubaoDocsToolbar label,
+.doubaoDocList button {
+  display: flex;
+  align-items: center;
+}
+
+.doubaoTabs,
+.doubaoHeaderActions {
+  -webkit-app-region: no-drag;
+}
+
+.doubaoTabs {
+  justify-self: center;
+  max-width: 680px;
+  min-width: 0;
+  padding: 4px;
+  gap: 3px;
+  border: 1px solid var(--dw-line);
+  border-radius: 10px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoTabs button {
+  min-width: 0;
+  height: 37px;
+  gap: 7px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--dw-muted);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.doubaoTabs button:hover {
+  color: var(--dw-text);
+}
+
+.doubaoTabs button.active {
+  color: var(--dw-accent-strong);
+  background: var(--dw-panel-solid);
+  box-shadow: 0 3px 12px rgba(68, 86, 101, 0.11);
+}
+
+.doubaoHeaderActions {
+  justify-self: end;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.doubaoHealth {
+  min-width: 0;
+  gap: 7px;
+  margin-right: 4px;
+  color: var(--dw-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.doubaoHealth > span {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--dw-muted);
+}
+
+.doubaoHealth.online > span {
+  background: var(--dw-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dw-accent) 16%, transparent);
+}
+
+.doubaoIconButton {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  justify-content: center;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  color: var(--dw-text-soft);
+  background: var(--dw-panel-solid);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(69, 86, 100, 0.08);
+  transition: transform 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.doubaoIconButton:hover {
+  color: var(--dw-accent-strong);
+  border-color: color-mix(in srgb, var(--dw-accent) 32%, transparent);
+  transform: translateY(-1px);
+}
+
+.doubaoIconButton.close:hover,
+.doubaoIconButton.danger:hover {
+  color: var(--dw-danger);
+  border-color: color-mix(in srgb, var(--dw-danger) 32%, transparent);
+}
+
+.doubaoFeedback {
+  flex: 0 0 auto;
+  min-height: 38px;
+  gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--dw-line);
+  font-size: 12px;
+}
+
+.doubaoFeedback.success {
+  color: var(--dw-accent-strong);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoFeedback.error {
+  color: var(--dw-danger);
+  background: var(--dw-danger-soft);
+}
+
+.doubaoFeedback span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoFeedback button {
+  width: 25px;
+  height: 25px;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.doubaoWorkspaceBody {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dw-line-strong) transparent;
+}
+
+.doubaoPanel {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--dw-line);
+  border-radius: 11px;
+  background: var(--dw-panel);
+  box-shadow: var(--dw-shadow-soft);
+}
+
+.doubaoSectionHeading {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.doubaoSectionHeading > div {
+  gap: 9px;
+}
+
+.doubaoSectionHeading > div > svg {
+  flex: 0 0 auto;
+  color: var(--dw-accent);
+}
+
+.doubaoSectionHeading strong,
+.doubaoSectionHeading small {
+  display: block;
+}
+
+.doubaoSectionHeading strong {
+  overflow: hidden;
+  color: var(--dw-text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoSectionHeading small {
+  margin-top: 2px;
+  color: var(--dw-muted);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 1.35;
+}
+
+.doubaoSectionHeading.compact {
+  min-height: 32px;
+}
+
+.doubaoProviderBadge,
+.doubaoStatusPill,
+.doubaoQrState {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+}
+
+.doubaoProviderBadge {
+  color: var(--dw-accent-strong);
+  background: var(--dw-accent-soft);
+  font-family: "JetBrains Mono", Consolas, monospace;
+}
+
+.doubaoPrimaryButton,
+.doubaoSecondaryButton,
+.doubaoGhostButton {
+  min-height: 36px;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 8px;
+  padding: 0 13px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  transition: transform 150ms ease, border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.doubaoPrimaryButton {
+  border: 1px solid var(--dw-accent-strong);
+  color: white;
+  background: var(--dw-accent-strong);
+  box-shadow: 0 6px 15px color-mix(in srgb, var(--dw-accent) 22%, transparent);
+}
+
+.doubaoWorkspace[data-theme="dark"] .doubaoPrimaryButton {
+  color: #142219;
+  background: var(--dw-accent);
+}
+
+.doubaoSecondaryButton {
+  border: 1px solid var(--dw-line-strong);
+  color: var(--dw-text-soft);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoGhostButton {
+  border: 1px solid transparent;
+  color: var(--dw-muted);
+  background: transparent;
+}
+
+.doubaoPrimaryButton:hover:not(:disabled),
+.doubaoSecondaryButton:hover:not(:disabled),
+.doubaoGhostButton:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.doubaoSecondaryButton:hover:not(:disabled),
+.doubaoGhostButton:hover:not(:disabled) {
+  color: var(--dw-accent-strong);
+  border-color: color-mix(in srgb, var(--dw-accent) 30%, transparent);
+}
+
+.doubaoWorkspace button:disabled {
+  cursor: default;
+  opacity: 0.48;
+}
+
+.doubaoButtonRow {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.doubaoButtonRow.end {
+  justify-content: flex-end;
+}
+
+.doubaoField {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.doubaoField > span {
+  min-width: 0;
+  color: var(--dw-text-soft);
+  font-size: 11px;
+  font-weight: 690;
+}
+
+.doubaoField > span em,
+.doubaoField > span output {
+  float: right;
+  color: var(--dw-accent-strong);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+  font-style: normal;
+}
+
+.doubaoField input,
+.doubaoField textarea,
+.doubaoVoiceFilters input,
+.doubaoVoiceFilters select,
+.doubaoRotationBar input,
+.doubaoLimitInput input,
+.doubaoDocsToolbar input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--dw-line-strong);
+  border-radius: 8px;
+  color: var(--dw-text);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoField input,
+.doubaoVoiceFilters input,
+.doubaoVoiceFilters select,
+.doubaoDocsToolbar input {
+  height: 37px;
+  padding: 0 10px;
+}
+
+.doubaoField textarea {
+  padding: 10px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
+.doubaoField small {
+  color: var(--dw-muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.doubaoField input[type="range"] {
+  height: 5px;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  accent-color: var(--dw-accent);
+}
+
+.doubaoCheck {
+  min-width: 0;
+  gap: 7px;
+  color: var(--dw-text-soft);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.doubaoCheck input {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  accent-color: var(--dw-accent);
+}
+
+.doubaoSynthesisLayout {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(330px, 0.55fr);
+  gap: 16px;
+}
+
+.doubaoComposer,
+.doubaoVoiceBrowser,
+.doubaoQrPanel,
+.doubaoCookieEditor,
+.doubaoCookiePool,
+.doubaoReaderSidebar,
+.doubaoChapterWorkspace,
+.doubaoConfigCard,
+.doubaoPreviewCard,
+.doubaoTaskPanel,
+.doubaoCacheBooksPanel,
+.doubaoRuntimeSettings,
+.doubaoDeviceCard,
+.doubaoDocsPanel,
+.doubaoSafetyCard {
+  padding: 17px;
+}
+
+.doubaoComposer {
+  display: grid;
+  grid-template-rows: auto minmax(210px, 1fr) auto auto auto;
+  gap: 15px;
+}
+
+.doubaoTextField {
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.doubaoTextField textarea {
+  min-height: 210px;
+  height: auto;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.doubaoParameterGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  padding: 13px;
+  border: 1px solid var(--dw-line);
+  border-radius: 9px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoComposerFooter {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.doubaoFormatSwitch {
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoFormatSwitch button {
+  height: 31px;
+  min-width: 58px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--dw-muted);
+  background: transparent;
+  cursor: pointer;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.doubaoFormatSwitch button.active {
+  color: var(--dw-accent-strong);
+  background: var(--dw-panel-solid);
+  box-shadow: 0 2px 8px rgba(65, 83, 97, 0.11);
+}
+
+.doubaoInlineNotice {
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  border: 1px solid color-mix(in srgb, var(--dw-warn) 25%, transparent);
+  border-radius: 8px;
+  color: var(--dw-warn);
+  background: var(--dw-warn-soft);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.doubaoAudioResult {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--dw-accent) 22%, transparent);
+  border-radius: 9px;
+  background: var(--dw-accent-soft);
+}
+
+.doubaoAudioGlyph {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--dw-accent-strong);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoAudioResult > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.doubaoAudioResult strong,
+.doubaoAudioResult span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoAudioResult strong {
+  font-size: 12px;
+}
+
+.doubaoAudioResult > div > span {
+  color: var(--dw-muted);
+  font-size: 10px;
+}
+
+.doubaoAudioResult audio {
+  width: min(430px, 100%);
+  height: 30px;
+  margin-top: 4px;
+}
+
+.doubaoSpeechHistory {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 7px;
+  padding-top: 2px;
+  border-top: 1px solid var(--dw-line);
+}
+
+.doubaoSpeechHistoryHeading,
+.doubaoSpeechHistoryHeading > span,
+.doubaoSpeechHistoryMain,
+.doubaoSpeechHistoryMain > span {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.doubaoSpeechHistoryHeading {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.doubaoSpeechHistoryHeading > span {
+  gap: 7px;
+}
+
+.doubaoSpeechHistoryHeading strong {
+  font-size: 11px;
+}
+
+.doubaoSpeechHistoryHeading small {
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoSpeechHistoryHeading button,
+.doubaoSpeechHistoryDelete {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--dw-line);
+  border-radius: 6px;
+  padding: 0 7px;
+  color: var(--dw-danger);
+  background: var(--dw-panel-solid);
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.doubaoSpeechHistoryList {
+  max-height: 175px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.doubaoSpeechHistoryList > article {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 7px;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoSpeechHistoryList > article.active {
+  border-color: color-mix(in srgb, var(--dw-accent) 34%, transparent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoSpeechHistoryMain {
+  gap: 7px;
+  border: 0;
+  padding: 0;
+  color: var(--dw-accent-strong);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.doubaoSpeechHistoryMain > span {
+  display: grid;
+  gap: 2px;
+}
+
+.doubaoSpeechHistoryMain strong,
+.doubaoSpeechHistoryMain small,
+.doubaoSpeechHistoryList > article > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoSpeechHistoryMain strong {
+  color: var(--dw-text);
+  font-size: 10px;
+}
+
+.doubaoSpeechHistoryMain small,
+.doubaoSpeechHistoryList > article > span {
+  color: var(--dw-muted);
+  font-size: 8px;
+}
+
+.doubaoSpeechHistoryDelete {
+  width: 28px;
+  min-height: 28px;
+  justify-content: center;
+  padding: 0;
+}
+
+.doubaoVoiceBrowser {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.doubaoVoiceFilters {
+  gap: 8px;
+}
+
+.doubaoVoiceFilters label {
+  flex: 1;
+  gap: 7px;
+  padding-left: 9px;
+  border: 1px solid var(--dw-line-strong);
+  border-radius: 8px;
+  color: var(--dw-muted);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoVoiceFilters label input {
+  border: 0;
+  padding-left: 0;
+  background: transparent;
+}
+
+.doubaoVoiceFilters select {
+  width: 94px;
+  flex: 0 0 94px;
+  padding: 0 8px;
+}
+
+.doubaoVoiceList,
+.doubaoCookieList,
+.doubaoBookList,
+.doubaoChapterList,
+.doubaoTaskList,
+.doubaoDocList,
+.doubaoPreviewContent,
+.doubaoDocContent pre {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--dw-line-strong) transparent;
+}
+
+.doubaoVoiceList {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.doubaoVoiceItem {
+  min-width: 0;
+  width: 100%;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.doubaoVoiceItem:hover {
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoVoiceItem.active {
+  border-color: color-mix(in srgb, var(--dw-accent) 28%, transparent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoVoiceAvatar {
+  width: 37px;
+  height: 37px;
+  flex: 0 0 37px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #355a6d;
+  background: #e2edf2;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.doubaoVoiceAvatar.female {
+  color: #8b5764;
+  background: #f3e7eb;
+}
+
+.doubaoWorkspace[data-theme="dark"] .doubaoVoiceAvatar.male {
+  color: #acd1e1;
+  background: #2c424e;
+}
+
+.doubaoWorkspace[data-theme="dark"] .doubaoVoiceAvatar.female {
+  color: #e1b7c1;
+  background: #49343a;
+}
+
+.doubaoVoiceItem strong,
+.doubaoVoiceItem small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoVoiceItem strong {
+  font-size: 12px;
+}
+
+.doubaoVoiceItem small {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-size: 10px;
+}
+
+.doubaoVoiceItem > svg {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--dw-accent);
+}
+
+.doubaoAccountsLayout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.72fr) minmax(420px, 1.28fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.doubaoQrPanel,
+.doubaoCookieEditor,
+.doubaoCookiePool {
+  display: grid;
+  gap: 14px;
+}
+
+.doubaoCookieEditor {
+  min-height: 100%;
+}
+
+.doubaoCookiePool {
+  grid-column: 1 / -1;
+}
+
+.doubaoQrBody {
+  min-height: 250px;
+  display: grid;
+}
+
+.doubaoQrEmpty,
+.doubaoEmptyState {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--dw-muted);
+  text-align: center;
+}
+
+.doubaoQrEmpty {
+  padding: 20px;
+}
+
+.doubaoQrEmpty > span {
+  width: 62px;
+  height: 62px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--dw-accent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoQrEmpty strong,
+.doubaoEmptyState strong {
+  color: var(--dw-text);
+  font-size: 13px;
+}
+
+.doubaoQrEmpty p {
+  max-width: 380px;
+  margin: 0 0 5px;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.doubaoQrBody:has(.doubaoQrImage) {
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.doubaoQrImage {
+  width: 210px;
+  aspect-ratio: 1;
+  padding: 12px;
+  border: 1px solid var(--dw-line);
+  border-radius: 12px;
+  background: white;
+  box-shadow: var(--dw-shadow-soft);
+}
+
+.doubaoQrImage img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.doubaoQrSteps {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.doubaoQrState {
+  width: fit-content;
+  gap: 7px;
+  color: var(--dw-info);
+  background: var(--dw-info-soft);
+}
+
+.doubaoQrState.scanned {
+  color: var(--dw-warn);
+  background: var(--dw-warn-soft);
+}
+
+.doubaoQrState.confirmed {
+  color: var(--dw-accent-strong);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoQrSteps ol {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--dw-text-soft);
+  font-size: 11px;
+  line-height: 1.8;
+}
+
+.doubaoFormGrid,
+.doubaoSettingsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.doubaoFormGrid .wide {
+  grid-column: 1 / -1;
+}
+
+.doubaoFormGrid textarea {
+  min-height: 110px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.doubaoRotationBar {
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoRotationBar > label:not(.doubaoCheck) {
+  gap: 6px;
+  color: var(--dw-muted);
+  font-size: 11px;
+}
+
+.doubaoRotationBar input[type="number"] {
+  width: 72px;
+  height: 31px;
+  padding: 0 7px;
+}
+
+.doubaoRotationBar .doubaoSecondaryButton {
+  min-height: 32px;
+  margin-left: auto;
+}
+
+.doubaoCookieToolbar,
+.doubaoCookieBatchBar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoCookieSearch {
+  min-width: 170px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  border: 1px solid var(--dw-line-strong);
+  border-radius: 7px;
+  color: var(--dw-muted);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoCookieSearch input {
+  min-width: 0;
+  flex: 1;
+  height: 30px;
+  border: 0;
+  padding: 0 7px 0 0;
+  background: transparent;
+}
+
+.doubaoCookieToolbar select,
+.doubaoCookieToolbar > button,
+.doubaoCookieBatchBar button {
+  min-height: 31px;
+  border: 1px solid var(--dw-line-strong);
+  border-radius: 7px;
+  padding: 0 8px;
+  color: var(--dw-text-soft);
+  background: var(--dw-panel-solid);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.doubaoCookieToolbar > button,
+.doubaoCookieBatchBar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.doubaoCookieBatchBar {
+  border-color: color-mix(in srgb, var(--dw-accent) 28%, transparent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoCookieBatchBar > span {
+  flex: 1;
+  color: var(--dw-accent-strong);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.doubaoCookieBatchBar button.danger {
+  color: var(--dw-danger);
+}
+
+.doubaoCookieSelect {
+  flex: 0 0 auto;
+}
+
+.doubaoCookieDetail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  background: var(--dw-panel-solid);
+}
+
+.doubaoCookieDetail > span,
+.doubaoCookieDetail em,
+.doubaoCookieDetail strong {
+  min-width: 0;
+  display: block;
+}
+
+.doubaoCookieDetail em {
+  color: var(--dw-muted);
+  font-size: 8px;
+  font-style: normal;
+}
+
+.doubaoCookieDetail strong {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--dw-text-soft);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoCookieList {
+  max-height: 430px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 10px;
+}
+
+.doubaoCookieList.list {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.doubaoCookieList.list .doubaoCookieCard {
+  grid-template-columns: minmax(240px, 1.2fr) minmax(300px, 1fr);
+  align-items: center;
+}
+
+.doubaoCookieList.list .doubaoCookieHeader,
+.doubaoCookieList.list .doubaoCookieDetail,
+.doubaoCookieList.list .doubaoCookieActions,
+.doubaoCookieList.list .doubaoCardError {
+  grid-column: 1 / -1;
+}
+
+.doubaoCookieCard {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--dw-line);
+  border-radius: 9px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoCookieCard.active {
+  border-color: color-mix(in srgb, var(--dw-accent) 34%, transparent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoCookieCard.disabled {
+  opacity: 0.7;
+}
+
+.doubaoCookieHeader {
+  min-width: 0;
+  gap: 9px;
+}
+
+.doubaoCookieIcon {
+  width: 35px;
+  height: 35px;
+  flex: 0 0 35px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--dw-accent);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoCookieHeader strong,
+.doubaoCookieHeader small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoCookieHeader strong {
+  font-size: 12px;
+}
+
+.doubaoCookieHeader small {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-size: 10px;
+}
+
+.doubaoStatusPill {
+  margin-left: auto;
+  color: var(--dw-muted);
+  background: var(--dw-bg-soft);
+}
+
+.doubaoStatusPill.ready,
+.doubaoStatusPill.completed {
+  color: var(--dw-accent-strong);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoStatusPill.processing {
+  color: var(--dw-info);
+  background: var(--dw-info-soft);
+}
+
+.doubaoStatusPill.paused,
+.doubaoStatusPill.partial,
+.doubaoStatusPill.cancelling {
+  color: var(--dw-warn);
+  background: var(--dw-warn-soft);
+}
+
+.doubaoStatusPill.failed,
+.doubaoStatusPill.cancelled,
+.doubaoStatusPill.disabled {
+  color: var(--dw-danger);
+  background: var(--dw-danger-soft);
+}
+
+.doubaoCookieMetrics {
+  display: grid;
+  grid-template-columns: 0.55fr 0.55fr 0.55fr 1.35fr;
+  gap: 6px;
+}
+
+.doubaoCookieMetrics > span {
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  background: var(--dw-panel-solid);
+}
+
+.doubaoCookieMetrics em,
+.doubaoCookieMetrics strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoCookieMetrics em {
+  color: var(--dw-muted);
+  font-size: 9px;
+  font-style: normal;
+}
+
+.doubaoCookieMetrics strong {
+  margin-top: 3px;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+}
+
+.doubaoCardError {
+  padding: 7px 9px;
+  border-radius: 7px;
+  color: var(--dw-danger);
+  background: var(--dw-danger-soft);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.doubaoCookieActions,
+.doubaoTaskActions {
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-top: 2px;
+  border-top: 1px solid var(--dw-line);
+}
+
+.doubaoCookieActions > button,
+.doubaoCookieActions .doubaoLimitInput,
+.doubaoTaskActions button,
+.doubaoChapterList article > button {
+  min-height: 29px;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  padding: 0 8px;
+  color: var(--dw-text-soft);
+  background: var(--dw-panel-solid);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.doubaoCookieActions > button:hover,
+.doubaoTaskActions button:hover,
+.doubaoChapterList article > button:hover {
+  color: var(--dw-accent-strong);
+  border-color: color-mix(in srgb, var(--dw-accent) 28%, transparent);
+}
+
+.doubaoCookieActions button.danger,
+.doubaoTaskActions button.danger {
+  gap: 4px;
+  color: var(--dw-danger);
+}
+
+.doubaoLimitInput {
+  gap: 4px;
+  padding: 2px 3px 2px 7px !important;
+}
+
+.doubaoLimitInput input {
+  width: 54px;
+  height: 23px;
+  padding: 0 4px;
+  border-radius: 5px;
+}
+
+.doubaoLimitInput button {
+  height: 23px;
+  border: 0;
+  border-radius: 5px;
+  color: var(--dw-accent-strong);
+  background: var(--dw-accent-soft);
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.doubaoDangerLink {
+  justify-self: end;
+  width: fit-content;
+  border: 0;
+  color: var(--dw-danger);
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.doubaoDangerLink svg {
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.doubaoEmptyState {
+  min-height: 170px;
+  padding: 20px;
+  border: 1px dashed var(--dw-line-strong);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--dw-panel-subtle) 78%, transparent);
+}
+
+.doubaoEmptyState.small {
+  min-height: 110px;
+}
+
+.doubaoEmptyState.fill {
+  height: 100%;
+  min-height: 220px;
+}
+
+.doubaoEmptyState > svg {
+  color: var(--dw-muted);
+}
+
+.doubaoEmptyState span {
+  max-width: 320px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.doubaoReaderLayout {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(230px, 0.52fr) minmax(430px, 1.12fr) minmax(290px, 0.66fr);
+  gap: 14px;
+}
+
+.doubaoReaderSidebar {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.doubaoServerForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 86px;
+  gap: 8px;
+}
+
+.doubaoServerForm .doubaoPrimaryButton {
+  grid-column: 1 / -1;
+}
+
+.doubaoBookList {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+
+.doubaoBookList button {
+  min-width: 0;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--dw-text);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.doubaoBookList button:hover {
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoBookList button.active {
+  border-color: color-mix(in srgb, var(--dw-accent) 28%, transparent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoBookCover {
+  width: 38px;
+  height: 45px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px 8px 8px 5px;
+  color: var(--dw-accent);
+  background: var(--dw-panel-solid);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--dw-accent) 25%, transparent), var(--dw-shadow-soft);
+}
+
+.doubaoBookCover.large {
+  width: 45px;
+  height: 54px;
+  flex: 0 0 45px;
+}
+
+.doubaoBookList strong,
+.doubaoBookList small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoBookList strong {
+  font-size: 11px;
+}
+
+.doubaoBookList small {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoChapterWorkspace {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.doubaoChapterToolbar {
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  background: var(--dw-panel-subtle);
+  color: var(--dw-muted);
+  font-size: 10px;
+}
+
+.doubaoChapterBatchActions,
+.doubaoConfigLink > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.doubaoChapterBatchActions button {
+  min-height: 27px;
+  padding: 0 8px;
+  border: 1px solid var(--dw-line);
+  border-radius: 6px;
+  color: var(--dw-text-soft);
+  background: var(--dw-panel-solid);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.doubaoChapterBatchActions button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--dw-accent) 45%, var(--dw-line));
+  color: var(--dw-accent-strong);
+}
+
+.doubaoChapterBatchActions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.doubaoChapterList {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+}
+
+.doubaoChapterList article {
+  min-width: 0;
+  gap: 8px;
+  padding: 6px 7px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+
+.doubaoChapterList article:hover {
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoChapterList article.selected {
+  border-color: color-mix(in srgb, var(--dw-accent) 20%, transparent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoChapterList article label {
+  min-width: 0;
+  flex: 1;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.doubaoChapterList article input {
+  accent-color: var(--dw-accent);
+}
+
+.doubaoChapterList article label span {
+  width: 28px;
+  flex: 0 0 28px;
+  color: var(--dw-muted);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 9px;
+  text-align: right;
+}
+
+.doubaoChapterList article strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoChapterList article > button {
+  flex: 0 0 auto;
+}
+
+.doubaoPrefetchBar {
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 11px;
+  border: 1px solid color-mix(in srgb, var(--dw-accent) 20%, transparent);
+  border-radius: 9px;
+  background: var(--dw-accent-soft);
+}
+
+.doubaoPrefetchBar > div {
+  min-width: 170px;
+  flex: 1;
+}
+
+.doubaoPrefetchBar strong,
+.doubaoPrefetchBar > div > span {
+  display: block;
+}
+
+.doubaoCompactNumber {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoCompactNumber input {
+  width: 48px;
+  height: 28px;
+  padding: 0 5px;
+  border: 1px solid var(--dw-line);
+  border-radius: 6px;
+  color: var(--dw-text);
+  background: var(--dw-panel-solid);
+  font: inherit;
+}
+
+.doubaoPrefetchBar strong {
+  font-size: 11px;
+}
+
+.doubaoPrefetchBar > div > span {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoReaderRight {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  overflow: hidden;
+}
+
+.doubaoConfigCard,
+.doubaoPreviewCard {
+  display: grid;
+  gap: 11px;
+}
+
+.doubaoConfigTemplates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.doubaoConfigTemplates button {
+  min-height: 32px;
+  padding: 0 7px;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  color: var(--dw-muted);
+  background: var(--dw-panel-subtle);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.doubaoConfigTemplates button:hover,
+.doubaoConfigTemplates button.active {
+  border-color: color-mix(in srgb, var(--dw-accent) 45%, var(--dw-line));
+  color: var(--dw-accent-strong);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoConfigLink {
+  min-width: 0;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoConfigLink > span {
+  min-width: 0;
+  flex: 1;
+}
+
+.doubaoConfigLink strong,
+.doubaoConfigLink code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoConfigLink strong {
+  font-size: 10px;
+}
+
+.doubaoConfigLink code {
+  margin-top: 4px;
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoConfigLink button,
+.doubaoDeviceValues button {
+  width: 31px;
+  height: 31px;
+  flex: 0 0 31px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  color: var(--dw-accent-strong);
+  background: var(--dw-panel-solid);
+  cursor: pointer;
+}
+
+.doubaoConfigLink button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.doubaoConfigCard p {
+  margin: 0;
+  color: var(--dw-muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.doubaoPreviewCard {
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.doubaoPreviewContent {
+  padding: 11px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  color: var(--dw-text-soft);
+  background: var(--dw-panel-subtle);
+  font-size: 11px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.doubaoBookCacheProgress {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--dw-info) 28%, transparent);
+  border-radius: 8px;
+  background: var(--dw-info-soft);
+}
+
+.doubaoBookCacheProgress.completed {
+  border-color: color-mix(in srgb, var(--dw-accent) 28%, transparent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoBookCacheProgress.partial,
+.doubaoBookCacheProgress.cancelled,
+.doubaoBookCacheProgress.cancelling {
+  border-color: color-mix(in srgb, var(--dw-warn) 28%, transparent);
+  background: var(--dw-warn-soft);
+}
+
+.doubaoBookCacheProgressHeading,
+.doubaoBookCacheProgressHeading > span,
+.doubaoBookCacheProgressMeta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.doubaoBookCacheProgressHeading {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.doubaoBookCacheProgressHeading > span {
+  display: grid;
+  gap: 2px;
+}
+
+.doubaoBookCacheProgressHeading strong {
+  font-size: 10px;
+}
+
+.doubaoBookCacheProgressHeading > strong:last-child {
+  color: var(--dw-info);
+  font: 600 11px "JetBrains Mono", Consolas, monospace;
+}
+
+.doubaoBookCacheProgressHeading small {
+  max-width: 420px;
+  overflow: hidden;
+  color: var(--dw-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoBookCacheProgressMeta {
+  flex-wrap: wrap;
+  gap: 9px;
+  color: var(--dw-muted);
+  font-size: 8px;
+}
+
+.doubaoCacheLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(340px, 0.7fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.doubaoCacheSummary {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.doubaoCacheSummary article {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--dw-line);
+  border-radius: 9px;
+  background: var(--dw-panel);
+  box-shadow: var(--dw-shadow-soft);
+}
+
+.doubaoCacheSummary article > span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: var(--dw-accent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoCacheSummary strong,
+.doubaoCacheSummary small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoCacheSummary strong {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 17px;
+}
+
+.doubaoCacheSummary small {
+  margin-top: 2px;
+  color: var(--dw-muted);
+  font-size: 10px;
+}
+
+.doubaoTaskPanel,
+.doubaoCacheBooksPanel {
+  display: grid;
+  gap: 13px;
+}
+
+.doubaoTaskList {
+  max-height: calc(100dvh - 240px);
+  display: grid;
+  align-content: start;
+  gap: 9px;
+}
+
+.doubaoTaskCard {
+  min-width: 0;
+  display: grid;
+  gap: 9px;
+  padding: 11px;
+  border: 1px solid var(--dw-line);
+  border-radius: 9px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoTaskCard.processing {
+  border-color: color-mix(in srgb, var(--dw-info) 26%, transparent);
+}
+
+.doubaoTaskHeader {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.doubaoTaskHeader > div {
+  flex: 1;
+}
+
+.doubaoTaskHeader strong,
+.doubaoTaskHeader > div > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoTaskHeader strong {
+  font-size: 12px;
+}
+
+.doubaoTaskHeader > div > span {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 9px;
+}
+
+.doubaoProgress {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--dw-bg-soft);
+}
+
+.doubaoProgress > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--dw-accent);
+  transition: width 300ms ease;
+}
+
+.doubaoTaskMeta {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 7px;
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoTaskActions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.doubaoTaskChapterDetails {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  background: var(--dw-panel-solid);
+}
+
+.doubaoTaskChapter {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoTaskChapter.failed {
+  border-color: color-mix(in srgb, var(--dw-danger) 28%, transparent);
+}
+
+.doubaoTaskChapterHeading {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.doubaoTaskChapterHeading > span:first-child,
+.doubaoCacheChapterList > article > span {
+  width: 25px;
+  height: 25px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--dw-muted);
+  background: var(--dw-bg-soft);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 9px;
+}
+
+.doubaoTaskChapterHeading > div,
+.doubaoTaskChapterHeading strong,
+.doubaoTaskChapterHeading small {
+  min-width: 0;
+  display: block;
+}
+
+.doubaoTaskChapterHeading strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoTaskChapterHeading small {
+  margin-top: 2px;
+  color: var(--dw-muted);
+  font-size: 8px;
+}
+
+.doubaoTaskChapterError {
+  margin: 0;
+  color: var(--dw-danger);
+  font-size: 9px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.doubaoTaskChapterActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.doubaoTaskChapterActions button,
+.doubaoCacheChapterList article button {
+  min-height: 25px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid var(--dw-line);
+  border-radius: 6px;
+  padding: 0 6px;
+  color: var(--dw-text-soft);
+  background: var(--dw-panel-solid);
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.doubaoTaskChapterActions button.danger,
+.doubaoCacheChapterList article button.danger {
+  color: var(--dw-danger);
+}
+
+.doubaoTaskChapterActions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.doubaoCacheChapterPreview {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoCacheChapterPreview > header,
+.doubaoCacheInspector > header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--dw-line);
+}
+
+.doubaoCacheChapterPreview header > div,
+.doubaoCacheInspector header > div,
+.doubaoCacheChapterPreview strong,
+.doubaoCacheChapterPreview small,
+.doubaoCacheInspector header strong,
+.doubaoCacheInspector header small {
+  min-width: 0;
+  display: block;
+}
+
+.doubaoCacheChapterPreview strong,
+.doubaoCacheInspector header strong {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoCacheChapterPreview small,
+.doubaoCacheInspector header small {
+  margin-top: 2px;
+  color: var(--dw-muted);
+  font-size: 8px;
+}
+
+.doubaoCacheChapterPreview pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 9px;
+  overflow: auto;
+  color: var(--dw-text-soft);
+  font: 9px/1.65 "JetBrains Mono", Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.doubaoCachedBookGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.doubaoCachedBookGrid > article {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--dw-line);
+  border-radius: 9px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoCachedBookGrid > article.selected {
+  border-color: color-mix(in srgb, var(--dw-accent) 34%, transparent);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoCachedBookGrid article > div {
+  flex: 1;
+}
+
+.doubaoCachedBookGrid strong,
+.doubaoCachedBookGrid small,
+.doubaoCachedBookGrid article > div > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoCachedBookGrid .doubaoCachedBookActions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 5px;
+}
+
+.doubaoCacheInspector {
+  min-width: 0;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--dw-line);
+  border-radius: 9px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoCacheInspectorBody {
+  min-height: 300px;
+  display: grid;
+  grid-template-columns: minmax(210px, 0.75fr) minmax(260px, 1.25fr);
+}
+
+.doubaoCacheChapterList {
+  max-height: 430px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  padding: 8px;
+  overflow: auto;
+  border-right: 1px solid var(--dw-line);
+  scrollbar-width: thin;
+}
+
+.doubaoCacheChapterList > article {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 6px;
+  border: 1px solid var(--dw-line);
+  border-radius: 7px;
+  background: var(--dw-panel-solid);
+}
+
+.doubaoCacheChapterList article > div:nth-child(2),
+.doubaoCacheChapterList strong,
+.doubaoCacheChapterList small {
+  min-width: 0;
+  display: block;
+}
+
+.doubaoCacheChapterList strong {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoCacheChapterList small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--dw-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoCacheChapterList article > div:last-child {
+  display: flex;
+  gap: 4px;
+}
+
+.doubaoCacheChapterPreview.standalone {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.doubaoCacheChapterPreview.standalone pre {
+  max-height: 430px;
+}
+
+.doubaoCachedBookGrid strong {
+  font-size: 11px;
+}
+
+.doubaoCachedBookGrid small,
+.doubaoCachedBookGrid article > div > span {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoMaintenanceLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.doubaoRuntimeSettings,
+.doubaoDeviceCard,
+.doubaoDocsPanel,
+.doubaoSafetyCard {
+  display: grid;
+  gap: 14px;
+}
+
+.doubaoSettingsGrid .doubaoField {
+  padding: 10px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoDeviceValues {
+  display: grid;
+  gap: 9px;
+}
+
+.doubaoDeviceValues > label:not(.doubaoCheck) {
+  min-width: 0;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoDeviceValues label > span:first-child {
+  width: 62px;
+  flex: 0 0 62px;
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoDeviceValues code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--dw-text-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoDeviceValues button {
+  width: 27px;
+  height: 27px;
+  flex-basis: 27px;
+}
+
+.doubaoDeviceValues > .doubaoSecondaryButton {
+  width: fit-content;
+}
+
+.doubaoDocsPanel {
+  grid-column: 1 / -1;
+}
+
+.doubaoDocsToolbar {
+  gap: 8px;
+}
+
+.doubaoDocsToolbar label {
+  min-width: 0;
+  flex: 1;
+  gap: 8px;
+  padding-left: 10px;
+  border: 1px solid var(--dw-line-strong);
+  border-radius: 8px;
+  color: var(--dw-muted);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoDocsToolbar input {
+  border: 0;
+  padding-left: 0;
+  background: transparent;
+}
+
+.doubaoDocsLayout {
+  min-height: 360px;
+  max-height: 500px;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.55fr) minmax(0, 1.45fr);
+  border: 1px solid var(--dw-line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.doubaoDocList {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  padding: 8px;
+  border-right: 1px solid var(--dw-line);
+  background: var(--dw-panel-subtle);
+}
+
+.doubaoDocList button {
+  min-width: 0;
+  width: 100%;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.doubaoDocList button:hover,
+.doubaoDocList button.active {
+  border-color: var(--dw-line);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoDocList button > svg {
+  flex: 0 0 auto;
+  color: var(--dw-accent);
+}
+
+.doubaoDocList button > span {
+  min-width: 0;
+}
+
+.doubaoDocList strong,
+.doubaoDocList small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoDocList strong {
+  font-size: 10px;
+}
+
+.doubaoDocList small {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-size: 8px;
+}
+
+.doubaoDocContent {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--dw-panel-solid);
+}
+
+.doubaoDocContent header {
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--dw-line);
+}
+
+.doubaoDocContent header strong,
+.doubaoDocContent header span {
+  display: block;
+}
+
+.doubaoDocContent header strong {
+  font-size: 12px;
+}
+
+.doubaoDocContent header span {
+  margin-top: 3px;
+  color: var(--dw-muted);
+  font-size: 9px;
+}
+
+.doubaoDocContent pre {
+  margin: 0;
+  padding: 14px;
+  color: var(--dw-text-soft);
+  font-family: "Segoe UI", sans-serif;
+  font-size: 11px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.doubaoSafetyCard ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--dw-text-soft);
+  font-size: 10px;
+  line-height: 1.8;
+}
+
+.doubaoSafetyCard .doubaoSecondaryButton {
+  width: fit-content;
+}
+
+@media (max-width: 1240px) {
+  .doubaoWorkspaceHeader {
+    grid-template-columns: minmax(205px, 0.65fr) minmax(440px, 1.45fr) auto;
+    padding: 0 15px;
+    gap: 10px;
+  }
+
+  .doubaoHealth {
+    display: none;
+  }
+
+  .doubaoTabs button {
+    padding: 0 9px;
+  }
+
+  .doubaoReaderLayout {
+    grid-template-columns: minmax(220px, 0.5fr) minmax(440px, 1fr);
+  }
+
+  .doubaoReaderRight {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(320px, 0.7fr) minmax(0, 1.3fr);
+    grid-template-rows: minmax(260px, auto);
+  }
+}
+
+@media (max-width: 1500px) and (min-width: 1241px) {
+  .doubaoHealth {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .doubaoWorkspace {
+    overflow: auto;
+  }
+
+  .doubaoWorkspaceHeader {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    flex-basis: auto;
+    grid-template-columns: minmax(200px, 1fr) auto;
+    min-height: 70px;
+    padding: 9px 12px;
+  }
+
+  .doubaoTabs {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    max-width: none;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .doubaoTabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .doubaoTabs button {
+    flex: 1 0 auto;
+  }
+
+  .doubaoWorkspaceBody {
+    flex: 0 0 auto;
+    min-height: calc(100dvh - 130px);
+    overflow: visible;
+  }
+
+  .doubaoSynthesisLayout,
+  .doubaoAccountsLayout,
+  .doubaoReaderLayout,
+  .doubaoCacheLayout,
+  .doubaoMaintenanceLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .doubaoSynthesisLayout,
+  .doubaoReaderLayout {
+    height: auto;
+  }
+
+  .doubaoVoiceBrowser {
+    min-height: 520px;
+  }
+
+  .doubaoCookiePool,
+  .doubaoDocsPanel {
+    grid-column: auto;
+  }
+
+  .doubaoCookieList {
+    grid-template-columns: 1fr;
+    max-height: none;
+  }
+
+  .doubaoCookieList.list .doubaoCookieCard {
+    grid-template-columns: 1fr;
+  }
+
+  .doubaoCacheInspectorBody {
+    grid-template-columns: 1fr;
+  }
+
+  .doubaoCacheChapterList {
+    max-height: 280px;
+    border-right: 0;
+    border-bottom: 1px solid var(--dw-line);
+  }
+
+  .doubaoReaderRight {
+    grid-column: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(280px, auto);
+    overflow: visible;
+  }
+
+  .doubaoReaderSidebar,
+  .doubaoChapterWorkspace {
+    min-height: 580px;
+  }
+
+  .doubaoCacheSummary {
+    grid-column: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .doubaoTaskList {
+    max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .doubaoWorkspaceHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .doubaoBrand > div > span,
+  .doubaoHeaderActions .doubaoIconButton:first-of-type {
+    display: none;
+  }
+
+  .doubaoWorkspaceBody {
+    padding: 10px;
+  }
+
+  .doubaoPanel {
+    border-radius: 9px;
+  }
+
+  .doubaoComposer,
+  .doubaoVoiceBrowser,
+  .doubaoQrPanel,
+  .doubaoCookieEditor,
+  .doubaoCookiePool,
+  .doubaoReaderSidebar,
+  .doubaoChapterWorkspace,
+  .doubaoConfigCard,
+  .doubaoPreviewCard,
+  .doubaoTaskPanel,
+  .doubaoCacheBooksPanel,
+  .doubaoRuntimeSettings,
+  .doubaoDeviceCard,
+  .doubaoDocsPanel,
+  .doubaoSafetyCard {
+    padding: 12px;
+  }
+
+  .doubaoParameterGrid,
+  .doubaoFormGrid,
+  .doubaoSettingsGrid,
+  .doubaoCacheSummary,
+  .doubaoDocsLayout,
+  .doubaoQrBody:has(.doubaoQrImage) {
+    grid-template-columns: 1fr;
+  }
+
+  .doubaoQrImage {
+    width: min(210px, 100%);
+    justify-self: center;
+  }
+
+  .doubaoAudioResult {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .doubaoAudioResult .doubaoSecondaryButton {
+    grid-column: 1 / -1;
+  }
+
+  .doubaoCookieMetrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .doubaoServerForm {
+    grid-template-columns: minmax(0, 1fr) 82px;
+  }
+
+  .doubaoPrefetchBar {
+    align-items: flex-start;
+  }
+
+  .doubaoPrefetchBar .doubaoPrimaryButton {
+    width: 100%;
+  }
+
+  .doubaoDocsLayout {
+    max-height: none;
+  }
+
+  .doubaoDocList {
+    max-height: 220px;
+    border-right: 0;
+    border-bottom: 1px solid var(--dw-line);
+  }
+
+  .doubaoDocContent {
+    min-height: 340px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doubaoWorkspace *,
+  .doubaoWorkspace *::before,
+  .doubaoWorkspace *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}

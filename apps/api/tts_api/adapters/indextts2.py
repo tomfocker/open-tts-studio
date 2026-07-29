@@ -86,6 +86,18 @@ class IndexTts2Adapter(TtsAdapter):
             str(output_path),
             "--max-text-tokens-per-segment",
             "120",
+            "--temperature",
+            str(request.temperature if request.temperature is not None else 0.8),
+            "--top-p",
+            str(request.top_p if request.top_p is not None else 0.8),
+            "--top-k",
+            str(request.top_k if request.top_k is not None else 30),
+            "--num-beams",
+            str(request.num_beams if request.num_beams is not None else 3),
+            "--repetition-penalty",
+            str(request.repetition_penalty if request.repetition_penalty is not None else 10.0),
+            "--max-mel-tokens",
+            str(request.max_mel_tokens if request.max_mel_tokens is not None else 1500),
             "--fp16",
         ]
         if request.emotion:

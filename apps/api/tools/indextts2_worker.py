@@ -64,6 +64,11 @@ def synthesize(tts, request: dict, default_max_tokens: int) -> Path:
     require_file(prompt_audio, "speaker reference audio")
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def value_or_default(key: str, default):
+        value = request.get(key)
+        return default if value is None else value
+
+    top_k = int(value_or_default("top_k", 30))
     tts.infer(
         spk_audio_prompt=str(prompt_audio),
         text=request["text"],
@@ -75,6 +80,12 @@ def synthesize(tts, request: dict, default_max_tokens: int) -> Path:
         use_random=bool(request.get("emotion_random", False)),
         verbose=bool(request.get("verbose", False)),
         max_text_tokens_per_segment=int(request.get("max_text_tokens_per_segment") or default_max_tokens),
+        temperature=float(value_or_default("temperature", 0.8)),
+        top_p=float(value_or_default("top_p", 0.8)),
+        top_k=top_k if top_k > 0 else None,
+        num_beams=int(value_or_default("num_beams", 3)),
+        repetition_penalty=float(value_or_default("repetition_penalty", 10.0)),
+        max_mel_tokens=int(value_or_default("max_mel_tokens", 1500)),
     )
     return output_path
 

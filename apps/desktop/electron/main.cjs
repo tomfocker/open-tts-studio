@@ -7,6 +7,7 @@ const {
   createDesktopPaths,
   ensureBackend,
   loadFrontend,
+  openLegadoImportUrl,
   openLocalPath,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
@@ -37,6 +38,7 @@ const paths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
   modelStoreRoot: packagedModelStoreRoot,
   apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined,
   desktopDir: packagedAppRoot,
+  resourcesRoot: app.isPackaged ? process.resourcesPath : undefined,
   distIndex: packagedAppRoot ? path.join(packagedAppRoot, "dist", "index.html") : undefined
 });
 let desktopSettings = resolveDesktopSettings(paths);
@@ -61,6 +63,7 @@ updateService.subscribe((state) => {
 async function prepareBackend() {
   desktopSettings = resolveDesktopSettings(paths);
   process.env.OPEN_TTS_API_BASE = desktopSettings.apiBase;
+  process.env.OPEN_TTS_APP_VERSION = app.getVersion();
   const healthUrl = `${desktopSettings.apiBase}/v1/health`;
   const result = await ensureBackend({
     healthUrl,
@@ -118,6 +121,8 @@ ipcMain.on("window:close", () => {
 });
 
 ipcMain.handle("file:open-path", (_event, targetPath) => openLocalPath(targetPath, shell));
+
+ipcMain.handle("external:open-legado-import", (_event, targetUrl) => openLegadoImportUrl(targetUrl, shell));
 
 ipcMain.handle("file:select-reference-audio", () => selectReferenceAudio(dialog));
 

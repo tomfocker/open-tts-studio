@@ -7,6 +7,7 @@ const {
   chooseFrontendTarget,
   createDesktopPaths,
   ensureBackend,
+  openLegadoImportUrl,
   openLocalPath,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
@@ -18,7 +19,8 @@ const {
   selectSettingsBackup,
   selectReferenceAudio,
   selectVoicePackage,
-  terminateProcessTree
+  terminateProcessTree,
+  validateLegadoImportUrl
 } = require("./desktop-runtime.cjs");
 
 test("buildBackendLaunchOptions points at the bundled API environment", () => {
@@ -42,13 +44,15 @@ test("buildBackendLaunchOptions points at the bundled API environment", () => {
   ]);
   assert.equal(launchOptions.cwd, path.join(workspaceRoot, "apps", "api"));
   assert.equal(launchOptions.env.PYTHONIOENCODING, "utf-8");
+  assert.equal(launchOptions.env.OPEN_TTS_FFMPEG_PATH, resolveFfmpegPath(paths));
 });
 
 test("createDesktopPaths keeps packaged user data and model weights outside application resources", () => {
   const workspaceRoot = path.resolve("D:/OpenTTS/resources/workspace");
   const paths = createDesktopPaths(__dirname, workspaceRoot, {
     dataRoot: "C:/Users/test/AppData/Roaming/OpenTTS Studio/data",
-    modelStoreRoot: "D:/TTS-models"
+    modelStoreRoot: "D:/TTS-models",
+    resourcesRoot: "D:/OpenTTS/resources"
   });
 
   const launchOptions = buildBackendLaunchOptions(paths, 8765);
@@ -57,6 +61,8 @@ test("createDesktopPaths keeps packaged user data and model weights outside appl
   assert.equal(launchOptions.env.OPEN_TTS_OUTPUT_DIR, path.join(paths.dataRoot, "outputs"));
   assert.equal(launchOptions.env.OPEN_TTS_INDEXTTS2_ROOT, path.join(paths.modelStoreRoot, "IndexTTS2"));
   assert.equal(launchOptions.env.OPEN_TTS_VOICE_LIBRARY_FILE, path.join(paths.dataRoot, "config", "voices.json"));
+  assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_COOKIE_FILE, path.join(paths.dataRoot, "config", "doubao-cookies.json"));
+  assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_DATA_DIR, path.join(paths.dataRoot, "doubao"));
 });
 
 test("createDesktopPaths can load the packaged renderer from app.asar", () => {
@@ -126,7 +132,7 @@ test("resolveFfmpegPath prefers an explicit environment path", () => {
 test("resolveFfmpegPath falls back to the packaged ffmpeg resource", () => {
   const workspaceRoot = path.resolve("D:/code/tts");
   const paths = createDesktopPaths(__dirname, workspaceRoot);
-  const packagedPath = path.join(paths.desktopDir, "resources", "ffmpeg", "ffmpeg.exe");
+  const packagedPath = path.join(paths.resourcesRoot, "ffmpeg", "ffmpeg.exe");
 
   const ffmpegPath = resolveFfmpegPath(paths, {
     env: {},
@@ -153,6 +159,35 @@ test("openLocalPath rejects empty paths", async () => {
   await assert.rejects(
     () => openLocalPath(" ", { openPath: async () => "" }),
     /Path is required/
+  );
+});
+
+test("openLegadoImportUrl opens only a validated HTTP TTS deep link", async () => {
+  const opened = [];
+  const source = "http://192.168.1.20:8765/api/legado/tts-config?voiceId=voice-1&delay=5";
+  const target = `legado://import/httpTTS?src=${encodeURIComponent(source)}`;
+
+  const result = await openLegadoImportUrl(target, {
+    openExternal: async (value) => opened.push(value)
+  });
+
+  assert.deepEqual(opened, [target]);
+  assert.equal(result, target);
+});
+
+test("validateLegadoImportUrl rejects unrelated protocols and unsafe sources", () => {
+  assert.throws(() => validateLegadoImportUrl("https://example.test"), /Only Legado HTTP TTS/);
+  assert.throws(
+    () => validateLegadoImportUrl("legado://import/httpTTS?src=file%3A%2F%2FC%3A%2Fsecret"),
+    /must be an HTTP or HTTPS URL/
+  );
+  assert.throws(
+    () => validateLegadoImportUrl("legado://import/httpTTS?src=https%3A%2F%2Fuser%3Apass%40example.test"),
+    /without credentials/
+  );
+  assert.throws(
+    () => validateLegadoImportUrl("legado://import/httpTTS?src=https%3A%2F%2Fexample.test&src=http%3A%2F%2F127.0.0.1%3A8765"),
+    /only one src parameter/
   );
 });
 

@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld("desktopClipboard", {
   writeText: (content) => ipcRenderer.invoke("clipboard:write-text", content)
 });
 
+contextBridge.exposeInMainWorld("desktopExternal", {
+  openLegadoImport: (targetUrl) => ipcRenderer.invoke("external:open-legado-import", targetUrl)
+});
+
 contextBridge.exposeInMainWorld("desktopUpdater", {
   getState: () => ipcRenderer.invoke("app-update:get-state"),
   check: () => ipcRenderer.invoke("app-update:check"),

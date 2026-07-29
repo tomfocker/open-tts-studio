@@ -15,6 +15,20 @@
     "internal_only": true
   },
   {
+    "id": "doubao-web",
+    "display_name": "豆包 Web TTS",
+    "priority": "P0",
+    "source_url": "https://www.doubao.com",
+    "code_license": "OpenTTS Studio",
+    "weights_license": "service-provided",
+    "commercial_use": "unknown",
+    "recommended_vram_gb": 0,
+    "features": ["plain_tts", "preset_voices", "cookie_rotation", "legado"],
+    "request_capabilities": ["voice", "speed", "pitch"],
+    "native_sample_rate": 24000,
+    "adapter": "doubao_web"
+  },
+  {
     "id": "voxcpm2",
     "display_name": "VoxCPM2",
     "priority": "P0",
@@ -53,7 +67,7 @@
     "commercial_use": "restricted",
     "recommended_vram_gb": 8,
     "features": ["plain_tts", "voice_clone", "emotion_control"],
-    "request_capabilities": ["reference_audio", "control_prompt"],
+    "request_capabilities": ["reference_audio", "control_prompt", "temperature", "top_p", "top_k", "num_beams", "repetition_penalty", "max_mel_tokens"],
     "native_sample_rate": 22050,
     "adapter": "indextts2"
   }

@@ -24,6 +24,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--emotion-text", default=None, help="Optional emotion description text")
     parser.add_argument("--emotion-random", action="store_true", help="Use random emotion sampling")
     parser.add_argument("--max-text-tokens-per-segment", type=int, default=120)
+    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--top-p", type=float, default=0.8)
+    parser.add_argument("--top-k", type=int, default=30)
+    parser.add_argument("--num-beams", type=int, default=3)
+    parser.add_argument("--repetition-penalty", type=float, default=10.0)
+    parser.add_argument("--max-mel-tokens", type=int, default=1500)
     parser.add_argument("--fp16", action="store_true", default=False)
     parser.add_argument("--deepspeed", action="store_true", default=False)
     parser.add_argument("--cuda-kernel", action="store_true", default=False)
@@ -75,6 +81,12 @@ def main() -> int:
         use_random=args.emotion_random,
         verbose=args.verbose,
         max_text_tokens_per_segment=args.max_text_tokens_per_segment,
+        temperature=args.temperature,
+        top_p=args.top_p,
+        top_k=args.top_k if args.top_k > 0 else None,
+        num_beams=args.num_beams,
+        repetition_penalty=args.repetition_penalty,
+        max_mel_tokens=args.max_mel_tokens,
     )
     return 0
 

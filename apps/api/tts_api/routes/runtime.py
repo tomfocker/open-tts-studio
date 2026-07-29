@@ -52,12 +52,10 @@ def start_model_runtime(model_id: str) -> dict:
             get_indextts2_worker_client(settings).start()
         elif model_id == "voxcpm2":
             manager = get_voxcpm2_service_manager(settings)
-            if not manager.is_healthy():
-                manager.start()
+            manager.ensure_started()
         elif model_id == "gptsovits":
             manager = get_gptsovits_service_manager(settings)
-            if not manager.is_healthy():
-                manager.start()
+            manager.ensure_started()
         else:
             raise HTTPException(status_code=404, detail=f"Runtime controls are not available for: {model_id}")
     except HTTPException:

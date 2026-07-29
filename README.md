@@ -4,14 +4,24 @@ OpenTTS Studio 是一个 Windows 桌面端本地 TTS 工作台：统一管理可
 
 ## 当前能力
 
-- 当前对外提供的稳定本地模型：IndexTTS2、VoxCPM2、GPT-SoVITS。
+- 当前提供的语音引擎：IndexTTS2、VoxCPM2、GPT-SoVITS，以及独立维护的豆包 Web TTS 适配器。
 - 模型包统一放在项目根目录的 [`models`](models/README.md)；运行时、权重与懒人包文件均留在本机，不进入 Git。
 - 模型中心：目录选择、健康检查、启用/禁用、稳定包标记、维护备注和检查历史。
 - 运行时管理：按需启动、显示运行状态、空闲自动释放显存、手动停止；不会终止外部懒人包自行启动的服务。
 - 桌面端音色库：可将本地参考音频或生成结果一键加入音色库。
+- 参考音频导入后会立即在后台识别原文；识别完成后自动恢复当前语音模型预热，减少首次生成等待。
 - 便携音色包：参考音频与对应文本可导出为 ZIP，在其他生产环境一键导入。
 - B 站取样：桌面端扫码登录、视频/番剧解析、分 P/剧集选择、音频下载、FFmpeg 转 WAV/裁剪、取消任务，并直接入库。
+- 豆包工作台：29 个原版音色、语速/音调、MP3/WAV、扫码登录、Cookie 加密池、账号轮换/验证/限次，以及 OpenAI 兼容语音接口。
+- 阅读集成：连接“阅读”Web 服务、生成实时/预制朗读配置、缓存整本正文、批量预制章节音频，并管理可暂停/恢复/取消/重试的持久任务。
+- 主动模型预热：手动切换模型后立即安全释放冲突显存并等待新模型就绪；IndexTTS2 提供温度、Top-P、Top-K、束搜索、重复惩罚和最大音频 Token 参数。
 - 本地 API：`/v1/audio/speech` 与 `/v1/tts/speech`；根据当前稳定适配器拒绝未实现参数，防止桌面端与外部调用不一致。
+
+## 豆包 Web TTS 边界
+
+豆包适配器使用豆包网页端内部 WebSocket，而不是火山引擎官方 API。它需要用户自己的豆包登录 Cookie，接口地址和协议可能随上游网页版本变化，不提供官方稳定性或商业 SLA。Cookie 在 Windows 上使用 DPAPI 加密，仅当前 Windows 用户可解密；扫码会话、Cookie、阅读正文缓存和预制音频都保存在本机并被 Git 忽略。
+
+原项目的语音、账号、阅读、缓存、设置和本地文档能力已用 Python/React 重写。远程公告、远程文档和上传 ZIP 覆盖运行程序不会恢复：公告改为本地空结果，文档读取当前项目文件，更新统一使用 Electron 更新流程。架构、接口、数据目录和维护方法见 [`docs/doubao-maintenance.md`](docs/doubao-maintenance.md)。
 
 ## B 站取样边界
 
@@ -40,7 +50,7 @@ cd apps/desktop
 npm run package:win
 ```
 
-构建输出在 `apps/desktop/release`：`Setup` 是安装版，`Portable` 是免安装版。安装包会携带 Electron、本地 API 和独立 Python 运行时；不会包含大体积模型权重。首次启动后，请在“设置 → 本地模型”中登记或下载模型目录。
+构建输出在 `apps/desktop/release`：`Setup` 是安装版，`Portable` 是免安装版。安装包会携带 Electron、本地 API、独立 Python 运行时和豆包 AAC 转码所需的 FFmpeg；不会包含大体积模型权重。首次启动后，请在“设置 → 本地模型”中登记或下载模型目录。
 
 正式安装版会在启动后从 GitHub Releases 检查更新，也可在“设置 → 应用更新”手动检查、下载并重启安装。发布新版本时，上传 `Setup`、对应 `.blockmap` 和 `latest.yml` 到同一个 GitHub Release；便携版可作为额外下载项。
 

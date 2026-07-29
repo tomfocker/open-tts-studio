@@ -100,8 +100,15 @@ export type SpeechRequest = {
   language?: string | null;
   response_format?: string;
   speed?: number;
+  pitch?: number;
   cfg?: number | null;
   inference_steps?: number | null;
+  temperature?: number | null;
+  top_p?: number | null;
+  top_k?: number | null;
+  num_beams?: number | null;
+  repetition_penalty?: number | null;
+  max_mel_tokens?: number | null;
   normalize?: boolean | null;
   denoise?: boolean | null;
   stream?: boolean;
@@ -135,6 +142,12 @@ export type BatchProject = {
   speed: number;
   cfg?: number | null;
   inference_steps?: number | null;
+  temperature?: number | null;
+  top_p?: number | null;
+  top_k?: number | null;
+  num_beams?: number | null;
+  repetition_penalty?: number | null;
+  max_mel_tokens?: number | null;
   normalize?: boolean | null;
   denoise?: boolean | null;
   status: BatchProjectStatus;
@@ -154,6 +167,12 @@ export type BatchProjectCreate = {
   speed?: number;
   cfg?: number;
   inference_steps?: number;
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  num_beams?: number;
+  repetition_penalty?: number;
+  max_mel_tokens?: number;
   normalize?: boolean;
   denoise?: boolean;
 };
@@ -604,4 +623,249 @@ export type ModelPackageUpdate = {
 export type ModelPackageActivation = {
   package: ModelPackageRecord;
   instance: ModelInstanceProfile;
+};
+
+export type DoubaoApiEnvelope<T> = {
+  success: boolean;
+  code?: number;
+  data: T;
+  message?: string;
+  total?: number;
+};
+
+export type DoubaoCookieRotation = {
+  strategy: string;
+  autoRotate: boolean;
+  usageLimitEnabled: boolean;
+  usageCountPerCookie: number;
+  currentIndex: number;
+};
+
+export type DoubaoCookieStats = {
+  total: number;
+  enabled: number;
+  disabled: number;
+  valid: number;
+  invalid: number;
+  active: { id: string; name: string } | null;
+  totalRequests: number;
+  totalRotations: number;
+  averageSuccessRate: number;
+  lastUpdated: string;
+  rotation: DoubaoCookieRotation;
+};
+
+export type DoubaoCookieRecord = {
+  id: string;
+  name: string;
+  value?: string;
+  hasValue?: boolean;
+  valuePreview?: string;
+  description: string;
+  status: {
+    isActive: boolean;
+    isValid: boolean;
+    isDisabled: boolean;
+    lastValidated: string | null;
+    validationStatus: "pending" | "valid" | "invalid" | string;
+    lastError: string | null;
+    lastFailure: string | null;
+  };
+  usage: {
+    usageCount: number;
+    lastUsed: string | null;
+    successCount: number;
+    failureCount: number;
+  };
+  metadata: {
+    createdAt: string;
+    updatedAt: string;
+    tags: string[];
+    priority: number;
+    weight: number;
+  };
+  limits: {
+    maxUsageCount: number;
+    maxRequestsPerMinute: number;
+    currentMinuteCount: number;
+    customUsageLimit: number;
+  };
+};
+
+export type DoubaoStatus = {
+  service: {
+    status: string;
+    uptimeMs: number;
+    version: string;
+  };
+  provider: "doubao-web" | string;
+  status: "ready" | "needs_cookie" | string;
+  endpoint: string;
+  cookies: DoubaoCookieStats;
+  queue: { size: number };
+};
+
+export type DoubaoVoice = {
+  id: string;
+  name: string;
+  language: string;
+  language_code: string;
+  style_id: string;
+  gender: string;
+  age: string;
+  tags: string[];
+};
+
+export type DoubaoQrSession = {
+  sessionId: string;
+  qrCodeUrl: string;
+  qrCodeImg: string;
+  expiresIn: number;
+};
+
+export type DoubaoQrStatus = {
+  status: "pending" | "scanned" | "confirmed" | "expired" | string;
+  message: string;
+};
+
+export type LegadoBook = {
+  bookUrl: string;
+  name?: string;
+  bookName?: string;
+  author?: string;
+  coverUrl?: string;
+  coverUrlPath?: string;
+  totalChapters?: number;
+  durChapterIndex?: number;
+  durChapterTitle?: string;
+  [key: string]: unknown;
+};
+
+export type LegadoChapter = {
+  index: number;
+  title: string;
+  url?: string;
+  chapterIndex?: number;
+  chapterTitle?: string;
+  chapterUrl?: string;
+  isVolume?: boolean;
+  [key: string]: unknown;
+};
+
+export type DoubaoPrefetchChapterState = {
+  chapterId: string;
+  chapterTitle: string;
+  chapterIndex?: number;
+  status: string;
+  completedSegments: number;
+  totalSegments: number;
+  error?: string | null;
+};
+
+export type DoubaoPrefetchTask = {
+  taskId: string;
+  bookInfo: {
+    bookId: string;
+    bookName?: string;
+    name?: string;
+    bookUrl: string;
+  };
+  status: "processing" | "paused" | "completed" | "partial" | "failed" | "cancelled" | "cancelling" | string;
+  progress: {
+    current: number;
+    total: number;
+    completed: string[];
+    failed: Array<{ chapterId: string; error: string }>;
+  };
+  chapters: DoubaoPrefetchChapterState[];
+  options?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DoubaoCachedBook = {
+  bookId?: string;
+  bookUrl?: string;
+  name?: string;
+  bookName?: string;
+  author?: string;
+  source?: "cache" | "prefetch" | string;
+  status?: string;
+  totalChapters?: number;
+  cachedChapters?: number;
+  totalSize?: number;
+  size?: number;
+  updatedAt?: string;
+  cachedAt?: string;
+  [key: string]: unknown;
+};
+
+export type DoubaoCachedChapter = {
+  index: number;
+  title: string;
+  url?: string;
+  chapterId?: string;
+};
+
+export type DoubaoPrefetchCacheDetail = {
+  exists: boolean;
+  index: {
+    bookId?: string;
+    chapterId?: string;
+    chapterTitle?: string;
+    content?: string;
+    segments?: Array<{
+      segmentId?: string;
+      text?: string;
+      audioFile?: string | null;
+      fileSize?: number;
+      error?: string | null;
+    }>;
+    metadata?: {
+      status?: string;
+      totalSegments?: number;
+      completedSegments?: number;
+      updatedAt?: string;
+    };
+  } | null;
+};
+
+export type DoubaoCacheStats = {
+  totalBooks?: number;
+  totalChapters?: number;
+  totalSize?: number;
+  cacheSize?: number;
+  [key: string]: unknown;
+};
+
+export type DoubaoLegacySettings = {
+  prefetch: { cacheConcurrent: number };
+  tts: {
+    requestDelay: number;
+    requestIntervalDelay: number;
+    maxRetries: number;
+  };
+  system: { logLevel: string };
+  version: string;
+  updatedAt: string;
+};
+
+export type DoubaoDeviceId = {
+  deviceId: string;
+  webId: string;
+  autoGenerate: boolean;
+  lastUpdated: string;
+};
+
+export type DoubaoDocument = {
+  id: string;
+  filename: string;
+  name: string;
+  path: string;
+  downloadUrl?: string | null;
+  size: number;
+  modifiedTime: string;
+  extension?: string;
+  content?: string;
+  createdTime?: string;
 };

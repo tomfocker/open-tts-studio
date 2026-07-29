@@ -8,6 +8,7 @@ from tts_api.adapters.gptsovits import GptSoVitsAdapter
 from tts_api.adapters.indextts2 import IndexTts2Adapter
 from tts_api.adapters.mock import MockTtsAdapter
 from tts_api.adapters.voxcpm2 import VoxCpm2Adapter
+from tts_api.adapters.doubao_web import DoubaoWebAdapter
 from tts_api.config import get_settings
 from tts_api.errors import unknown_model_error, unsupported_adapter_error
 from tts_api.model_health import check_model_instance
@@ -88,6 +89,8 @@ def synthesize_with_registered_adapter(
             result = GptSoVitsAdapter(settings=settings).synthesize(request)
         elif model.adapter == "indextts2":
             result = IndexTts2Adapter(settings=settings).synthesize(request)
+        elif model.adapter == "doubao_web":
+            result = DoubaoWebAdapter(settings=settings).synthesize(request)
         else:
             raise unsupported_adapter_error(model.adapter)
     _report_progress(progress_reporter, "finalizing", 90, "模型已返回结果，正在整理音频与任务记录。")

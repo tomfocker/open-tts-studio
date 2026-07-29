@@ -12,6 +12,7 @@ function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
   const desktopDir = options.desktopDir || path.join(resolvedWorkspaceRoot, "apps", "desktop");
   const dataRoot = options.dataRoot || path.join(resolvedWorkspaceRoot, "data");
   const modelStoreRoot = options.modelStoreRoot || path.join(resolvedWorkspaceRoot, "models");
+  const resourcesRoot = options.resourcesRoot || path.join(desktopDir, "resources");
   return {
     workspaceRoot: resolvedWorkspaceRoot,
     apiDir,
@@ -20,6 +21,7 @@ function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
     distIndex: options.distIndex || path.join(desktopDir, "dist", "index.html"),
     dataRoot,
     modelStoreRoot,
+    resourcesRoot,
     logsDir: path.join(dataRoot, "logs")
   };
 }
@@ -52,6 +54,9 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_MODEL_PACKAGES_FILE: path.join(paths.dataRoot, "config", "model-packages.json"),
       OPEN_TTS_TASKS_FILE: path.join(paths.dataRoot, "config", "tasks.json"),
       OPEN_TTS_TASK_LOG_DIR: path.join(paths.dataRoot, "logs", "tasks"),
+      OPEN_TTS_DOUBAO_COOKIE_FILE: path.join(paths.dataRoot, "config", "doubao-cookies.json"),
+      OPEN_TTS_DOUBAO_DATA_DIR: path.join(paths.dataRoot, "doubao"),
+      OPEN_TTS_FFMPEG_PATH: resolveFfmpegPath(paths),
       OPEN_TTS_INDEXTTS2_ROOT: path.join(paths.modelStoreRoot, "IndexTTS2"),
       OPEN_TTS_VOXCPM2_ROOT: path.join(paths.modelStoreRoot, "VoxCPM2"),
       OPEN_TTS_GPTSOVITS_ROOT: path.join(paths.modelStoreRoot, "GPT-SoVITS")
@@ -110,7 +115,7 @@ function resolveFfmpegPath(paths, options = {}) {
     return explicitPath;
   }
 
-  const packagedPath = path.join(paths.desktopDir, "resources", "ffmpeg", "ffmpeg.exe");
+  const packagedPath = path.join(paths.resourcesRoot, "ffmpeg", "ffmpeg.exe");
   if (existsSync(packagedPath)) {
     return packagedPath;
   }
@@ -236,6 +241,49 @@ async function openLocalPath(targetPath, shellImpl) {
   return shellImpl.openPath(normalizedPath);
 }
 
+function validateLegadoImportUrl(targetUrl) {
+  if (typeof targetUrl !== "string" || !targetUrl.trim()) {
+    throw new Error("Legado import URL is required");
+  }
+  if (targetUrl.length > 16 * 1024) {
+    throw new Error("Legado import URL is too large");
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(targetUrl);
+  } catch {
+    throw new Error("Legado import URL is invalid");
+  }
+  if (parsed.protocol !== "legado:" || parsed.hostname !== "import" || parsed.pathname !== "/httpTTS") {
+    throw new Error("Only Legado HTTP TTS import links are allowed");
+  }
+  if (parsed.username || parsed.password || parsed.hash) {
+    throw new Error("Legado import URL contains unsupported credentials or fragments");
+  }
+  const source = parsed.searchParams.get("src");
+  if (!source || parsed.searchParams.getAll("src").length !== 1 || [...parsed.searchParams.keys()].some((key) => key !== "src")) {
+    throw new Error("Legado import URL must contain only one src parameter");
+  }
+
+  let sourceUrl;
+  try {
+    sourceUrl = new URL(source);
+  } catch {
+    throw new Error("Legado import source URL is invalid");
+  }
+  if (!["http:", "https:"].includes(sourceUrl.protocol) || sourceUrl.username || sourceUrl.password) {
+    throw new Error("Legado import source must be an HTTP or HTTPS URL without credentials");
+  }
+  return parsed.toString();
+}
+
+async function openLegadoImportUrl(targetUrl, shellImpl) {
+  const validated = validateLegadoImportUrl(targetUrl);
+  await shellImpl.openExternal(validated);
+  return validated;
+}
+
 async function selectReferenceAudio(dialogImpl) {
   const result = await dialogImpl.showOpenDialog({
     title: "选择参考音频",
@@ -355,6 +403,7 @@ module.exports = {
   ensureBackend,
   isHttpOk,
   loadFrontend,
+  openLegadoImportUrl,
   openLocalPath,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
@@ -368,5 +417,6 @@ module.exports = {
   saveVoicePackage,
   spawnBackendProcess,
   terminateProcessTree,
+  validateLegadoImportUrl,
   waitForBackend
 };
