@@ -3,7 +3,9 @@ import json
 
 from fastapi import APIRouter, HTTPException, status
 
+from tts_api.adapters.voxcpm2 import VoxCpm2Adapter
 from tts_api.config import get_settings
+from tts_api.runtime_memory import release_conflicting_runtimes, resolve_runtime_settings
 from tts_api.schemas import CreateVoiceRequest, UpdateVoiceRequest, VoiceInfo, VoicePackageExport, VoicePackageImportRequest, VoiceQualityReport
 from tts_api.voice_library import create_voice_package, import_voice_package, ingest_reference_audio, utc_now
 from tts_api.voice_quality import inspect_voice_quality
@@ -137,6 +139,29 @@ def inspect_voice(voice_id: str) -> VoiceQualityReport:
         return inspect_voice_quality(BUILTIN_VOICES[voice_id])
     _, voice = get_custom_voice_or_404(voice_id)
     return inspect_voice_quality(voice)
+
+
+@router.post("/v1/tts/voices/{voice_id}/recognize")
+def recognize_voice_reference(voice_id: str) -> dict[str, str]:
+    """Fill a saved voice's transcript from its managed reference audio.
+
+    The client deliberately decides whether to save the returned text so users
+    can correct recognition errors before it becomes an extreme-clone prompt.
+    """
+    _, voice = get_custom_voice_or_404(voice_id)
+    if not voice.reference_audio:
+        raise HTTPException(status_code=422, detail="该音色没有可识别的参考音频。")
+    try:
+        settings = resolve_runtime_settings(get_settings())
+        release_conflicting_runtimes("voxcpm2", settings)
+        text = VoxCpm2Adapter(settings=settings).recognize_reference_audio(voice.reference_audio)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=f"参考音频识别失败：{exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"无法启动 VoxCPM2 参考音频识别：{exc}") from exc
+    return {"voice_id": voice_id, "text": text}
 
 
 @router.delete("/v1/tts/voices/{voice_id}", status_code=status.HTTP_204_NO_CONTENT)

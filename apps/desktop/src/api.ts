@@ -169,6 +169,19 @@ export async function fetchVoiceQuality(voiceId: string): Promise<VoiceQualityRe
   return response.json();
 }
 
+export async function recognizeVoiceReference(voiceId: string): Promise<{ voice_id: string; text: string }> {
+  const response = await fetchWithTimeout(
+    `${getApiBase()}/v1/tts/voices/${voiceId}/recognize`,
+    { method: "POST" },
+    120_000
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to recognize voice reference: ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function generateSpeech(
   model: string,
   input: string,

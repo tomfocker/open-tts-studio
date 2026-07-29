@@ -354,9 +354,13 @@ class VoxCpm2Adapter(TtsAdapter):
             self.service_manager.begin_request()
 
         output_path = create_output_path(self.settings.output_dir, ".wav")
+        is_ultimate_clone = bool(request.reference_audio and (request.reference_text or "").strip())
         data = {
             "text": request.input,
-            "control_instruction": request.emotion or request.voice_prompt or "",
+            # The upstream WebUI disables its control-instruction field in
+            # transcript-guided cloning. Leaving it enabled prefixes the target
+            # text with a second, unrelated voice-design instruction.
+            "control_instruction": "" if is_ultimate_clone else request.emotion or request.voice_prompt or "",
             "prompt_text": request.reference_text,
             "cfg_value": str(request.cfg if request.cfg is not None else 2.0),
             "inference_timesteps": str(request.inference_steps if request.inference_steps is not None else 10),
@@ -403,3 +407,41 @@ class VoxCpm2Adapter(TtsAdapter):
             sample_rate=sample_rate,
             duration_seconds=duration_seconds,
         )
+
+    def recognize_reference_audio(self, reference_audio: str) -> str:
+        """Transcribe a saved voice with the ASR bundled alongside VoxCPM2."""
+        reference_path = Path(reference_audio)
+        if not reference_path.is_file():
+            raise FileNotFoundError(f"参考音频不存在：{reference_path}")
+
+        if self.service_manager is not None:
+            self.service_manager.ensure_started()
+            self.service_manager.begin_request()
+
+        file_handle = None
+        try:
+            file_handle = reference_path.open("rb")
+            response = self.http_client.post(
+                f"{self.api_base}/recognize",
+                files={"audio": (reference_path.name, file_handle, "application/octet-stream")},
+                timeout=self.request_timeout_seconds,
+            )
+        except httpx.TimeoutException as exc:
+            if self.service_manager is not None:
+                self.service_manager.force_shutdown()
+            raise RuntimeError(
+                f"VoxCPM2 参考音频识别超过 {int(self.request_timeout_seconds)} 秒未返回，"
+                "已停止无响应的模型服务并释放显存。"
+            ) from exc
+        finally:
+            if file_handle is not None:
+                file_handle.close()
+            if self.service_manager is not None:
+                self.service_manager.finish_request()
+
+        response.raise_for_status()
+        payload = response.json()
+        text = payload.get("text") if isinstance(payload, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            raise RuntimeError("VoxCPM2 未从参考音频中识别到可用文本。")
+        return text.strip()

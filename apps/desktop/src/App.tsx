@@ -66,6 +66,7 @@ import {
   registerModelPackage,
   retryBatchProject,
   retrySpeechJob,
+  recognizeVoiceReference,
   runBatchProject,
   resumeBatchProject,
   saveAppSettings,
@@ -211,13 +212,6 @@ const voxcpm2ParameterHints = {
 } as const;
 
 const voicePresets: VoicePreset[] = [
-  {
-    id: "sample",
-    name: "本地样例",
-    subtitle: "参考音频",
-    initials: "样",
-    background: "linear-gradient(135deg, #425466 0%, #8ea1b2 100%)",
-  },
   {
     id: "custom",
     name: "导入音色",
@@ -438,11 +432,6 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     default_model_id: settings?.default_model_id ?? "indextts2",
     prewarm_default_model_on_startup: settings?.prewarm_default_model_on_startup ?? false
   };
-}
-
-function getDefaultIndexTts2Prompt(settings: AppSettings | null) {
-  const modelRoot = settings?.indextts2_root ?? "models\\IndexTTS2";
-  return `${modelRoot.replace(/[\\/]+$/, "")}\\Index-TTS\\examples\\voice_01.wav`;
 }
 
 function getFileBaseName(filePath: string) {
@@ -912,8 +901,10 @@ function supportsControlPrompt(model: ModelInfo | undefined, mode: CloneMode) {
   if (mode === "可控克隆") {
     return hasFeature(model, "controllable_clone") || hasFeature(model, "emotion_control");
   }
+  // VoxCPM2 的极致克隆是“参考音频 + 原文”的续写模式。上游 WebUI
+  // 也会关闭音色设计指令，避免它被拼进待合成文本。
   if (mode === "极致克隆") {
-    return hasFeature(model, "controllable_clone");
+    return false;
   }
   return false;
 }
@@ -933,6 +924,9 @@ function capabilityHint(model: ModelInfo | undefined, mode: CloneMode) {
   }
   if (model.id === "voxcpm2" && mode === "可控克隆") {
     return "VoxCPM2 会优先克隆参考音频的说话人特征；控制文字只能调表达，不能可靠地把男声改成女声。";
+  }
+  if (model.id === "voxcpm2" && mode === "极致克隆") {
+    return "极致克隆使用参考音频及其原文进行无缝续写，音色设计文字会自动关闭。可在音色库中一键识别并校对参考原文。";
   }
   if (mode === "文本生成") {
     return "当前模型只使用目标文本，不需要参考音色。";
@@ -1083,7 +1077,7 @@ export function App() {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState("indextts2");
   const [pendingModelSwitch, setPendingModelSwitch] = useState<PendingModelSwitch | null>(null);
-  const [selectedVoice, setSelectedVoice] = useState("sample");
+  const [selectedVoice, setSelectedVoice] = useState("custom");
   const [customVoices, setCustomVoices] = useState<VoicePreset[]>([]);
   const [voiceManagerOpen, setVoiceManagerOpen] = useState(false);
   const [managedVoiceId, setManagedVoiceId] = useState<string | null>(null);
@@ -1194,14 +1188,11 @@ export function App() {
 
   const availableVoices = useMemo(() => {
     const importVoice = voicePresets.find((voice) => voice.id === "custom");
-    const builtInVoices = voicePresets
-      .filter((voice) => voice.id !== "custom")
-      .map((voice) => (voice.id === "sample" ? { ...voice, referenceAudio: getDefaultIndexTts2Prompt(appSettings) } : voice));
-    return importVoice ? [...builtInVoices, ...customVoices, importVoice] : [...builtInVoices, ...customVoices];
-  }, [appSettings, customVoices]);
+    return importVoice ? [...customVoices, importVoice] : customVoices;
+  }, [customVoices]);
 
   const selectedVoiceInfo = useMemo(
-    () => availableVoices.find((voice) => voice.id === selectedVoice && voice.id !== "custom") ?? availableVoices[0] ?? voicePresets[0],
+    () => availableVoices.find((voice) => voice.id === selectedVoice) ?? availableVoices[0] ?? voicePresets[0],
     [availableVoices, selectedVoice]
   );
   const managedVoice = useMemo(
@@ -1499,6 +1490,28 @@ export function App() {
     }
   }
 
+  async function onRecognizeManagedVoiceReference() {
+    if (!managedVoice?.referenceAudio) {
+      setVoiceManagerError("该音色没有可识别的参考音频。");
+      return;
+    }
+    setVoiceManagerAction("recognize");
+    setVoiceManagerError(null);
+    setVoiceManagerMessage(null);
+    try {
+      const result = await recognizeVoiceReference(managedVoice.id);
+      setVoiceManagerDraft((draft) => ({ ...draft, referenceText: result.text }));
+      if (selectedVoice === managedVoice.id) {
+        setReferenceText(result.text);
+      }
+      setVoiceManagerMessage("参考文本已识别并填入草稿，请核对后点击保存。");
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "参考音频识别失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
   async function onExportVoicePackage() {
     if (!managedVoice || !window.desktopFiles?.saveVoicePackage) {
       setVoiceManagerError("请在桌面软件中导出音色包。");
@@ -1549,7 +1562,7 @@ export function App() {
       await deleteVoice(managedVoice.id);
       setCustomVoices((voices) => voices.filter((voice) => voice.id !== managedVoice.id));
       if (selectedVoice === managedVoice.id) {
-        setSelectedVoice("sample");
+        setSelectedVoice("custom");
       }
       setManagedVoiceId(null);
       setVoiceManagerDraft(createVoiceManagerDraft(null));
@@ -3184,7 +3197,7 @@ export function App() {
                 {availableVoices.map((voice) => (
                   <button
                     key={voice.id}
-                    className={voice.id === selectedVoice && voice.id !== "custom" ? "voiceCard active" : "voiceCard"}
+                    className={voice.id === selectedVoice ? "voiceCard active" : "voiceCard"}
                     onClick={() => {
                       if (voice.id === "custom") {
                         void onImportVoice();
@@ -3271,7 +3284,7 @@ export function App() {
                 className="controlPrompt referencePrompt"
                 value={referenceText}
                 onChange={(event) => setReferenceText(event.target.value)}
-                placeholder="参考音频对应文本"
+                placeholder="参考音频对应原文（可在音色库中一键识别并校对）"
               />
             )}
             {selectedModel === "indextts2" && showControlPrompt && (
@@ -3715,17 +3728,26 @@ export function App() {
                         替换后会自动复制到软件的音色目录，原文件可以移动或删除。极致克隆和 GPT-SoVITS 建议让参考文本与音频内容一致。
                       </p>
                       <label className="settingsField">
-                        <span>音色名称</span>
+                        <span>音色名称（可重命名）</span>
                         <input value={voiceManagerDraft.name} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, name: event.target.value }))} />
                       </label>
                       <label className="settingsField voiceManagerPromptField">
-                        <span>参考文本 / 提示词</span>
+                        <span>参考音频原文</span>
                         <textarea
                           value={voiceManagerDraft.referenceText}
                           placeholder="填写这条参考音频实际说的内容"
                           onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceText: event.target.value }))}
                         />
                       </label>
+                      <button
+                        className="pathPickButton"
+                        type="button"
+                        disabled={voiceManagerAction !== null || !managedVoice.referenceAudio}
+                        onClick={() => void onRecognizeManagedVoiceReference()}
+                      >
+                        {voiceManagerAction === "recognize" ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} strokeWidth={1.9} />}
+                        <span>识别参考文本</span>
+                      </button>
                       <div className="voiceManagerMetadata">
                         <span>来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
                         <span>授权：{managedVoice.authorizationStatus ?? "未标注"}</span>
@@ -3763,7 +3785,7 @@ export function App() {
               )}
               <button className="primaryAction settingsAction" type="button" disabled={!managedVoice || voiceManagerAction !== null} onClick={() => void onSaveVoiceManagerDetails()}>
                 {voiceManagerAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
-                <span>保存</span>
+                <span>保存名称和原文</span>
               </button>
             </footer>
           </section>

@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from tts_api.audio import write_sine_wav
 from tts_api.config import get_settings
 from tts_api.main import app
+from tts_api.routes import voices as voice_routes
 
 
 def test_list_voices_returns_builtin_default():
@@ -71,6 +72,38 @@ def test_update_voice_replaces_audio_and_reference_text(tmp_path: Path, monkeypa
     assert updated["reference_text"] == "替换后的参考文本。"
     assert updated["reference_audio_managed"] is True
     assert Path(updated["reference_audio"]).is_file()
+
+
+def test_voice_reference_recognition_returns_editable_transcript(tmp_path: Path, monkeypatch):
+    voice_library_file = tmp_path / "voices.json"
+    source_audio = tmp_path / "source.wav"
+    write_sine_wav(source_audio, duration_seconds=5)
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(voice_library_file))
+    get_settings.cache_clear()
+    captured = {"released": None, "reference_audio": None}
+
+    class FakeVoxAdapter:
+        def __init__(self, settings):
+            self.settings = settings
+
+        def recognize_reference_audio(self, reference_audio: str) -> str:
+            captured["reference_audio"] = reference_audio
+            return "自动识别出的参考音频原文。"
+
+    monkeypatch.setattr(voice_routes, "VoxCpm2Adapter", FakeVoxAdapter)
+    monkeypatch.setattr(voice_routes, "release_conflicting_runtimes", lambda model_id, _settings: captured.update(released=model_id) or [])
+    client = TestClient(app)
+    created = client.post(
+        "/v1/tts/voices",
+        json={"name": "Narrator", "reference_audio": str(source_audio), "authorization_status": "authorized"},
+    ).json()
+
+    response = client.post(f"/v1/tts/voices/{created['id']}/recognize")
+
+    assert response.status_code == 200
+    assert response.json() == {"voice_id": created["id"], "text": "自动识别出的参考音频原文。"}
+    assert captured["released"] == "voxcpm2"
+    assert captured["reference_audio"] == created["reference_audio"]
 
 
 def test_voice_package_exports_and_imports_portably(tmp_path: Path, monkeypatch):

@@ -53,13 +53,13 @@ class FakeHttpClient:
         self.get_calls.append({"url": url, "timeout": timeout})
         return FakeHttpResponse(content=b'{"status":"ok"}')
 
-    def post(self, url: str, data: dict, files: dict | None, timeout: float):
+    def post(self, url: str, data: dict | None = None, files: dict | None = None, timeout: float = 0):
         self.post_calls.append({"url": url, "data": data, "files": files, "timeout": timeout})
         return FakeHttpResponse()
 
 
 class TimeoutHttpClient(FakeHttpClient):
-    def post(self, url: str, data: dict, files: dict | None, timeout: float):
+    def post(self, url: str, data: dict | None = None, files: dict | None = None, timeout: float = 0):
         self.post_calls.append({"url": url, "data": data, "files": files, "timeout": timeout})
         raise httpx.ReadTimeout("model did not respond")
 
@@ -128,7 +128,7 @@ def test_voxcpm2_adapter_posts_extreme_clone_request_to_local_api(tmp_path: Path
     assert Path(result.file_path).exists()
     assert client.post_calls[0]["url"] == "http://127.0.0.1:8012/tts"
     assert client.post_calls[0]["data"]["text"] == "这是极致克隆输出。"
-    assert client.post_calls[0]["data"]["control_instruction"] == "温柔一点"
+    assert client.post_calls[0]["data"]["control_instruction"] == ""
     assert client.post_calls[0]["data"]["prompt_text"] == "这是参考音频原文。"
     assert "prompt_audio" in client.post_calls[0]["files"]
 
@@ -171,6 +171,43 @@ def test_voxcpm2_adapter_forwards_exposed_generation_controls(tmp_path: Path):
     assert payload["inference_timesteps"] == "18"
     assert payload["normalize"] == "false"
     assert payload["denoise"] == "true"
+
+
+def test_voxcpm2_extreme_clone_ignores_voice_design_instruction(tmp_path: Path):
+    reference_audio = tmp_path / "ref.wav"
+    reference_audio.write_bytes(b"RIFFref")
+    client = FakeHttpClient()
+    adapter = VoxCpm2Adapter(settings=Settings(output_dir=tmp_path), http_client=client, service_manager=None)
+
+    adapter.synthesize(
+        SpeechRequest(
+            model="voxcpm2",
+            input="极致克隆不应混入音色设计。",
+            reference_audio=str(reference_audio),
+            reference_text="参考音频实际说的内容。",
+            emotion="低沉男声，磁性嗓音",
+        )
+    )
+
+    assert client.post_calls[0]["data"]["prompt_text"] == "参考音频实际说的内容。"
+    assert client.post_calls[0]["data"]["control_instruction"] == ""
+
+
+def test_voxcpm2_adapter_recognizes_reference_audio(tmp_path: Path):
+    reference_audio = tmp_path / "reference.mp3"
+    reference_audio.write_bytes(b"fake-mp3")
+    client = FakeHttpClient()
+    client.post = lambda url, data=None, files=None, timeout=0: (
+        client.post_calls.append({"url": url, "data": data, "files": files, "timeout": timeout})
+        or FakeHttpResponse(payload={"text": "这是参考音频实际说的内容。"})
+    )
+    adapter = VoxCpm2Adapter(settings=Settings(output_dir=tmp_path), http_client=client, service_manager=None)
+
+    text = adapter.recognize_reference_audio(str(reference_audio))
+
+    assert text == "这是参考音频实际说的内容。"
+    assert client.post_calls[0]["url"].endswith("/recognize")
+    assert client.post_calls[0]["files"]["audio"][0] == "reference.mp3"
 
 
 def test_voxcpm2_adapter_stops_a_managed_service_after_generation_timeout(tmp_path: Path):
