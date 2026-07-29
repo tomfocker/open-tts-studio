@@ -4,27 +4,28 @@
 }
 
 .doubaoWorkspace {
-  --dw-bg: #eef2f5;
-  --dw-bg-soft: #e5ebf0;
-  --dw-panel: rgba(250, 252, 253, 0.94);
-  --dw-panel-solid: #f8fafb;
-  --dw-panel-subtle: #f0f4f6;
-  --dw-text: #22303b;
-  --dw-text-soft: #526372;
-  --dw-muted: #778793;
-  --dw-line: rgba(77, 98, 113, 0.16);
-  --dw-line-strong: rgba(77, 98, 113, 0.25);
-  --dw-accent: #327f55;
-  --dw-accent-strong: #286d47;
-  --dw-accent-soft: #e3f2e8;
+  --dw-bg: var(--app-bg);
+  --dw-bg-soft: #dfe7ee;
+  --dw-panel: rgba(232, 239, 245, 0.82);
+  --dw-panel-solid: rgba(248, 251, 253, 0.9);
+  --dw-panel-subtle: rgba(221, 230, 238, 0.65);
+  --dw-text: var(--text);
+  --dw-text-soft: #526577;
+  --dw-muted: var(--muted);
+  --dw-line: var(--line);
+  --dw-line-strong: rgba(114, 130, 148, 0.27);
+  --dw-accent: var(--accent);
+  --dw-accent-strong: var(--accent-dark);
+  --dw-accent-soft: rgba(218, 238, 225, 0.82);
   --dw-info: #426f8d;
   --dw-info-soft: #e7f0f6;
   --dw-warn: #a66d2f;
   --dw-warn-soft: #f8eddf;
   --dw-danger: #a44747;
   --dw-danger-soft: #f7e7e5;
-  --dw-shadow: 0 18px 48px rgba(73, 91, 105, 0.16);
-  --dw-shadow-soft: 0 8px 22px rgba(73, 91, 105, 0.11);
+  --dw-shadow: var(--shadow);
+  --dw-shadow-soft: var(--shadow-soft);
+  --dw-inner: var(--inner);
   position: fixed;
   inset: 0;
   z-index: 80;
@@ -32,38 +33,12 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: 16px;
+  padding: 18px;
   overflow: hidden;
   color: var(--dw-text);
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.54), rgba(220, 228, 234, 0.24)),
-    var(--dw-bg);
-}
-
-.doubaoWorkspace[data-theme="dark"] {
-  color-scheme: dark;
-  --dw-bg: #182027;
-  --dw-bg-soft: #202a32;
-  --dw-panel: rgba(34, 44, 52, 0.96);
-  --dw-panel-solid: #242f37;
-  --dw-panel-subtle: #1e2830;
-  --dw-text: #edf2f4;
-  --dw-text-soft: #b4c0c8;
-  --dw-muted: #8f9da7;
-  --dw-line: rgba(191, 205, 215, 0.13);
-  --dw-line-strong: rgba(191, 205, 215, 0.23);
-  --dw-accent: #69bf85;
-  --dw-accent-strong: #87d09d;
-  --dw-accent-soft: #243b2d;
-  --dw-info: #80b5d4;
-  --dw-info-soft: #243743;
-  --dw-warn: #e0aa69;
-  --dw-warn-soft: #3d3328;
-  --dw-danger: #e18a87;
-  --dw-danger-soft: #432d2d;
-  --dw-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
-  --dw-shadow-soft: 0 8px 22px rgba(0, 0, 0, 0.22);
-  background:
-    linear-gradient(145deg, rgba(94, 113, 126, 0.09), rgba(0, 0, 0, 0.11)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.34), rgba(210, 220, 229, 0.36)),
     var(--dw-bg);
 }
 
@@ -94,16 +69,17 @@
 
 .doubaoWorkspaceHeader {
   -webkit-app-region: drag;
-  flex: 0 0 72px;
+  flex: 0 0 68px;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(224px, 0.72fr) minmax(500px, 1.55fr) minmax(270px, 0.9fr);
   align-items: center;
   gap: 18px;
   padding: 0 22px;
-  border-bottom: 1px solid var(--dw-line);
-  background: color-mix(in srgb, var(--dw-panel-solid) 88%, transparent);
-  box-shadow: 0 8px 28px rgba(67, 84, 98, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 8px;
+  background: rgba(232, 239, 245, 0.86);
+  box-shadow: var(--dw-shadow-soft), var(--dw-inner);
 }
 
 .doubaoBrand,
@@ -125,16 +101,16 @@
 }
 
 .doubaoBrandIcon {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 40px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   display: grid;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--dw-accent) 24%, transparent);
+  border: 0;
   border-radius: 9px;
   color: var(--dw-accent);
-  background: var(--dw-accent-soft);
-  box-shadow: var(--dw-shadow-soft);
+  background: linear-gradient(145deg, #fbfdff, #d8e2eb);
+  box-shadow: 0 10px 22px rgba(77, 96, 116, 0.16), var(--dw-inner);
 }
 
 .doubaoBrand strong,
@@ -146,15 +122,15 @@
 }
 
 .doubaoBrand strong {
-  font-size: 18px;
+  font-size: 24px;
+  line-height: 1.1;
   font-weight: 760;
 }
 
 .doubaoBrand > div > span {
   margin-top: 3px;
   color: var(--dw-muted);
-  font-family: "JetBrains Mono", Consolas, monospace;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .doubaoTabs,
@@ -209,9 +185,10 @@
   min-width: 0;
   padding: 4px;
   gap: 3px;
-  border: 1px solid var(--dw-line);
-  border-radius: 10px;
+  border: 0;
+  border-radius: 8px;
   background: var(--dw-panel-subtle);
+  box-shadow: inset 8px 8px 18px rgba(129, 148, 166, 0.1), inset -7px -7px 16px rgba(255, 255, 255, 0.48);
 }
 
 .doubaoTabs button {
@@ -235,7 +212,7 @@
 .doubaoTabs button.active {
   color: var(--dw-accent-strong);
   background: var(--dw-panel-solid);
-  box-shadow: 0 3px 12px rgba(68, 86, 101, 0.11);
+  box-shadow: 0 8px 18px rgba(83, 102, 121, 0.14), var(--dw-inner);
 }
 
 .doubaoHeaderActions {
@@ -268,16 +245,16 @@
 }
 
 .doubaoIconButton {
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
   justify-content: center;
-  border: 1px solid var(--dw-line);
+  border: 0;
   border-radius: 8px;
   color: var(--dw-text-soft);
-  background: var(--dw-panel-solid);
+  background: linear-gradient(145deg, #f7fbff, #d8e1ea);
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(69, 86, 100, 0.08);
+  box-shadow: 0 10px 20px rgba(79, 95, 113, 0.18), var(--dw-inner);
   transition: transform 150ms ease, color 150ms ease, border-color 150ms ease;
 }
 
@@ -297,8 +274,10 @@
   flex: 0 0 auto;
   min-height: 38px;
   gap: 8px;
-  padding: 8px 20px;
-  border-bottom: 1px solid var(--dw-line);
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  border-radius: 8px;
+  box-shadow: var(--dw-inner);
   font-size: 12px;
 }
 
@@ -333,7 +312,7 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;
-  padding: 18px;
+  padding: 0 2px 0 0;
   overflow: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--dw-line-strong) transparent;
@@ -342,10 +321,10 @@
 .doubaoPanel {
   min-width: 0;
   min-height: 0;
-  border: 1px solid var(--dw-line);
-  border-radius: 11px;
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  border-radius: 8px;
   background: var(--dw-panel);
-  box-shadow: var(--dw-shadow-soft);
+  box-shadow: var(--dw-shadow), var(--dw-inner);
 }
 
 .doubaoSectionHeading {
@@ -416,25 +395,21 @@
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
-  transition: transform 150ms ease, border-color 150ms ease, background 150ms ease, color 150ms ease;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), border-color 180ms ease, background 180ms ease, color 180ms ease, box-shadow 180ms ease;
 }
 
 .doubaoPrimaryButton {
-  border: 1px solid var(--dw-accent-strong);
+  border: 0;
   color: white;
-  background: var(--dw-accent-strong);
-  box-shadow: 0 6px 15px color-mix(in srgb, var(--dw-accent) 22%, transparent);
-}
-
-.doubaoWorkspace[data-theme="dark"] .doubaoPrimaryButton {
-  color: #142219;
-  background: var(--dw-accent);
+  background: linear-gradient(145deg, #66c67f, #2d8a5d);
+  box-shadow: 0 12px 24px rgba(83, 102, 121, 0.16), var(--dw-inner);
 }
 
 .doubaoSecondaryButton {
-  border: 1px solid var(--dw-line-strong);
+  border: 0;
   color: var(--dw-text-soft);
-  background: var(--dw-panel-solid);
+  background: rgba(247, 250, 252, 0.72);
+  box-shadow: 0 8px 18px rgba(83, 102, 121, 0.12), var(--dw-inner);
 }
 
 .doubaoGhostButton {
@@ -649,51 +624,145 @@
 .doubaoAudioResult {
   min-width: 0;
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr) auto;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 11px;
-  padding: 11px;
-  border: 1px solid color-mix(in srgb, var(--dw-accent) 22%, transparent);
-  border-radius: 9px;
-  background: var(--dw-accent-soft);
+  gap: 14px;
+  min-height: 96px;
+  padding: 13px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: 8px;
+  background: rgba(232, 239, 245, 0.78);
+  box-shadow: inset 8px 8px 18px rgba(126, 145, 164, 0.1), inset -7px -7px 16px rgba(255, 255, 255, 0.48);
 }
 
-.doubaoAudioGlyph {
-  width: 42px;
-  height: 42px;
+.doubaoAudioResult.ready {
+  border-color: rgba(79, 186, 111, 0.2);
+}
+
+.doubaoAudioPlayButton {
+  width: 58px;
+  height: 58px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  color: var(--dw-accent-strong);
-  background: var(--dw-panel-solid);
+  border: 0;
+  border-radius: 999px;
+  color: #4fac6b;
+  background: linear-gradient(145deg, #f9fcff, #d9e3eb);
+  box-shadow: 0 12px 24px rgba(83, 102, 121, 0.18), var(--dw-inner);
+  cursor: pointer;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), color 180ms ease, box-shadow 180ms ease;
 }
 
-.doubaoAudioResult > div {
+.doubaoAudioPlayButton:hover:not(:disabled) {
+  color: var(--dw-accent-strong);
+  transform: translateY(-1px);
+}
+
+.doubaoAudioPlayButton:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+}
+
+.doubaoAudioPlayButton:disabled {
+  color: #a0adba;
+  opacity: 0.68;
+}
+
+.doubaoAudioPreviewBody {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 7px;
 }
 
-.doubaoAudioResult strong,
-.doubaoAudioResult span {
+.doubaoAudioPreviewHeading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.doubaoAudioPreviewHeading > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.doubaoAudioPreviewHeading strong,
+.doubaoAudioPreviewHeading small,
+.doubaoAudioPath {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.doubaoAudioResult strong {
-  font-size: 12px;
+.doubaoAudioPreviewHeading strong {
+  color: #33475a;
+  font-size: 13px;
 }
 
-.doubaoAudioResult > div > span {
+.doubaoAudioPreviewHeading small,
+.doubaoAudioPath {
   color: var(--dw-muted);
   font-size: 10px;
 }
 
-.doubaoAudioResult audio {
-  width: min(430px, 100%);
-  height: 30px;
-  margin-top: 4px;
+.doubaoAudioPreviewHeading output {
+  flex: 0 0 auto;
+  color: #667482;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.doubaoAudioTimeline {
+  position: relative;
+  display: block;
+  min-width: 0;
+  height: 22px;
+}
+
+.doubaoAudioTimeline::before {
+  content: "";
+  position: absolute;
+  inset: 8px 0 auto;
+  height: 6px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, rgba(79, 186, 111, 0.64) 0 var(--audio-progress), transparent var(--audio-progress)),
+    repeating-linear-gradient(90deg, rgba(115, 129, 145, 0.2) 0 2px, transparent 2px 12px),
+    rgba(211, 222, 231, 0.82);
+  box-shadow: inset 2px 2px 5px rgba(126, 145, 164, 0.14), inset -2px -2px 5px rgba(255, 255, 255, 0.5);
+}
+
+.doubaoAudioTimeline input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.doubaoAudioTimeline input:disabled {
+  cursor: default;
+}
+
+.doubaoAudioPath {
+  display: block;
+}
+
+.doubaoAudioResult > audio,
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .doubaoSpeechHistory {
@@ -904,16 +973,6 @@
 .doubaoVoiceAvatar.female {
   color: #8b5764;
   background: #f3e7eb;
-}
-
-.doubaoWorkspace[data-theme="dark"] .doubaoVoiceAvatar.male {
-  color: #acd1e1;
-  background: #2c424e;
-}
-
-.doubaoWorkspace[data-theme="dark"] .doubaoVoiceAvatar.female {
-  color: #e1b7c1;
-  background: #49343a;
 }
 
 .doubaoVoiceItem strong,
@@ -2548,6 +2607,8 @@
 @media (max-width: 980px) {
   .doubaoWorkspace {
     overflow: auto;
+    padding: 12px;
+    gap: 12px;
   }
 
   .doubaoWorkspaceHeader {
@@ -2647,6 +2708,11 @@
 }
 
 @media (max-width: 640px) {
+  .doubaoWorkspace {
+    padding: 8px;
+    gap: 8px;
+  }
+
   .doubaoWorkspaceHeader {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -2697,7 +2763,7 @@
   }
 
   .doubaoAudioResult {
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: 58px minmax(0, 1fr);
   }
 
   .doubaoAudioResult .doubaoSecondaryButton {

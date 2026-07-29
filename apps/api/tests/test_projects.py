@@ -80,6 +80,37 @@ def test_projects_api_persists_project_without_starting_tts(tmp_path: Path, monk
     assert list_response.json()[0]["id"] == project["id"]
 
 
+def test_batch_project_forwards_doubao_voice_pitch_and_format(tmp_path: Path):
+    store = BatchProjectStore(tmp_path / "projects.json")
+    project = store.create(
+        BatchProjectCreate(
+            title="豆包批量旁白",
+            model="doubao-web",
+            segments=[BatchSegmentDraft(text="第一段")],
+            voice="zh_female_wenroutaozi_uranus_bigtts",
+            speed=1.15,
+            pitch=3,
+            response_format="mp3",
+        )
+    )
+    requests = []
+
+    def synthesize(request):
+        requests.append(request)
+        return make_result(request)
+
+    runner = BatchProjectRunner(store, synthesize)
+    store.queue(project.id)
+    completed = runner.run_project(project.id)
+
+    assert completed.status == "completed"
+    assert len(requests) == 1
+    assert requests[0].voice == "zh_female_wenroutaozi_uranus_bigtts"
+    assert requests[0].speed == 1.15
+    assert requests[0].pitch == 3
+    assert requests[0].response_format == "mp3"
+
+
 def test_batch_project_stops_after_current_segment_and_resumes_from_the_boundary(tmp_path: Path):
     store = BatchProjectStore(tmp_path / "projects.json")
     project = store.create(

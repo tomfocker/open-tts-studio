@@ -13,7 +13,6 @@ import {
   Library,
   Loader2,
   LogIn,
-  Moon,
   Pause,
   Play,
   Plus,
@@ -24,14 +23,13 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  Sun,
   Trash2,
   Volume2,
   Wand2,
   Wifi,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   cancelDoubaoPrefetch,
@@ -115,10 +113,10 @@ import "./doubao-workspace.css";
 
 type DoubaoWorkspaceProps = {
   onClose: () => void;
+  initialTab?: WorkspaceTab;
 };
 
 type WorkspaceTab = "synthesis" | "accounts" | "reader" | "cache" | "maintenance";
-type WorkspaceTheme = "light" | "dark";
 type ReaderConfigTemplate = "default" | "fast" | "safe" | "custom";
 
 type CookieDraft = {
@@ -197,13 +195,6 @@ const defaultLegacySettings: DoubaoLegacySettings = {
   updatedAt: ""
 };
 
-function initialTheme(): WorkspaceTheme {
-  if (typeof window === "undefined") return "light";
-  const stored = window.localStorage.getItem("opentts-doubao-theme");
-  if (stored === "light" || stored === "dark") return stored;
-  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
 function initialReaderServer(): { ip: string; port: number } {
   if (typeof window === "undefined") return { ip: "127.0.0.1", port: 1122 };
   try {
@@ -228,6 +219,13 @@ function formatDate(value?: string | null): string {
   if (!value) return "尚无记录";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN");
+}
+
+function formatPlaybackTime(value?: number | null): string {
+  const safeValue = Number.isFinite(value) ? Math.max(0, Number(value)) : 0;
+  const minutes = Math.floor(safeValue / 60);
+  const seconds = Math.floor(safeValue % 60);
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 function formatBytes(value?: number | null): string {
@@ -301,9 +299,8 @@ function taskStatusLabel(status: string): string {
   }[status] || status;
 }
 
-export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
-  const [theme, setTheme] = useState<WorkspaceTheme>(initialTheme);
-  const [tab, setTab] = useState<WorkspaceTab>("synthesis");
+export function DoubaoWorkspace({ onClose, initialTab = "accounts" }: DoubaoWorkspaceProps) {
+  const [tab, setTab] = useState<WorkspaceTab>(initialTab);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -319,6 +316,10 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
   const [audioFormat, setAudioFormat] = useState<"mp3" | "wav">("mp3");
   const [speechResult, setSpeechResult] = useState<SpeechResult | null>(null);
   const [speechHistory, setSpeechHistory] = useState<DoubaoSpeechHistoryItem[]>(initialSpeechHistory);
+  const speechAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [speechPlaying, setSpeechPlaying] = useState(false);
+  const [speechPlaybackTime, setSpeechPlaybackTime] = useState(0);
+  const [speechPlaybackDuration, setSpeechPlaybackDuration] = useState(0);
 
   const [cookies, setCookies] = useState<DoubaoCookieRecord[]>([]);
   const [cookieStats, setCookieStats] = useState<DoubaoCookieStats | null>(null);
@@ -463,8 +464,9 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
     ]);
     if (results[0].status === "fulfilled") setStatus(results[0].value);
     if (results[1].status === "fulfilled") {
-      setVoices(results[1].value);
-      setSelectedVoiceId((current) => current || results[1].value[0]?.style_id || "");
+      const loadedVoices = results[1].value;
+      setVoices(loadedVoices);
+      setSelectedVoiceId((current) => current || loadedVoices[0]?.style_id || "");
     }
     if (results[2].status === "fulfilled") {
       setCookies(results[2].value.cookies);
@@ -518,10 +520,6 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem("opentts-doubao-theme", theme);
-  }, [theme]);
-
-  useEffect(() => {
     window.localStorage.setItem("opentts-legado-server", JSON.stringify({ ip: serverIp, port: serverPort }));
   }, [serverIp, serverPort]);
 
@@ -532,6 +530,17 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
   useEffect(() => {
     window.localStorage.setItem("opentts-doubao-speech-history", JSON.stringify(speechHistory.slice(0, 50)));
   }, [speechHistory]);
+
+  useEffect(() => {
+    const audio = speechAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    setSpeechPlaying(false);
+    setSpeechPlaybackTime(0);
+    setSpeechPlaybackDuration(speechResult?.duration_seconds ?? 0);
+  }, [speechResult?.audio_url, speechResult?.duration_seconds]);
 
   useEffect(() => {
     window.localStorage.setItem("opentts-doubao-cookie-view", cookieViewMode);
@@ -646,6 +655,30 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
       if (nextStatus) setStatus(nextStatus);
       await loadCookieState().catch(() => undefined);
     }
+  }
+
+  async function onToggleSpeechPlayback() {
+    const audio = speechAudioRef.current;
+    if (!audio || !speechResult) return;
+    try {
+      if (audio.paused) {
+        await audio.play();
+        setSpeechPlaying(true);
+      } else {
+        audio.pause();
+        setSpeechPlaying(false);
+      }
+    } catch (playbackError) {
+      setSpeechPlaying(false);
+      setError(playbackError instanceof Error ? `音频预览失败：${playbackError.message}` : "音频预览失败，请确认输出文件仍然存在");
+    }
+  }
+
+  function onSeekSpeech(value: number) {
+    const audio = speechAudioRef.current;
+    if (!audio || !speechResult) return;
+    audio.currentTime = value;
+    setSpeechPlaybackTime(value);
   }
 
   async function onDeleteSpeechHistory(item: DoubaoSpeechHistoryItem) {
@@ -987,9 +1020,12 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
 
   const online = status?.service.status === "running";
   const usableCookieCount = cookieStats?.valid ?? status?.cookies.valid ?? 0;
+  const speechAudioUrl = speechResult ? toAudioUrl(speechResult.audio_url) : "";
+  const speechDuration = speechPlaybackDuration || speechResult?.duration_seconds || 0;
+  const speechProgress = speechDuration > 0 ? Math.min((speechPlaybackTime / speechDuration) * 100, 100) : 0;
 
   return (
-    <section className="doubaoWorkspace" data-theme={theme} aria-label="豆包与阅读工作台">
+    <section className="doubaoWorkspace" aria-label="豆包与阅读工作台">
       <header className="doubaoWorkspaceHeader">
         <div className="doubaoBrand">
           <span className="doubaoBrandIcon"><Cloud size={21} strokeWidth={1.9} /></span>
@@ -1021,13 +1057,6 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
           <span className={`doubaoHealth ${online ? "online" : "offline"}`}>
             <span />{online ? `${usableCookieCount} 个账号可用` : "后端未就绪"}
           </span>
-          <button
-            className="doubaoIconButton"
-            title={theme === "light" ? "切换深色主题" : "切换浅色主题"}
-            onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}
-          >
-            {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
           <button className="doubaoIconButton" title="刷新" onClick={() => void runAction("refresh", loadOperationalState, "状态已刷新") }>
             {pendingAction === "refresh" ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
           </button>
@@ -1087,19 +1116,57 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
                   <KeyRound size={16} /><span>需要先扫码登录或添加一个有效 Cookie</span>
                 </button>
               )}
-              {speechResult && (
-                <div className="doubaoAudioResult">
-                  <span className="doubaoAudioGlyph"><Play size={19} fill="currentColor" /></span>
-                  <div>
-                    <strong>{selectedVoice?.name || "豆包音色"}</strong>
-                    <span>{audioFormat.toUpperCase()} · {speechResult.sample_rate} Hz · 已保存到输出目录</span>
-                    <audio controls src={toAudioUrl(speechResult.audio_url)} />
+              <div className={speechResult ? "doubaoAudioResult ready" : "doubaoAudioResult"}>
+                <button
+                  className="doubaoAudioPlayButton"
+                  disabled={!speechResult}
+                  aria-label={speechPlaying ? "暂停预览" : "播放预览"}
+                  title={speechResult ? (speechPlaying ? "暂停预览" : "立即试听") : "生成完成后可试听"}
+                  onClick={() => void onToggleSpeechPlayback()}
+                >
+                  {speechPlaying ? <Pause size={21} fill="currentColor" /> : <Play size={21} fill="currentColor" />}
+                </button>
+                <div className="doubaoAudioPreviewBody">
+                  <div className="doubaoAudioPreviewHeading">
+                    <span>
+                      <strong>{speechResult ? selectedVoice?.name || "豆包音色" : "音频预览"}</strong>
+                      <small>{speechResult ? `${audioFormat.toUpperCase()} · ${speechResult.sample_rate} Hz · 可直接试听` : "生成完成后无需打开文件即可播放"}</small>
+                    </span>
+                    <output>{formatPlaybackTime(speechPlaybackTime)} / {formatPlaybackTime(speechDuration)}</output>
                   </div>
-                  <button className="doubaoSecondaryButton" onClick={() => void window.desktopFiles?.openPath(speechResult.file_path)}>
-                    <HardDrive size={15} /><span>打开文件</span>
-                  </button>
+                  <label className="doubaoAudioTimeline" style={{ "--audio-progress": `${speechProgress}%` } as CSSProperties}>
+                    <span className="srOnly">播放进度</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(speechDuration, 0.01)}
+                      step={0.01}
+                      value={Math.min(speechPlaybackTime, Math.max(speechDuration, 0.01))}
+                      disabled={!speechResult || speechDuration <= 0}
+                      onChange={(event) => onSeekSpeech(Number(event.target.value))}
+                    />
+                  </label>
+                  {speechResult && <span className="doubaoAudioPath" title={speechResult.file_path}>{speechResult.file_path}</span>}
                 </div>
-              )}
+                <button
+                  className="doubaoSecondaryButton"
+                  disabled={!speechResult}
+                  onClick={() => speechResult && void window.desktopFiles?.openPath(speechResult.file_path)}
+                >
+                  <HardDrive size={15} /><span>打开文件</span>
+                </button>
+                <audio
+                  ref={speechAudioRef}
+                  preload="metadata"
+                  src={speechAudioUrl}
+                  onLoadedMetadata={(event) => setSpeechPlaybackDuration(event.currentTarget.duration || speechResult?.duration_seconds || 0)}
+                  onTimeUpdate={(event) => setSpeechPlaybackTime(event.currentTarget.currentTime)}
+                  onPlay={() => setSpeechPlaying(true)}
+                  onPause={() => setSpeechPlaying(false)}
+                  onEnded={() => setSpeechPlaying(false)}
+                  onError={() => speechResult && setError("音频预览加载失败，输出文件可能已被移动或删除")}
+                />
+              </div>
               <section className="doubaoSpeechHistory">
                 <div className="doubaoSpeechHistoryHeading">
                   <span><strong>合成历史</strong><small>保留最近 50 条</small></span>
@@ -1108,7 +1175,17 @@ export function DoubaoWorkspace({ onClose }: DoubaoWorkspaceProps) {
                 <div className="doubaoSpeechHistoryList">
                   {speechHistory.map((item) => (
                     <article key={item.id} className={speechResult?.file_path === item.result.file_path ? "active" : ""}>
-                      <button className="doubaoSpeechHistoryMain" onClick={() => { setSpeechResult(item.result); setSelectedVoiceId(item.voiceId); }}>
+                      <button
+                        className="doubaoSpeechHistoryMain"
+                        title="载入播放器试听"
+                        onClick={() => {
+                          setSpeechResult(item.result);
+                          setSelectedVoiceId(item.voiceId);
+                          setSpeechRate(item.speed);
+                          setPitch(item.pitch);
+                          setAudioFormat(item.format);
+                        }}
+                      >
                         <Play size={13} fill="currentColor" />
                         <span><strong>{item.voiceName}</strong><small>{item.text}</small></span>
                       </button>

@@ -228,6 +228,9 @@ class BatchProjectCreate(BaseModel):
     reference_audio: str | None = None
     reference_text: str | None = None
     emotion: str | None = None
+    voice: str | None = None
+    pitch: int = Field(default=0, ge=-12, le=12)
+    response_format: str = "wav"
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
     cfg: float | None = Field(default=None, ge=1.0, le=3.0)
     inference_steps: int | None = Field(default=None, ge=1, le=50)
@@ -248,6 +251,9 @@ class BatchProjectUpdate(BaseModel):
     reference_audio: str | None = None
     reference_text: str | None = None
     emotion: str | None = None
+    voice: str | None = None
+    pitch: int | None = Field(default=None, ge=-12, le=12)
+    response_format: str | None = None
     speed: float | None = Field(default=None, ge=0.25, le=4.0)
     cfg: float | None = Field(default=None, ge=1.0, le=3.0)
     inference_steps: int | None = Field(default=None, ge=1, le=50)
@@ -269,6 +275,9 @@ class BatchProject(BaseModel):
     reference_audio: str | None = None
     reference_text: str | None = None
     emotion: str | None = None
+    voice: str | None = None
+    pitch: int = 0
+    response_format: str = "wav"
     speed: float = 1.0
     cfg: float | None = None
     inference_steps: int | None = None

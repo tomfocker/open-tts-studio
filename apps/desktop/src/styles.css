@@ -501,6 +501,140 @@ button:disabled {
   align-content: start;
 }
 
+.doubaoVoiceToolbar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.doubaoVoiceToolbar label {
+  min-width: 0;
+  height: 32px;
+  border-radius: 8px;
+  padding: 0 9px;
+  color: #7a8997;
+  background: rgba(247, 250, 252, 0.66);
+  box-shadow: var(--inner);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.doubaoVoiceToolbar input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: #33475a;
+  background: transparent;
+  font-size: 12px;
+}
+
+.doubaoCloudStatus {
+  height: 30px;
+  border-radius: 8px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 760;
+  box-shadow: var(--inner);
+}
+
+.doubaoCloudStatus.ready {
+  color: #2f7a51;
+  background: rgba(230, 247, 237, 0.82);
+}
+
+.doubaoCloudStatus.warning {
+  color: #956126;
+  background: rgba(255, 246, 232, 0.86);
+}
+
+.doubaoVoiceGrid {
+  min-height: 0;
+  max-height: 228px;
+  padding: 1px 3px 6px 1px;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(116, 132, 148, 0.34) transparent;
+}
+
+.doubaoVoiceCard {
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 9px;
+  color: #6d7d8c;
+  background: rgba(247, 250, 252, 0.5);
+  box-shadow: var(--inner);
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 150ms ease, border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.doubaoVoiceCard:hover {
+  border-color: rgba(79, 136, 103, 0.2);
+  background: rgba(251, 253, 255, 0.84);
+  transform: translateY(-1px);
+}
+
+.doubaoVoiceCard.active {
+  border-color: rgba(66, 138, 94, 0.32);
+  color: #337a51;
+  background: rgba(230, 247, 237, 0.76);
+  box-shadow: 0 8px 18px rgba(71, 118, 88, 0.12), var(--inner);
+}
+
+.voiceAvatar.doubaoVoiceAvatar {
+  width: 38px;
+  height: 38px;
+  font-size: 15px;
+}
+
+.doubaoVoiceCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.doubaoVoiceCopy strong,
+.doubaoVoiceCopy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoVoiceCopy strong {
+  color: #33475a;
+  font-size: 12px;
+}
+
+.doubaoVoiceCopy small {
+  color: #7b8997;
+  font-size: 11px;
+}
+
+.compactDoubaoEmpty {
+  min-height: 118px;
+}
+
+.cloudManageButton {
+  min-width: 84px;
+}
+
 .voiceCard {
   min-width: 0;
   min-height: 102px;
@@ -930,6 +1064,86 @@ button:disabled {
   color: #687684;
   text-align: right;
   font-size: 13px;
+}
+
+.doubaoFormatRow {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 54px;
+  align-items: center;
+  gap: 13px;
+  color: #4a5d70;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.doubaoFormatToggle {
+  min-width: 0;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(222, 231, 238, 0.7);
+  box-shadow: var(--inner);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.doubaoFormatToggle button {
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  color: #758493;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.doubaoFormatToggle button.active {
+  color: #315d42;
+  background: rgba(248, 252, 249, 0.94);
+  box-shadow: 0 5px 11px rgba(70, 116, 87, 0.11), var(--inner);
+}
+
+.doubaoFormatRow small {
+  color: #7b8997;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.doubaoAccountNote {
+  min-width: 0;
+  border-radius: 8px;
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  box-shadow: var(--inner);
+  font-size: 11px;
+}
+
+.doubaoAccountNote.ready {
+  color: #2f7a51;
+  background: rgba(230, 247, 237, 0.72);
+}
+
+.doubaoAccountNote.warning {
+  color: #956126;
+  background: rgba(255, 246, 232, 0.82);
+}
+
+.doubaoAccountNote button {
+  border: 0;
+  border-radius: 7px;
+  padding: 5px 8px;
+  color: currentColor;
+  background: rgba(255, 255, 255, 0.68);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 760;
+  box-shadow: var(--inner);
 }
 
 .parameterName {
@@ -1681,6 +1895,11 @@ audio {
   background: rgba(230, 247, 237, 0.86);
 }
 
+.workerBadge.warning {
+  color: #956126;
+  background: rgba(255, 246, 232, 0.86);
+}
+
 .workerDetail,
 .monitorNote {
   color: #758493;
@@ -2046,6 +2265,23 @@ audio {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(180px, 0.6fr);
   gap: 12px;
+}
+
+.batchDoubaoConfig {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(120px, 0.6fr));
+  gap: 12px;
+}
+
+.batchProjectReference.doubaoReady {
+  color: #2f7a51;
+  background: rgba(230, 247, 237, 0.58);
+}
+
+.batchProjectReference.doubaoWarning {
+  color: #956126;
+  background: rgba(255, 246, 232, 0.72);
 }
 
 .batchProjectReference,
@@ -2712,6 +2948,11 @@ audio {
 .settingsPrewarmToggle.active {
   color: #2f6b4c;
   background: rgba(248, 252, 250, 0.94);
+}
+
+.settingsPrewarmToggle:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .restartNotice {
@@ -4041,6 +4282,10 @@ audio {
     max-height: none;
   }
 
+  .batchDoubaoConfig {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .mainStage {
     grid-template-rows: auto auto;
   }
@@ -4078,6 +4323,15 @@ audio {
   .leftActions,
   .segmented {
     grid-template-columns: 1fr;
+  }
+
+  .doubaoVoiceToolbar,
+  .batchDoubaoConfig {
+    grid-template-columns: 1fr;
+  }
+
+  .doubaoCloudStatus {
+    justify-self: start;
   }
 
   .promptPresetHeader {

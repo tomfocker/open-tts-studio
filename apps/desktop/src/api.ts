@@ -92,10 +92,13 @@ export function normalizeLegadoServiceBase(value: string): string | null {
 }
 
 export type GenerateSpeechOptions = {
+  voice?: string;
   referenceAudio?: string;
   referenceText?: string;
   emotion?: string;
   speed?: number;
+  pitch?: number;
+  responseFormat?: "wav" | "mp3";
   cfg?: number;
   inferenceSteps?: number;
   temperature?: number;
@@ -112,11 +115,13 @@ function buildSpeechPayload(model: string, input: string, options: GenerateSpeec
   return {
     model,
     input,
+    voice: options.voice,
     reference_audio: options.referenceAudio,
     reference_text: options.referenceText,
     emotion: options.emotion,
-    response_format: "wav",
+    response_format: options.responseFormat ?? "wav",
     speed: options.speed ?? 1,
+    pitch: options.pitch,
     cfg: options.cfg,
     inference_steps: options.inferenceSteps,
     temperature: options.temperature,

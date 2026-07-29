@@ -8,6 +8,7 @@ export type ModelInfo = {
   commercial_use: "allowed" | "restricted" | "unknown";
   recommended_vram_gb: number;
   features: string[];
+  request_capabilities?: string[];
   native_sample_rate: number;
   adapter: string;
 };
@@ -139,6 +140,9 @@ export type BatchProject = {
   reference_audio?: string | null;
   reference_text?: string | null;
   emotion?: string | null;
+  voice?: string | null;
+  pitch: number;
+  response_format: "wav" | "mp3" | string;
   speed: number;
   cfg?: number | null;
   inference_steps?: number | null;
@@ -164,6 +168,9 @@ export type BatchProjectCreate = {
   reference_audio?: string;
   reference_text?: string;
   emotion?: string;
+  voice?: string;
+  pitch?: number;
+  response_format?: "wav" | "mp3";
   speed?: number;
   cfg?: number;
   inference_steps?: number;
@@ -503,7 +510,7 @@ export type AppSettings = {
   gptsovits_root: string;
   gptsovits_api_host: string;
   gptsovits_api_port: number;
-  default_model_id: "indextts2" | "voxcpm2" | "gptsovits";
+  default_model_id: "indextts2" | "voxcpm2" | "gptsovits" | "doubao-web";
   prewarm_default_model_on_startup: boolean;
   settings_file: string;
   restart_required_fields: string[];

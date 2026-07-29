@@ -23,6 +23,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Server,
   Settings,
   ShieldCheck,
@@ -61,6 +62,8 @@ import {
   fetchVoiceQuality,
   fetchVoices,
   exportSettingsBackup,
+  fetchDoubaoStatus,
+  fetchDoubaoVoices,
   getApiBase,
   importSettingsBackup,
   importVoicePackage,
@@ -95,6 +98,8 @@ import type {
   BilibiliParsedLink,
   BilibiliPollLoginPayload,
   BilibiliSamplerState,
+  DoubaoStatus,
+  DoubaoVoice,
   ModelDirectory,
   ModelHealthResult,
   ModelInfo,
@@ -196,7 +201,7 @@ type SettingsDraft = {
   gptsovits_root: string;
   gptsovits_api_host: string;
   gptsovits_api_port: number;
-  default_model_id: "indextts2" | "voxcpm2" | "gptsovits";
+  default_model_id: "indextts2" | "voxcpm2" | "gptsovits" | "doubao-web";
   prewarm_default_model_on_startup: boolean;
 };
 
@@ -613,6 +618,9 @@ function getWorkerStatusForModel(systemStatus: SystemStatus | null, modelId: str
 }
 
 function workerReleaseText(worker: WorkerStatus | undefined, modelId: string) {
+  if (modelId === "doubao-web") {
+    return "无需显存";
+  }
   if (!worker) {
     return "等待状态";
   }
@@ -635,6 +643,9 @@ function workerReleaseText(worker: WorkerStatus | undefined, modelId: string) {
 }
 
 function workerBadgeText(worker: WorkerStatus | undefined, modelId: string) {
+  if (modelId === "doubao-web") {
+    return "云端服务";
+  }
   if (worker?.state === "starting") {
     return "启动中";
   }
@@ -648,6 +659,9 @@ function workerBadgeText(worker: WorkerStatus | undefined, modelId: string) {
 }
 
 function workerDetailText(worker: WorkerStatus | undefined, modelId: string) {
+  if (modelId === "doubao-web") {
+    return "豆包通过云端服务生成，切换到它不会卸载或占用本地 GPU 模型。";
+  }
   if (worker?.state === "external") {
     return "服务由外部进程启动。本软件只读取状态，不会尝试结束它。";
   }
@@ -677,7 +691,7 @@ function modelBadge(model: ModelInfo | undefined) {
     return "已接入";
   }
   if (model.id === "doubao-web") {
-    return "独立工作台";
+    return "云端";
   }
   if (model.adapter === "mock") {
     return "演示";
@@ -850,12 +864,14 @@ function isTerminalTaskStatus(status: string) {
 
 function getSpeechJobProgress(job: SpeechJob): GenerationProgress {
   const latestEvent = job.events[job.events.length - 1];
+  const isCloudJob = job.request.model === "doubao-web";
   const stageMap: Record<string, Omit<GenerationProgress, "percent" | "detail">> = {
     queued: { phaseIndex: 0, phaseTitle: "任务已进入本地队列", estimate: "等待前序任务完成" },
-    validating: { phaseIndex: 0, phaseTitle: "校验本地模型与请求", estimate: "正在读取真实后端状态" },
-    waiting_generation_slot: { phaseIndex: 0, phaseTitle: "等待串行生成槽位", estimate: "避免多个本地模型争抢显存" },
-    starting_adapter: { phaseIndex: 1, phaseTitle: "适配器已启动", estimate: "模型正在处理请求" },
-    finalizing: { phaseIndex: 3, phaseTitle: "整理音频与结果", estimate: "即将返回本地 WAV 文件" },
+    validating: { phaseIndex: 0, phaseTitle: isCloudJob ? "校验豆包账号与请求" : "校验本地模型与请求", estimate: "正在读取真实后端状态" },
+    waiting_generation_slot: { phaseIndex: 0, phaseTitle: "等待串行生成槽位", estimate: isCloudJob ? "等待前序语音任务结束" : "避免多个本地模型争抢显存" },
+    preparing_memory: { phaseIndex: 1, phaseTitle: isCloudJob ? "准备云端请求" : "整理模型显存", estimate: isCloudJob ? "本地 GPU 模型保持不变" : "避免模型之间争抢显存" },
+    starting_adapter: { phaseIndex: isCloudJob ? 2 : 1, phaseTitle: isCloudJob ? "豆包云端正在合成" : "适配器已启动", estimate: "模型正在处理请求" },
+    finalizing: { phaseIndex: 3, phaseTitle: "整理音频与结果", estimate: isCloudJob ? "即将保存云端音频" : "即将返回本地 WAV 文件" },
     completed: { phaseIndex: 3, phaseTitle: "生成完成", estimate: "音频已写入输出目录" },
     failed: { phaseIndex: 3, phaseTitle: "生成失败", estimate: "可在任务中心查看诊断日志" },
     cancelled: { phaseIndex: 0, phaseTitle: "任务已取消", estimate: "排队任务不会继续启动模型" }
@@ -988,6 +1004,9 @@ function capabilityHint(model: ModelInfo | undefined, mode: CloneMode) {
   if (model.id === "voxcpm2" && mode === "极致克隆") {
     return "极致克隆使用参考音频及其原文进行无缝续写，音色设计文字会自动关闭。可在音色库中一键识别并校对参考原文。";
   }
+  if (model.id === "doubao-web") {
+    return "从豆包预设音色中选择一个声音后，直接在主工作台生成；账号、阅读预制与缓存仍在豆包管理中心维护。";
+  }
   if (mode === "文本生成") {
     return "当前模型只使用目标文本，不需要参考音色。";
   }
@@ -1034,6 +1053,33 @@ function controlPromptGuide(model: ModelInfo | undefined, mode: CloneMode) {
 }
 
 function getGenerationProgress(modelId: string, elapsedSeconds: number): GenerationProgress {
+  if (modelId === "doubao-web") {
+    if (elapsedSeconds < 1) {
+      return {
+        percent: 16,
+        phaseIndex: 0,
+        phaseTitle: "校验豆包账号与音色",
+        detail: "正在检查 Cookie、预设音色与输出格式。",
+        estimate: "通常几秒内完成"
+      };
+    }
+    if (elapsedSeconds < 4) {
+      return {
+        percent: 34 + elapsedSeconds * 8,
+        phaseIndex: 2,
+        phaseTitle: "豆包云端正在合成",
+        detail: "请求已发送到豆包服务，本地 GPU 模型会继续保持原有状态。",
+        estimate: "网络繁忙时可能稍慢"
+      };
+    }
+    return {
+      percent: Math.min(94, 66 + elapsedSeconds * 3),
+      phaseIndex: 3,
+      phaseTitle: "转换并保存音频",
+      detail: "正在整理云端音频并写入本地输出目录。",
+      estimate: "长文本需要更多时间"
+    };
+  }
   const isIndexTts2 = modelId === "indextts2";
   const isVoxCpm2 = modelId === "voxcpm2";
   const isGptSoVits = modelId === "gptsovits";
@@ -1253,10 +1299,20 @@ export function App() {
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
   const [batchProjectOpen, setBatchProjectOpen] = useState(false);
   const [doubaoWorkspaceOpen, setDoubaoWorkspaceOpen] = useState(false);
+  const [doubaoStatus, setDoubaoStatus] = useState<DoubaoStatus | null>(null);
+  const [doubaoVoices, setDoubaoVoices] = useState<DoubaoVoice[]>([]);
+  const [doubaoStateError, setDoubaoStateError] = useState<string | null>(null);
+  const [doubaoVoiceSearch, setDoubaoVoiceSearch] = useState("");
+  const [selectedDoubaoVoiceId, setSelectedDoubaoVoiceId] = useState("");
+  const [doubaoPitch, setDoubaoPitch] = useState(0);
+  const [doubaoFormat, setDoubaoFormat] = useState<"wav" | "mp3">("mp3");
   const [batchProjects, setBatchProjects] = useState<BatchProject[]>([]);
   const [editingBatchProjectId, setEditingBatchProjectId] = useState<string | null>(null);
   const [batchProjectTitle, setBatchProjectTitle] = useState("未命名配音项目");
   const [batchProjectModel, setBatchProjectModel] = useState(selectedModel);
+  const [batchProjectDoubaoVoiceId, setBatchProjectDoubaoVoiceId] = useState("");
+  const [batchProjectDoubaoPitch, setBatchProjectDoubaoPitch] = useState(0);
+  const [batchProjectDoubaoFormat, setBatchProjectDoubaoFormat] = useState<"wav" | "mp3">("mp3");
   const [batchProjectSegments, setBatchProjectSegments] = useState<string[]>([]);
   const [batchProjectMessage, setBatchProjectMessage] = useState<string | null>(null);
   const [batchProjectError, setBatchProjectError] = useState<string | null>(null);
@@ -1282,6 +1338,26 @@ export function App() {
   const selectedModelInstance = useMemo(
     () => modelInstances.find((instance) => instance.model_id === selectedModel),
     [modelInstances, selectedModel]
+  );
+  const isDoubao = selectedModel === "doubao-web";
+  const selectedDoubaoVoice = useMemo(
+    () => doubaoVoices.find((voice) => voice.style_id === selectedDoubaoVoiceId) ?? doubaoVoices[0] ?? null,
+    [doubaoVoices, selectedDoubaoVoiceId]
+  );
+  const visibleDoubaoVoices = useMemo(() => {
+    const query = doubaoVoiceSearch.trim().toLocaleLowerCase();
+    if (!query) {
+      return doubaoVoices;
+    }
+    return doubaoVoices.filter((voice) =>
+      [voice.name, voice.gender, voice.age, voice.language, ...voice.tags]
+        .filter(Boolean)
+        .some((value) => value.toLocaleLowerCase().includes(query))
+    );
+  }, [doubaoVoiceSearch, doubaoVoices]);
+  const batchProjectDoubaoVoice = useMemo(
+    () => doubaoVoices.find((voice) => voice.style_id === batchProjectDoubaoVoiceId) ?? doubaoVoices[0] ?? null,
+    [batchProjectDoubaoVoiceId, doubaoVoices]
   );
 
   const availableVoices = useMemo(() => {
@@ -1312,7 +1388,7 @@ export function App() {
   const supportedCloneModes = useMemo(() => getSupportedCloneModes(selectedModelInfo), [selectedModelInfo]);
   const startupModelOptions = useMemo(() => {
     const enabledModelIds = new Set(modelInstances.filter((instance) => instance.enabled).map((instance) => instance.model_id));
-    const enabledModels = models.filter((model) => enabledModelIds.has(model.id));
+    const enabledModels = models.filter((model) => model.id === "doubao-web" || enabledModelIds.has(model.id));
     return enabledModels.length > 0 ? enabledModels : models;
   }, [modelInstances, models]);
   const supportedCloneModeKey = supportedCloneModes.join("|");
@@ -1326,13 +1402,13 @@ export function App() {
   const setControlPrompt = (value: string) => {
     setControlPromptDrafts((drafts) => ({ ...drafts, [controlPromptContextKey]: value }));
   };
-  const showVoiceLibrary = needsReferenceAudio;
+  const showVoiceLibrary = !isDoubao && needsReferenceAudio;
   const showCfgSteps = selectedModel === "voxcpm2";
   const showIndexSampling = selectedModel === "indextts2";
-  const showSpeedControl = hasFeature(selectedModelInfo, "duration_control");
+  const showSpeedControl = isDoubao || hasFeature(selectedModelInfo, "duration_control");
   const showNormalizeToggle = selectedModel === "voxcpm2";
   const showDenoiseToggle = selectedModel === "voxcpm2";
-  const hasParameterControls = showCfgSteps || showIndexSampling || showSpeedControl || showNormalizeToggle || showDenoiseToggle;
+  const hasParameterControls = showCfgSteps || showIndexSampling || showSpeedControl || showNormalizeToggle || showDenoiseToggle || isDoubao;
   const hasActiveBatchGeneration = batchProjects.some((project) =>
     project.status === "queued" || project.status === "running" || project.status === "cancelling"
   );
@@ -1346,11 +1422,13 @@ export function App() {
   const online = models.length > 0 && !backendError;
   const visibleError = error ?? backendError;
   const resultSavedToVoiceLibrary = Boolean(result && savedVoicePath === result.file_path);
+  const doubaoUsable = doubaoStatus?.status === "ready" && (doubaoStatus.cookies.valid ?? 0) > 0;
+  const currentVoiceName = isDoubao ? selectedDoubaoVoice?.name ?? "未选择音色" : selectedVoiceInfo.name;
   const canGenerate =
     input.trim().length > 0 &&
     !loading &&
-    !modelWarmupBusy &&
-    isModelInstanceUsable(selectedModelInstance) &&
+    (!modelWarmupBusy || isDoubao) &&
+    (isDoubao ? doubaoUsable && Boolean(selectedDoubaoVoice) : isModelInstanceUsable(selectedModelInstance)) &&
     (!needsReferenceAudio || Boolean(selectedVoiceInfo.referenceAudio)) &&
     (!needsExtremeReferenceText || effectiveReferenceText.trim().length > 0);
   const audioUrl = result ? toAudioUrl(result.audio_url) : "";
@@ -1358,9 +1436,14 @@ export function App() {
   const generationProgress = activeSpeechJob
     ? getSpeechJobProgress(activeSpeechJob)
     : getGenerationProgress(selectedModel, elapsedSeconds);
+  const activeGenerationPhases = isDoubao
+    ? ["校验账号", "等待队列", "云端合成", "保存音频"]
+    : generationPhases;
   const apiBaseLabel = getApiBase().replace(/^https?:\/\//, "");
   const workerStatus =
-    selectedModel === "voxcpm2"
+    isDoubao
+      ? undefined
+      : selectedModel === "voxcpm2"
       ? systemStatus?.workers.voxcpm2
       : selectedModel === "gptsovits"
         ? systemStatus?.workers.gptsovits
@@ -1522,6 +1605,23 @@ export function App() {
       );
     } catch {
       setCustomVoices([]);
+    }
+  }
+
+  async function loadDoubaoState() {
+    setDoubaoStateError(null);
+    try {
+      const [nextStatus, nextVoices] = await Promise.all([fetchDoubaoStatus(), fetchDoubaoVoices()]);
+      setDoubaoStatus(nextStatus);
+      setDoubaoVoices(nextVoices);
+      setSelectedDoubaoVoiceId((current) =>
+        current && nextVoices.some((voice) => voice.style_id === current) ? current : nextVoices[0]?.style_id ?? ""
+      );
+      setBatchProjectDoubaoVoiceId((current) =>
+        current && nextVoices.some((voice) => voice.style_id === current) ? current : nextVoices[0]?.style_id ?? ""
+      );
+    } catch (err) {
+      setDoubaoStateError(err instanceof Error ? err.message : "无法读取豆包服务状态");
     }
   }
 
@@ -1795,6 +1895,9 @@ export function App() {
     setEditingBatchProjectId(null);
     setBatchProjectTitle(`配音项目 ${new Date().toLocaleDateString()}`);
     setBatchProjectModel(selectedModel);
+    setBatchProjectDoubaoVoiceId(selectedDoubaoVoice?.style_id ?? "");
+    setBatchProjectDoubaoPitch(doubaoPitch);
+    setBatchProjectDoubaoFormat(doubaoFormat);
     setBatchProjectSegments(parseBatchSegments(input));
     void loadBatchProjects();
   }
@@ -1804,7 +1907,12 @@ export function App() {
     setBatchProjectTitle(project.title);
     setBatchProjectModel(project.model);
     setBatchProjectSegments(project.segments.map((segment) => segment.text));
-    if (project.model === "voxcpm2") {
+    if (project.model === "doubao-web") {
+      setBatchProjectDoubaoVoiceId(project.voice ?? doubaoVoices[0]?.style_id ?? "");
+      setBatchProjectDoubaoPitch(project.pitch ?? 0);
+      setBatchProjectDoubaoFormat(project.response_format === "wav" ? "wav" : "mp3");
+      setSpeed(project.speed ?? 1);
+    } else if (project.model === "voxcpm2") {
       setCfg(project.cfg ?? 2);
       setSteps(project.inference_steps ?? 10);
       setNormalizeText(project.normalize ?? true);
@@ -1860,6 +1968,14 @@ export function App() {
       setBatchProjectError("请至少保留一个文本片段");
       return;
     }
+    if (shouldRun && batchProjectModel === "doubao-web" && !doubaoUsable) {
+      setBatchProjectError("豆包当前没有可用账号，请先到豆包管理中心登录或添加 Cookie");
+      return;
+    }
+    if (batchProjectModel === "doubao-web" && !batchProjectDoubaoVoice) {
+      setBatchProjectError("请选择豆包预设音色");
+      return;
+    }
     setBatchProjectAction(shouldRun ? "run" : "save");
     setBatchProjectError(null);
     try {
@@ -1867,10 +1983,13 @@ export function App() {
         title: batchProjectTitle.trim(),
         model: batchProjectModel,
         segments: segments.map((text) => ({ text })),
-        reference_audio: selectedVoiceInfo.referenceAudio,
-        reference_text: effectiveReferenceText.trim() || undefined,
-        emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
-        speed: showSpeedControl ? speed : 1,
+        voice: batchProjectModel === "doubao-web" ? batchProjectDoubaoVoice?.style_id : undefined,
+        pitch: batchProjectModel === "doubao-web" ? batchProjectDoubaoPitch : undefined,
+        response_format: batchProjectModel === "doubao-web" ? batchProjectDoubaoFormat : "wav",
+        reference_audio: batchProjectModel === "doubao-web" ? undefined : selectedVoiceInfo.referenceAudio,
+        reference_text: batchProjectModel === "doubao-web" ? undefined : effectiveReferenceText.trim() || undefined,
+        emotion: batchProjectModel === "doubao-web" ? undefined : showControlPrompt ? controlPrompt.trim() || undefined : undefined,
+        speed: batchProjectModel === "doubao-web" || showSpeedControl ? speed : 1,
         cfg: batchProjectModel === "voxcpm2" ? cfg : undefined,
         inference_steps: batchProjectModel === "voxcpm2" ? steps : undefined,
         temperature: batchProjectModel === "indextts2" ? indexTemperature : undefined,
@@ -2896,6 +3015,12 @@ export function App() {
     if (modelSwitchLocked) {
       return;
     }
+    if (targetModelId === "doubao-web") {
+      selectModel(targetModelId);
+      setModelWarmupState(null);
+      void loadDoubaoState();
+      return;
+    }
     const workers = systemStatus?.workers;
     const loadedModelIds = workers
       ? (["indextts2", "voxcpm2", "gptsovits"] as const).filter(
@@ -2915,7 +3040,9 @@ export function App() {
       return;
     }
     selectModel(pendingModelSwitch.targetModelId);
-    queueModelWarmup(pendingModelSwitch.targetModelId);
+    if (pendingModelSwitch.targetModelId !== "doubao-web") {
+      queueModelWarmup(pendingModelSwitch.targetModelId);
+    }
     setPendingModelSwitch(null);
   }
 
@@ -2931,15 +3058,18 @@ export function App() {
     const startedAt = Date.now();
     const requestText = input.trim();
     const requestModelName = selectedModelInfo?.display_name ?? selectedModel;
-    const requestVoiceName = selectedVoiceInfo.name;
+    const requestVoiceName = currentVoiceName;
     setGenerationStartedAt(startedAt);
     setElapsedSeconds(0);
     try {
       const job = await createSpeechJob(selectedModel, requestText, {
+        voice: isDoubao ? selectedDoubaoVoice?.style_id : undefined,
         referenceAudio: needsReferenceAudio ? selectedVoiceInfo.referenceAudio : undefined,
         referenceText: needsExtremeReferenceText || selectedModel === "gptsovits" ? effectiveReferenceText.trim() || undefined : undefined,
         emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
         speed: showSpeedControl ? speed : 1,
+        pitch: isDoubao ? doubaoPitch : undefined,
+        responseFormat: isDoubao ? doubaoFormat : "wav",
         cfg: showCfgSteps ? cfg : undefined,
         inferenceSteps: showCfgSteps ? steps : undefined,
         temperature: showIndexSampling ? indexTemperature : undefined,
@@ -2966,14 +3096,17 @@ export function App() {
     if (!activeSpeechJob) {
       return;
     }
-    if (!window.confirm("将终止当前生成并关闭该模型进程以释放显存。未保存的本次结果会丢失，是否继续？")) {
+    const isCloudJob = activeSpeechJob.request.model === "doubao-web";
+    if (!window.confirm(isCloudJob
+      ? "将终止当前豆包生成请求，未保存的本次结果会丢失，是否继续？"
+      : "将终止当前生成并关闭该模型进程以释放显存。未保存的本次结果会丢失，是否继续？")) {
       return;
     }
     setError(null);
     try {
       const cancelled = await cancelSpeechJob(activeSpeechJob.id, true);
       setActiveSpeechJob(cancelled);
-      setTaskCenterMessage("已终止无响应的生成任务，模型显存正在释放。");
+      setTaskCenterMessage(isCloudJob ? "已终止豆包生成请求。" : "已终止无响应的生成任务，模型显存正在释放。");
       void loadTaskSummaries();
     } catch (err) {
       setError(err instanceof Error ? err.message : "终止生成失败");
@@ -3175,6 +3308,7 @@ export function App() {
   useEffect(() => {
     loadModels();
     loadVoices();
+    void loadDoubaoState();
     loadSystemStatus();
     loadAppSettings();
     loadModelInstances();
@@ -3229,9 +3363,18 @@ export function App() {
     if (
       startupPrewarmAttemptedRef.current ||
       !appSettings?.prewarm_default_model_on_startup ||
-      models.length === 0 ||
-      modelInstances.length === 0
+      models.length === 0
     ) {
+      return;
+    }
+    if (appSettings.default_model_id === "doubao-web") {
+      startupPrewarmAttemptedRef.current = true;
+      setSelectedModel("doubao-web");
+      setSettingsMessage("豆包是云端模型，无需加载权重；账号状态与预设音色已在后台检查。");
+      void loadDoubaoState();
+      return;
+    }
+    if (modelInstances.length === 0) {
       return;
     }
     startupPrewarmAttemptedRef.current = true;
@@ -3285,6 +3428,9 @@ export function App() {
           setPlaybackTime(0);
           setPlaybackDuration(job.result.duration_seconds);
           void loadModelInstances();
+          if (job.request.model === "doubao-web") {
+            void loadDoubaoState();
+          }
         } else {
           setError(job.error ?? (job.status === "cancelled" ? "生成任务已取消" : "生成失败"));
         }
@@ -3445,6 +3591,7 @@ export function App() {
             void loadModelInstances();
             void loadModelPackages();
             void loadTaskSummaries();
+            void loadDoubaoState();
           }}>
             <RefreshCw size={17} strokeWidth={1.9} />
           </button>
@@ -3460,7 +3607,7 @@ export function App() {
           <button className="toolButton" title="批量项目" onClick={openBatchProjectWorkspace}>
             <FileText size={17} strokeWidth={1.9} />
           </button>
-          <button className="toolButton" title="豆包与阅读" onClick={() => setDoubaoWorkspaceOpen(true)}>
+          <button className="toolButton" title="豆包账号、阅读与缓存管理" onClick={() => setDoubaoWorkspaceOpen(true)}>
             <Cloud size={17} strokeWidth={1.9} />
           </button>
           <button className="toolButton" title="设置" onClick={openSettings}>
@@ -3486,25 +3633,78 @@ export function App() {
           <section className="softPanel voicePanel">
             <div className="panelTitle voicePanelTitle">
               <span className="panelTitleGroup">
-                <Library size={17} strokeWidth={1.9} />
-                <span>音色库</span>
+                {isDoubao ? <Cloud size={17} strokeWidth={1.9} /> : <Library size={17} strokeWidth={1.9} />}
+                <span>{isDoubao ? "豆包预设音色" : "音色库"}</span>
               </span>
               <div className="voicePanelActions">
-                <button className="voiceImportButton" disabled={voiceImporting || modelWarmupBusy} onClick={() => void onImportVoice()} title={modelWarmupBusy ? "模型预热完成后再导入参考音频" : "导入后自动识别参考文本"}>
-                  {voiceImporting ? <Loader2 className="spin" size={14} /> : <Upload size={14} strokeWidth={1.9} />}
-                  <span>导入</span>
-                </button>
-                <button className="voiceImportButton" onClick={openSampler}>
-                  <Download size={14} strokeWidth={1.9} />
-                  <span>取样</span>
-                </button>
-                <button className="voiceImportButton" onClick={openVoiceManager}>
-                  <Settings size={14} strokeWidth={1.9} />
-                  <span>管理</span>
-                </button>
+                {isDoubao ? (
+                  <button className="voiceImportButton cloudManageButton" onClick={() => setDoubaoWorkspaceOpen(true)}>
+                    <LogIn size={14} strokeWidth={1.9} />
+                    <span>账号管理</span>
+                  </button>
+                ) : (
+                  <>
+                    <button className="voiceImportButton" disabled={voiceImporting || modelWarmupBusy} onClick={() => void onImportVoice()} title={modelWarmupBusy ? "模型预热完成后再导入参考音频" : "导入后自动识别参考文本"}>
+                      {voiceImporting ? <Loader2 className="spin" size={14} /> : <Upload size={14} strokeWidth={1.9} />}
+                      <span>导入</span>
+                    </button>
+                    <button className="voiceImportButton" onClick={openSampler}>
+                      <Download size={14} strokeWidth={1.9} />
+                      <span>取样</span>
+                    </button>
+                    <button className="voiceImportButton" onClick={openVoiceManager}>
+                      <Settings size={14} strokeWidth={1.9} />
+                      <span>管理</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-            {showVoiceLibrary ? (
+            {isDoubao ? (
+              <>
+                <div className="doubaoVoiceToolbar">
+                  <label>
+                    <Search size={14} strokeWidth={1.9} />
+                    <input
+                      value={doubaoVoiceSearch}
+                      onChange={(event) => setDoubaoVoiceSearch(event.target.value)}
+                      placeholder="搜索音色、性别或标签"
+                      aria-label="搜索豆包预设音色"
+                    />
+                  </label>
+                  <span className={doubaoUsable ? "doubaoCloudStatus ready" : "doubaoCloudStatus warning"}>
+                    {doubaoUsable ? `${doubaoStatus?.cookies.valid ?? 0} 个账号可用` : "需要登录"}
+                  </span>
+                </div>
+                {visibleDoubaoVoices.length > 0 ? (
+                  <div className="doubaoVoiceGrid" aria-label="豆包预设音色">
+                    {visibleDoubaoVoices.map((voice) => (
+                      <button
+                        key={voice.id}
+                        className={voice.style_id === selectedDoubaoVoice?.style_id ? "doubaoVoiceCard active" : "doubaoVoiceCard"}
+                        onClick={() => setSelectedDoubaoVoiceId(voice.style_id)}
+                        title={`${voice.name} · ${[voice.gender, voice.age, ...voice.tags].filter(Boolean).join(" · ")}`}
+                      >
+                        <span className="voiceAvatar doubaoVoiceAvatar" style={{ "--avatar-bg": voiceColorFromId(voice.id) } as CSSProperties} aria-hidden="true">
+                          {voice.name.slice(0, 1)}
+                        </span>
+                        <span className="doubaoVoiceCopy">
+                          <strong>{voice.name}</strong>
+                          <small>{[voice.gender, voice.age, voice.tags[0]].filter(Boolean).join(" · ") || voice.language}</small>
+                        </span>
+                        {voice.style_id === selectedDoubaoVoice?.style_id && <CheckCircle2 size={15} strokeWidth={2} />}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="voiceEmptyState compactDoubaoEmpty">
+                    {doubaoStateError ? <AlertCircle size={20} strokeWidth={1.9} /> : <Search size={20} strokeWidth={1.9} />}
+                    <strong>{doubaoStateError ? "豆包服务状态读取失败" : "没有匹配的预设音色"}</strong>
+                    <span>{doubaoStateError ?? "换一个关键词，或清空搜索条件。"}</span>
+                  </div>
+                )}
+              </>
+            ) : showVoiceLibrary ? (
               <div className="voiceGrid compactVoiceGrid">
                 {availableVoices.map((voice) => (
                   <button
@@ -3539,14 +3739,14 @@ export function App() {
                 <span>{capabilityHint(selectedModelInfo, cloneMode)}</span>
               </div>
             )}
-            {voiceMessage && <div className="voiceNotice">{voiceMessage}</div>}
-            {voiceQualityLoading && (
+            {!isDoubao && voiceMessage && <div className="voiceNotice">{voiceMessage}</div>}
+            {!isDoubao && voiceQualityLoading && (
               <div className="voiceQualityNotice loading">
                 <Loader2 className="spin" size={15} />
                 <span>正在检查参考音频</span>
               </div>
             )}
-            {voiceQuality && (
+            {!isDoubao && voiceQuality && (
               <div className={`voiceQualityNotice ${voiceQuality.status}`}>
                 <Gauge size={16} strokeWidth={1.9} />
                 <div>
@@ -3712,11 +3912,37 @@ export function App() {
               </>
             )}
             {showSpeedControl && (
-              <label className="sliderField">
-                <span>语速</span>
-                <input type="range" min="0.75" max="1.5" step="0.05" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} />
+              <label className={isDoubao ? "sliderField parameterHint" : "sliderField"} data-tooltip={isDoubao ? "豆包语速倍率，推荐 1.00；低于 1 更慢，高于 1 更快。" : undefined}>
+                <span className={isDoubao ? "parameterName" : undefined}>语速 {isDoubao && <Info size={14} strokeWidth={2} aria-hidden="true" />}</span>
+                <input type="range" min={isDoubao ? "0.5" : "0.75"} max={isDoubao ? "2" : "1.5"} step="0.05" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} />
                 <strong>{speed.toFixed(2)}</strong>
               </label>
+            )}
+
+            {isDoubao && (
+              <>
+                <label className="sliderField parameterHint" data-tooltip="调整豆包音高，范围 -12 到 12；推荐 0，数值过大可能显得不自然。">
+                  <span className="parameterName">音调 <Info size={14} strokeWidth={2} aria-hidden="true" /></span>
+                  <input type="range" min="-12" max="12" step="1" value={doubaoPitch} onChange={(event) => setDoubaoPitch(Number(event.target.value))} />
+                  <strong>{doubaoPitch > 0 ? `+${doubaoPitch}` : doubaoPitch}</strong>
+                </label>
+                <div className="doubaoFormatRow">
+                  <span>格式</span>
+                  <div className="doubaoFormatToggle" role="group" aria-label="豆包输出格式">
+                    {(["mp3", "wav"] as const).map((format) => (
+                      <button key={format} className={doubaoFormat === format ? "active" : ""} onClick={() => setDoubaoFormat(format)}>
+                        {format.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                  <small>{doubaoFormat === "mp3" ? "体积小" : "无损 PCM"}</small>
+                </div>
+                <div className={doubaoUsable ? "doubaoAccountNote ready" : "doubaoAccountNote warning"}>
+                  {doubaoUsable ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <AlertCircle size={16} strokeWidth={1.9} />}
+                  <span>{doubaoUsable ? `云端服务可用 · ${doubaoStatus?.cookies.valid ?? 0} 个有效账号` : doubaoStateError ?? "没有有效 Cookie，登录后才能生成"}</span>
+                  {!doubaoUsable && <button onClick={() => setDoubaoWorkspaceOpen(true)}>去登录</button>}
+                </div>
+              </>
             )}
 
             {(showNormalizeToggle || showDenoiseToggle) && (
@@ -3751,7 +3977,7 @@ export function App() {
               </div>
             )}
 
-            {!isModelInstanceUsable(selectedModelInstance) && (
+            {!isDoubao && !isModelInstanceUsable(selectedModelInstance) && (
               <div className="capabilityNote compactCapabilityNote">
                 <AlertCircle size={17} strokeWidth={1.9} />
                 <span>当前模型还没有可用实例，请在设置里的模型管理中心检查或修复。</span>
@@ -3797,15 +4023,15 @@ export function App() {
                   <button
                     key={model.id}
                     className={model.id === selectedModel ? "modelPill active" : "modelPill"}
-                    onClick={() => model.id === "doubao-web" ? setDoubaoWorkspaceOpen(true) : requestModelSwitch(model.id)}
+                    onClick={() => requestModelSwitch(model.id)}
                     title={
                       model.id === "doubao-web"
-                        ? "打开豆包合成、账号与阅读工作台"
+                        ? "切换到豆包云端模型；不会释放当前本地 GPU 模型"
                         : modelSwitchLocked && model.id !== selectedModel
                           ? modelSwitchLockMessage
                           : model.display_name
                     }
-                    disabled={model.id !== "doubao-web" && modelSwitchLocked && model.id !== selectedModel}
+                    disabled={modelSwitchLocked && model.id !== selectedModel}
                   >
                     <span>{model.display_name}</span>
                     <small>{modelBadge(model)}</small>
@@ -3836,7 +4062,7 @@ export function App() {
                       <span style={{ width: `${generationProgress.percent}%` }} />
                     </div>
                     <div className="phaseTimeline">
-                      {generationPhases.map((phase, index) => (
+                      {activeGenerationPhases.map((phase, index) => (
                         <span
                           key={phase}
                           className={
@@ -3855,7 +4081,7 @@ export function App() {
                   </div>
                   <button className="secondaryAction forceStopGeneration" onClick={() => void onForceStopActiveGeneration()}>
                     <X size={16} strokeWidth={2} />
-                    <span>终止生成并释放模型</span>
+                    <span>{isDoubao ? "终止云端请求" : "终止生成并释放模型"}</span>
                   </button>
                   <div className="skeletonWave">
                     {Array.from({ length: 48 }).map((_, index) => (
@@ -3869,7 +4095,7 @@ export function App() {
                     <Volume2 size={24} strokeWidth={1.8} />
                   </div>
                   <div>
-                  <h2>{resultVoiceName || selectedVoiceInfo.name}</h2>
+                  <h2>{resultVoiceName || currentVoiceName}</h2>
                   <p>{resultModelName || selectedModelInfo?.display_name || result.model}</p>
                   </div>
                   <div className="resultMeta">
@@ -3968,12 +4194,14 @@ export function App() {
             </div>
             <div className="workerSummary">
               <div className="statusBadgeRow">
-                <span className={workerStatus?.loaded ? "workerBadge loaded" : "workerBadge"}>
-                  {workerBadgeText(workerStatus, selectedModel)}
+                <span className={isDoubao ? (doubaoUsable ? "workerBadge loaded" : "workerBadge warning") : workerStatus?.loaded ? "workerBadge loaded" : "workerBadge"}>
+                  {isDoubao ? (doubaoUsable ? "云端就绪" : "需要登录") : workerBadgeText(workerStatus, selectedModel)}
                 </span>
                 <strong>{workerReleaseText(workerStatus, selectedModel)}</strong>
               </div>
-              <span className="workerDetail">{workerDetailText(workerStatus, selectedModel)}</span>
+              <span className="workerDetail">
+                {isDoubao && doubaoStateError ? doubaoStateError : workerDetailText(workerStatus, selectedModel)}
+              </span>
             </div>
             <div className="inspectorRows">
               <div>
@@ -3982,7 +4210,7 @@ export function App() {
               </div>
               <div>
                 <span>模型健康</span>
-                <strong>{modelInstanceStatusLabel(selectedModelInstance?.status)}</strong>
+                <strong>{isDoubao ? (doubaoUsable ? "账号可用" : "等待账号") : modelInstanceStatusLabel(selectedModelInstance?.status)}</strong>
               </div>
               <div>
                 <span>后端运行</span>
@@ -3990,7 +4218,7 @@ export function App() {
               </div>
               <div>
                 <span>显存建议</span>
-                <strong>{selectedModelInfo ? `${selectedModelInfo.recommended_vram_gb} GB` : "-"}</strong>
+                <strong>{isDoubao ? "不占用本地显存" : selectedModelInfo ? `${selectedModelInfo.recommended_vram_gb} GB` : "-"}</strong>
               </div>
               <div>
                 <span>采样率</span>
@@ -4188,7 +4416,10 @@ export function App() {
         </div>
       )}
 
-      {doubaoWorkspaceOpen && <DoubaoWorkspace onClose={() => setDoubaoWorkspaceOpen(false)} />}
+      {doubaoWorkspaceOpen && <DoubaoWorkspace initialTab="accounts" onClose={() => {
+        setDoubaoWorkspaceOpen(false);
+        void loadDoubaoState();
+      }} />}
 
       {audioLibraryOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音频资产库">
@@ -4539,16 +4770,55 @@ export function App() {
                   </label>
                   <label className="settingsField">
                     <span>模型</span>
-                    <select value={batchProjectModel} disabled={batchProjectLocked} onChange={(event) => setBatchProjectModel(event.target.value)}>
+                    <select value={batchProjectModel} disabled={batchProjectLocked} onChange={(event) => {
+                      const modelId = event.target.value;
+                      setBatchProjectModel(modelId);
+                      if (modelId === "doubao-web" && !batchProjectDoubaoVoiceId) {
+                        setBatchProjectDoubaoVoiceId(selectedDoubaoVoice?.style_id ?? doubaoVoices[0]?.style_id ?? "");
+                      }
+                    }}>
                       {models.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}
                     </select>
                   </label>
                 </div>
-                <div className="batchProjectReference">
-                  <span>当前音色</span>
-                  <strong>{selectedVoiceInfo.name}</strong>
-                  <em>{selectedVoiceInfo.referenceAudio ? "会随项目保存参考音频" : "未配置参考音频"}</em>
-                </div>
+                {batchProjectModel === "doubao-web" ? (
+                  <div className="batchDoubaoConfig">
+                    <label className="settingsField">
+                      <span>豆包预设音色</span>
+                      <select value={batchProjectDoubaoVoice?.style_id ?? ""} disabled={batchProjectLocked} onChange={(event) => setBatchProjectDoubaoVoiceId(event.target.value)}>
+                        {doubaoVoices.map((voice) => <option key={voice.id} value={voice.style_id}>{voice.name} · {[voice.gender, voice.age].filter(Boolean).join(" ")}</option>)}
+                      </select>
+                    </label>
+                    <label className="settingsField">
+                      <span>音调（-12 至 12）</span>
+                      <input type="number" min={-12} max={12} value={batchProjectDoubaoPitch} disabled={batchProjectLocked} onChange={(event) => setBatchProjectDoubaoPitch(Number(event.target.value))} />
+                    </label>
+                    <label className="settingsField">
+                      <span>语速倍率</span>
+                      <input type="number" min={0.5} max={2} step={0.05} value={speed} disabled={batchProjectLocked} onChange={(event) => setSpeed(Number(event.target.value))} />
+                    </label>
+                    <label className="settingsField">
+                      <span>输出格式</span>
+                      <select value={batchProjectDoubaoFormat} disabled={batchProjectLocked} onChange={(event) => setBatchProjectDoubaoFormat(event.target.value === "wav" ? "wav" : "mp3")}>
+                        <option value="mp3">MP3 · 体积小</option>
+                        <option value="wav">WAV · 无损 PCM</option>
+                      </select>
+                    </label>
+                  </div>
+                ) : (
+                  <div className="batchProjectReference">
+                    <span>当前音色</span>
+                    <strong>{selectedVoiceInfo.name}</strong>
+                    <em>{selectedVoiceInfo.referenceAudio ? "会随项目保存参考音频" : "未配置参考音频"}</em>
+                  </div>
+                )}
+                {batchProjectModel === "doubao-web" && (
+                  <div className={doubaoUsable ? "batchProjectReference doubaoReady" : "batchProjectReference doubaoWarning"}>
+                    <span>云端账号</span>
+                    <strong>{doubaoUsable ? `${doubaoStatus?.cookies.valid ?? 0} 个有效 Cookie` : "尚不可用"}</strong>
+                    <em>{doubaoUsable ? "批量片段会进入现有串行任务队列" : "草稿可保存，开始生成前需要登录"}</em>
+                  </div>
+                )}
               </div>
 
               <div className="settingsGroup modelPackageGroup">
@@ -5288,12 +5558,14 @@ export function App() {
                     <span>启动默认模型</span>
                     <select
                       value={settingsDraft.default_model_id}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const modelId = event.target.value as SettingsDraft["default_model_id"];
                         setSettingsDraft((draft) => ({
                           ...draft,
-                          default_model_id: event.target.value as SettingsDraft["default_model_id"]
-                        }))
-                      }
+                          default_model_id: modelId,
+                          prewarm_default_model_on_startup: modelId === "doubao-web" ? false : draft.prewarm_default_model_on_startup
+                        }));
+                      }}
                     >
                       {startupModelOptions.map((model) => (
                         <option key={model.id} value={model.id}>
@@ -5305,12 +5577,13 @@ export function App() {
                   <div className="startupPrewarmCard">
                     <div>
                       <strong>打开软件时预热默认模型</strong>
-                      <span>后台加载模型权重，不会自动生成语音；会占用对应显存，并先处理其他本软件托管模型。</span>
+                      <span>{settingsDraft.default_model_id === "doubao-web" ? "豆包是云端模型，不需要加载权重；启动时只会检查账号与音色状态。" : "后台加载模型权重，不会自动生成语音；会占用对应显存，并先处理其他本软件托管模型。"}</span>
                     </div>
                     <button
                       type="button"
                       className={settingsDraft.prewarm_default_model_on_startup ? "settingsPrewarmToggle active" : "settingsPrewarmToggle"}
                       aria-pressed={settingsDraft.prewarm_default_model_on_startup}
+                      disabled={settingsDraft.default_model_id === "doubao-web"}
                       onClick={() =>
                         setSettingsDraft((draft) => ({
                           ...draft,
