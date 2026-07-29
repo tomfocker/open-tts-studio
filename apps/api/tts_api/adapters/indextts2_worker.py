@@ -142,14 +142,19 @@ class IndexTts2WorkerClient:
         self.last_used_at = self.now_factory()
         self._schedule_idle_release()
 
-    def shutdown(self) -> bool:
+    def shutdown(self, force: bool = False) -> bool:
         if self._idle_timer is not None:
             self._idle_timer.cancel()
             self._idle_timer = None
         if self.process is None or self.process.poll() is not None:
             return False
-        if self._lock.locked():
+        if self._lock.locked() and not force:
             return False
+        if force:
+            self.process.terminate()
+            self.process = None
+            self.last_used_at = None
+            return True
         try:
             assert self.process.stdin is not None
             self.process.stdin.write(json.dumps({"type": "shutdown"}) + "\n")
@@ -267,7 +272,7 @@ def shutdown_indextts2_workers() -> None:
     _worker_clients.clear()
 
 
-def release_indextts2_worker(settings: Settings) -> bool:
+def release_indextts2_worker(settings: Settings, force: bool = False) -> bool:
     key = (str(settings.workspace_root), str(settings.indextts2_root))
     client = _worker_clients.get(key)
-    return client.shutdown() if client is not None else False
+    return client.shutdown(force=force) if client is not None else False

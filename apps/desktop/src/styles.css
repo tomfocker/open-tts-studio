@@ -1135,6 +1135,11 @@ input[type="range"]::-webkit-slider-thumb {
   gap: 18px;
 }
 
+.forceStopGeneration {
+  justify-self: center;
+  color: #9a4848;
+}
+
 .pulseBadge {
   justify-self: center;
   height: 42px;

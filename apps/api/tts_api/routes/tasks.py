@@ -68,7 +68,7 @@ def list_tasks() -> dict:
             error=job.error,
             log_file=job.log_file,
             retryable=job.status.value in {"failed", "cancelled"},
-            cancelable=job.status.value == "queued",
+            cancelable=job.status.value in {"queued", "running"},
             events=job.events,
         )
         for job in get_job_store().list()

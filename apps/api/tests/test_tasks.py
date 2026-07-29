@@ -4,8 +4,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from tts_api.config import get_settings
+from tts_api.jobs import JobStore
 from tts_api.main import create_app
 from tts_api.projects import get_project_store
+from tts_api.schemas import JobStatus, SpeechRequest
 
 
 def make_tasks_client(tmp_path: Path, monkeypatch) -> TestClient:
@@ -103,3 +105,16 @@ def test_task_center_reports_a_stopped_batch_project_as_resumable(tmp_path: Path
     assert task["stage"] == "cancelled"
     assert task["retryable"] is True
     assert task["cancelable"] is False
+
+
+def test_force_cancelled_running_job_stays_cancelled_when_model_process_exits(tmp_path: Path):
+    store = JobStore(tmp_path / "tasks.json", tmp_path / "task-logs")
+    job = store.create(SpeechRequest(model="mock-tts", input="终止卡住的本地任务"))
+    store.mark_running(job.id)
+
+    cancelled = store.cancel(job.id, force_running=True)
+    after_worker_error = store.mark_failed(job.id, "模型子进程已退出")
+
+    assert cancelled.status == JobStatus.cancelled
+    assert after_worker_error.status == JobStatus.cancelled
+    assert after_worker_error.error == "用户终止了无响应的本地模型任务。"

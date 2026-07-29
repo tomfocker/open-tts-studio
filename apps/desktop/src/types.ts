@@ -369,6 +369,7 @@ export type WorkerStatus = {
   managed?: boolean;
   can_stop?: boolean;
   active_requests?: number;
+  health?: "ok" | "unresponsive" | "not_checked" | string;
 };
 
 export type ModelRuntimeActionResult = {

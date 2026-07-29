@@ -53,21 +53,21 @@ def test_system_status_worker_roots_use_active_model_instance_paths(tmp_path, mo
     assert body["workers"]["gptsovits"]["api_base"] == "http://127.0.0.1:9897"
 
 
-def test_system_monitor_uses_short_optional_model_probes(monkeypatch):
-    seen_timeouts = []
+def test_system_monitor_skips_optional_model_probes(monkeypatch):
+    calls = []
     monkeypatch.setattr(runtime_memory, "get_indextts2_worker_status", lambda _settings: {"model": "indextts2"})
     monkeypatch.setattr(
         runtime_memory,
         "get_voxcpm2_status",
-        lambda _settings, probe_timeout_seconds: seen_timeouts.append(probe_timeout_seconds) or {"model": "voxcpm2"},
+        lambda _settings: calls.append("voxcpm2") or {"model": "voxcpm2"},
     )
     monkeypatch.setattr(
         runtime_memory,
         "get_gptsovits_status",
-        lambda _settings, probe_timeout_seconds: seen_timeouts.append(probe_timeout_seconds) or {"model": "gptsovits"},
+        lambda _settings: calls.append("gptsovits") or {"model": "gptsovits"},
     )
 
     workers = runtime_memory.runtime_workers(Settings())
 
     assert set(workers) == {"indextts2", "voxcpm2", "gptsovits"}
-    assert seen_timeouts == [0.1, 0.1]
+    assert calls == ["voxcpm2", "gptsovits"]

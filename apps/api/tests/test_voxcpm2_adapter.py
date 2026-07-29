@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import httpx
+
 from tts_api.adapters.voxcpm2 import VoxCpm2Adapter, VoxCpm2ServiceManager
 from tts_api.config import Settings
 from tts_api.schemas import SpeechRequest
@@ -50,6 +52,12 @@ class FakeHttpClient:
     def post(self, url: str, data: dict, files: dict | None, timeout: float):
         self.post_calls.append({"url": url, "data": data, "files": files, "timeout": timeout})
         return FakeHttpResponse()
+
+
+class TimeoutHttpClient(FakeHttpClient):
+    def post(self, url: str, data: dict, files: dict | None, timeout: float):
+        self.post_calls.append({"url": url, "data": data, "files": files, "timeout": timeout})
+        raise httpx.ReadTimeout("model did not respond")
 
 
 class FakeProcess:
@@ -150,6 +158,27 @@ def test_voxcpm2_adapter_forwards_exposed_generation_controls(tmp_path: Path):
     assert payload["denoise"] == "true"
 
 
+def test_voxcpm2_adapter_stops_a_managed_service_after_generation_timeout(tmp_path: Path):
+    settings = Settings(output_dir=tmp_path / "outputs", voxcpm2_api_port=8015)
+    manager = VoxCpm2ServiceManager(settings=settings, http_client=FakeHttpClient())
+    manager.process = FakeProcess()
+    adapter = VoxCpm2Adapter(
+        settings=settings,
+        http_client=TimeoutHttpClient(),
+        service_manager=manager,
+        request_timeout_seconds=12,
+    )
+
+    try:
+        adapter.synthesize(SpeechRequest(model="voxcpm2", input="超时保护测试。"))
+    except RuntimeError as exc:
+        assert "12 秒" in str(exc)
+    else:
+        raise AssertionError("expected a generation timeout")
+
+    assert manager.process is None
+
+
 def test_voxcpm2_managed_service_releases_after_idle_timeout(tmp_path: Path):
     current_time = [100.0]
     manager = VoxCpm2ServiceManager(
@@ -174,7 +203,7 @@ def test_voxcpm2_managed_service_releases_after_idle_timeout(tmp_path: Path):
 def test_voxcpm2_external_service_is_never_marked_stoppable(tmp_path: Path):
     manager = VoxCpm2ServiceManager(settings=Settings(voxcpm2_root=tmp_path), http_client=FakeHttpClient())
 
-    status = manager.status()
+    status = manager.status(probe_timeout_seconds=2)
 
     assert status["state"] == "external"
     assert status["managed"] is False

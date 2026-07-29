@@ -25,10 +25,10 @@ def runtime_workers(settings: Settings, detect_external: bool = False) -> dict[s
     if not detect_external:
         return {
             "indextts2": get_indextts2_worker_status(resolved),
-            # The desktop polls this endpoint every few seconds. Keep stale
-            # optional model endpoints from holding up the whole UI.
-            "voxcpm2": get_voxcpm2_status(resolved, probe_timeout_seconds=0.1),
-            "gptsovits": get_gptsovits_status(resolved, probe_timeout_seconds=0.1),
+            # Monitoring must never wait for a model HTTP endpoint. A model
+            # can be busy or stuck while the desktop still needs CPU/VRAM data.
+            "voxcpm2": get_voxcpm2_status(resolved),
+            "gptsovits": get_gptsovits_status(resolved),
         }
     return {
         "indextts2": get_indextts2_worker_client(resolved).status(),
@@ -74,3 +74,15 @@ def release_conflicting_runtimes(target_model_id: str, settings: Settings) -> li
         if did_release:
             released.append(model_id)
     return released
+
+
+def force_release_runtime(model_id: str, settings: Settings) -> bool:
+    """Terminate a managed model only when the user explicitly aborts a stuck task."""
+    resolved = resolve_runtime_settings(settings)
+    if model_id == "indextts2":
+        return release_indextts2_worker(resolved, force=True)
+    if model_id == "voxcpm2":
+        return release_voxcpm2_service(resolved, force=True)
+    if model_id == "gptsovits":
+        return release_gptsovits_service(resolved, force=True)
+    return False

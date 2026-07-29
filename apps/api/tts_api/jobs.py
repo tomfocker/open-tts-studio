@@ -67,6 +67,8 @@ class JobStore:
     def mark_succeeded(self, job_id: str, result: SpeechResult) -> JobInfo:
         with self._lock:
             job = self._require(job_id)
+            if job.status == JobStatus.cancelled:
+                return job
             return self._update(
                 job.model_copy(
                     update={
@@ -84,6 +86,8 @@ class JobStore:
     def mark_failed(self, job_id: str, error: str) -> JobInfo:
         with self._lock:
             job = self._require(job_id)
+            if job.status == JobStatus.cancelled:
+                return job
             return self._update(
                 job.model_copy(
                     update={
@@ -96,11 +100,23 @@ class JobStore:
                 TaskEvent(stage="failed", message=error, level="error"),
             )
 
-    def cancel(self, job_id: str) -> JobInfo:
+    def cancel(self, job_id: str, force_running: bool = False) -> JobInfo:
         with self._lock:
             job = self._require(job_id)
             if job.status == JobStatus.cancelled:
                 return job
+            if job.status == JobStatus.running and force_running:
+                return self._update(
+                    job.model_copy(
+                        update={
+                            "status": JobStatus.cancelled,
+                            "stage": "cancelled",
+                            "error": "用户终止了无响应的本地模型任务。",
+                            "completed_at": utc_now(),
+                        }
+                    ),
+                    TaskEvent(stage="cancelled", message="已终止当前模型任务，并请求释放显存。", level="error"),
+                )
             if job.status != JobStatus.queued:
                 raise RuntimeError("任务已经开始执行，不能安全中断当前模型推理。")
             return self._update(
@@ -234,8 +250,8 @@ class JobRunner:
             raise RuntimeError("仅失败或已取消的任务可以重试。")
         return self.enqueue(job.request, retry_of=job.id)
 
-    def cancel(self, job_id: str) -> JobInfo:
-        return self.store.cancel(job_id)
+    def cancel(self, job_id: str, force_running: bool = False) -> JobInfo:
+        return self.store.cancel(job_id, force_running=force_running)
 
     def _drain(self) -> None:
         while True:

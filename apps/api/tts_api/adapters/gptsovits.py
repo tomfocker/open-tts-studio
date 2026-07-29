@@ -142,19 +142,23 @@ class GptSoVitsServiceManager:
             self.last_used_at = self.now_factory()
             self._schedule_idle_release()
 
-    def status(self, probe_timeout_seconds: float = 2.0) -> dict:
-        healthy = self.is_healthy(timeout_seconds=probe_timeout_seconds)
+    def status(self, probe_timeout_seconds: float | None = None) -> dict:
+        """Return a local snapshot without turning the monitor into an API health probe."""
         managed = self.process is not None and self.process.poll() is None
+        healthy = self.is_healthy(timeout_seconds=probe_timeout_seconds) if probe_timeout_seconds is not None else None
         idle_timeout = self.settings.local_api_idle_timeout_seconds
         idle_seconds = int(self.now_factory() - self.last_used_at) if self.last_used_at else None
-        if healthy:
+        if healthy is True:
             state = "loaded" if managed else "external"
+        elif managed:
+            state = "unresponsive" if self.active_requests > 0 else "starting"
         else:
-            state = "starting" if managed else "released"
+            state = "released"
         return {
             "model": "gptsovits",
-            "loaded": healthy,
+            "loaded": managed if healthy is None else healthy,
             "state": state,
+            "health": "ok" if healthy is True else "unresponsive" if healthy is False else "not_checked",
             "api_base": self.api_base,
             "root": str(self.settings.gptsovits_root),
             "last_started_at": self.started_at,
@@ -176,6 +180,29 @@ class GptSoVitsServiceManager:
         self.process.terminate()
         self.process = None
         self.last_used_at = None
+        return True
+
+    def force_shutdown(self) -> bool:
+        self._cancel_idle_release()
+        process = self.process
+        if process is None or process.poll() is not None:
+            return False
+        try:
+            process.terminate()
+            wait = getattr(process, "wait", None)
+            if callable(wait):
+                wait(timeout=5)
+        except Exception:
+            kill = getattr(process, "kill", None)
+            if callable(kill):
+                try:
+                    kill()
+                except Exception:
+                    pass
+        finally:
+            self.process = None
+            self.last_used_at = None
+            self.active_requests = 0
         return True
 
     def _cancel_idle_release(self) -> None:
@@ -217,7 +244,7 @@ def get_gptsovits_service_manager(settings: Settings) -> GptSoVitsServiceManager
     return _service_managers[key]
 
 
-def get_gptsovits_status(settings: Settings, probe_timeout_seconds: float = 2.0) -> dict:
+def get_gptsovits_status(settings: Settings, probe_timeout_seconds: float | None = None) -> dict:
     key = (settings.gptsovits_api_host, settings.gptsovits_api_port, str(settings.gptsovits_root))
     manager = _service_managers.get(key)
     if manager is None:
@@ -245,10 +272,12 @@ def shutdown_gptsovits_services() -> None:
     _service_managers.clear()
 
 
-def release_gptsovits_service(settings: Settings) -> bool:
+def release_gptsovits_service(settings: Settings, force: bool = False) -> bool:
     key = (settings.gptsovits_api_host, settings.gptsovits_api_port, str(settings.gptsovits_root))
     manager = _service_managers.get(key)
-    return manager.shutdown() if manager is not None else False
+    if manager is None:
+        return False
+    return manager.force_shutdown() if force else manager.shutdown()
 
 
 class GptSoVitsAdapter(TtsAdapter):

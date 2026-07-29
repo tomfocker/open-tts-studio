@@ -131,19 +131,23 @@ class VoxCpm2ServiceManager:
             self.last_used_at = self.now_factory()
             self._schedule_idle_release()
 
-    def status(self, probe_timeout_seconds: float = 2.0) -> dict:
-        healthy = self.is_healthy(timeout_seconds=probe_timeout_seconds)
+    def status(self, probe_timeout_seconds: float | None = None) -> dict:
+        """Return a local snapshot without blocking desktop monitoring by default."""
         managed = self.process is not None and self.process.poll() is None
+        healthy = self.is_healthy(timeout_seconds=probe_timeout_seconds) if probe_timeout_seconds is not None else None
         idle_timeout = self.settings.local_api_idle_timeout_seconds
         idle_seconds = int(self.now_factory() - self.last_used_at) if self.last_used_at else None
-        if healthy:
+        if healthy is True:
             state = "loaded" if managed else "external"
+        elif managed:
+            state = "unresponsive" if self.active_requests > 0 else "starting"
         else:
-            state = "starting" if managed else "released"
+            state = "released"
         return {
             "model": "voxcpm2",
-            "loaded": healthy,
+            "loaded": managed if healthy is None else healthy,
             "state": state,
+            "health": "ok" if healthy is True else "unresponsive" if healthy is False else "not_checked",
             "api_base": self.api_base,
             "root": str(self.settings.voxcpm2_root),
             "last_started_at": self.started_at,
@@ -165,6 +169,30 @@ class VoxCpm2ServiceManager:
         self.process.terminate()
         self.process = None
         self.last_used_at = None
+        return True
+
+    def force_shutdown(self) -> bool:
+        """Stop only this managed child process, including a stuck inference request."""
+        self._cancel_idle_release()
+        process = self.process
+        if process is None or process.poll() is not None:
+            return False
+        try:
+            process.terminate()
+            wait = getattr(process, "wait", None)
+            if callable(wait):
+                wait(timeout=5)
+        except Exception:
+            kill = getattr(process, "kill", None)
+            if callable(kill):
+                try:
+                    kill()
+                except Exception:
+                    pass
+        finally:
+            self.process = None
+            self.last_used_at = None
+            self.active_requests = 0
         return True
 
     def _cancel_idle_release(self) -> None:
@@ -206,7 +234,7 @@ def get_voxcpm2_service_manager(settings: Settings) -> VoxCpm2ServiceManager:
     return _service_managers[key]
 
 
-def get_voxcpm2_status(settings: Settings, probe_timeout_seconds: float = 2.0) -> dict:
+def get_voxcpm2_status(settings: Settings, probe_timeout_seconds: float | None = None) -> dict:
     key = (settings.voxcpm2_api_host, settings.voxcpm2_api_port, str(settings.voxcpm2_root))
     manager = _service_managers.get(key)
     if manager is None:
@@ -234,10 +262,12 @@ def shutdown_voxcpm2_services() -> None:
     _service_managers.clear()
 
 
-def release_voxcpm2_service(settings: Settings) -> bool:
+def release_voxcpm2_service(settings: Settings, force: bool = False) -> bool:
     key = (settings.voxcpm2_api_host, settings.voxcpm2_api_port, str(settings.voxcpm2_root))
     manager = _service_managers.get(key)
-    return manager.shutdown() if manager is not None else False
+    if manager is None:
+        return False
+    return manager.force_shutdown() if force else manager.shutdown()
 
 
 class VoxCpm2Adapter(TtsAdapter):
@@ -247,10 +277,12 @@ class VoxCpm2Adapter(TtsAdapter):
         python_executable: str = "python",
         http_client=httpx,
         service_manager=_DEFAULT_SERVICE_MANAGER,
+        request_timeout_seconds: float = 180.0,
     ):
         self.settings = settings or get_settings()
         self.python_executable = python_executable
         self.http_client = http_client
+        self.request_timeout_seconds = request_timeout_seconds
         self.service_manager = (
             get_voxcpm2_service_manager(self.settings)
             if service_manager is _DEFAULT_SERVICE_MANAGER
@@ -301,12 +333,19 @@ class VoxCpm2Adapter(TtsAdapter):
                 reference_path = Path(request.reference_audio)
                 file_handle = reference_path.open("rb")
                 files = {"prompt_audio": (reference_path.name, file_handle, "audio/wav")}
-            response = self.http_client.post(
-                f"{self.api_base}/tts",
-                data=data,
-                files=files,
-                timeout=600.0,
-            )
+            try:
+                response = self.http_client.post(
+                    f"{self.api_base}/tts",
+                    data=data,
+                    files=files,
+                    timeout=self.request_timeout_seconds,
+                )
+            except httpx.TimeoutException as exc:
+                if self.service_manager is not None:
+                    self.service_manager.force_shutdown()
+                raise RuntimeError(
+                    f"VoxCPM2 推理超过 {int(self.request_timeout_seconds)} 秒未返回，已停止无响应的模型服务并释放显存。"
+                ) from exc
             response.raise_for_status()
         finally:
             if file_handle is not None:

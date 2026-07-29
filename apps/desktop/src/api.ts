@@ -206,8 +206,9 @@ export function fetchSpeechJob(jobId: string): Promise<SpeechJob> {
   return jobRequest<SpeechJob>(`/v1/tts/jobs/${jobId}`);
 }
 
-export function cancelSpeechJob(jobId: string): Promise<SpeechJob> {
-  return jobRequest<SpeechJob>(`/v1/tts/jobs/${jobId}/cancel`, { method: "POST" });
+export function cancelSpeechJob(jobId: string, force = false): Promise<SpeechJob> {
+  const suffix = force ? "?force=true" : "";
+  return jobRequest<SpeechJob>(`/v1/tts/jobs/${jobId}/cancel${suffix}`, { method: "POST" });
 }
 
 export function retrySpeechJob(jobId: string): Promise<SpeechJob> {
@@ -377,7 +378,7 @@ export async function stopModelRuntime(modelId: string): Promise<ModelRuntimeAct
 }
 
 export async function fetchSystemStatus(): Promise<SystemStatus> {
-  const response = await fetchWithTimeout(`${getApiBase()}/v1/system/status`, undefined, 1_500);
+  const response = await fetchWithTimeout(`${getApiBase()}/v1/system/status`, undefined, 3_000);
   if (!response.ok) {
     throw new Error(`Failed to load system status: ${response.status}`);
   }

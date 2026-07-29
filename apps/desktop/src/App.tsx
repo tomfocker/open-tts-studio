@@ -1138,6 +1138,7 @@ export function App() {
   const defaultModelAppliedRef = useRef(false);
   const startupPrewarmAttemptedRef = useRef(false);
   const startupModelHealthCheckedRef = useRef(false);
+  const systemStatusRequestRef = useRef(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [checkingModelId, setCheckingModelId] = useState<string | null>(null);
@@ -1751,11 +1752,17 @@ export function App() {
   }
 
   async function loadSystemStatus() {
+    if (systemStatusRequestRef.current) {
+      return;
+    }
+    systemStatusRequestRef.current = true;
     try {
       const status = await fetchSystemStatus();
       setSystemStatus(status);
     } catch {
-      setSystemStatus(null);
+      // Keep the last resource snapshot visible while a local model is busy.
+    } finally {
+      systemStatusRequestRef.current = false;
     }
   }
 
@@ -2666,13 +2673,32 @@ export function App() {
     }
   }
 
+  async function onForceStopActiveGeneration() {
+    if (!activeSpeechJob) {
+      return;
+    }
+    if (!window.confirm("将终止当前生成并关闭该模型进程以释放显存。未保存的本次结果会丢失，是否继续？")) {
+      return;
+    }
+    setError(null);
+    try {
+      const cancelled = await cancelSpeechJob(activeSpeechJob.id, true);
+      setActiveSpeechJob(cancelled);
+      setTaskCenterMessage("已终止无响应的生成任务，模型显存正在释放。");
+      void loadTaskSummaries();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "终止生成失败");
+    }
+  }
+
   async function onCancelTask(task: TaskSummary) {
     setTaskCenterAction(`cancel-${task.id}`);
     setTaskCenterError(null);
     try {
       if (task.source === "speech") {
-        await cancelSpeechJob(task.id);
-        setTaskCenterMessage("排队生成任务已取消。");
+        const force = task.status === "running";
+        await cancelSpeechJob(task.id, force);
+        setTaskCenterMessage(force ? "已终止当前生成，并请求释放模型显存。" : "排队生成任务已取消。");
       } else if (task.source === "batch_project") {
         const projectId = task.id.replace(/^project:/, "");
         const updated = await cancelBatchProject(projectId);
@@ -3419,6 +3445,10 @@ export function App() {
                     </div>
                     <div className="progressHint">{generationProgress.estimate}</div>
                   </div>
+                  <button className="secondaryAction forceStopGeneration" onClick={() => void onForceStopActiveGeneration()}>
+                    <X size={16} strokeWidth={2} />
+                    <span>终止生成并释放模型</span>
+                  </button>
                   <div className="skeletonWave">
                     {Array.from({ length: 48 }).map((_, index) => (
                       <span key={index} style={{ "--bar": `${18 + ((index * 13) % 54)}px` } as CSSProperties} />

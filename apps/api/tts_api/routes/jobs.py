@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
+from tts_api.config import get_settings
 from tts_api.jobs import get_job_runner, get_job_store
+from tts_api.runtime_memory import force_release_runtime
 from tts_api.schemas import JobInfo, SpeechRequest
 
 router = APIRouter()
@@ -28,9 +30,16 @@ def get_job(job_id: str) -> JobInfo:
 
 
 @router.post("/v1/tts/jobs/{job_id}/cancel", response_model=JobInfo)
-def cancel_job(job_id: str) -> JobInfo:
+def cancel_job(job_id: str, force: bool = False) -> JobInfo:
     try:
-        return get_job_runner().cancel(job_id)
+        runner = get_job_runner()
+        job = get_job_store().get(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        cancelled = runner.cancel(job_id, force_running=force)
+        if force and job.status.value == "running":
+            force_release_runtime(job.request.model, get_settings())
+        return cancelled
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Unknown job: {job_id}")
     except RuntimeError as exc:
