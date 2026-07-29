@@ -19,6 +19,9 @@ class FakeProcess:
     def terminate(self):
         self.returncode = 0
 
+    def wait(self, timeout=None):
+        return self.returncode
+
 
 def test_worker_client_builds_persistent_worker_command(tmp_path: Path):
     settings = Settings(
@@ -31,10 +34,12 @@ def test_worker_client_builds_persistent_worker_command(tmp_path: Path):
     command = client.build_command()
 
     assert command[0] == "python"
-    assert command[1].endswith("indextts2_worker.py")
+    assert command[1] == "-u"
+    assert command[2].endswith("indextts2_worker.py")
     assert "--source-dir" in command
     assert str(Path("D:/AI/IndexTTS2") / "Index-TTS") in command
     assert "--fp16" in command
+    assert client.build_environment()["PYTHONUNBUFFERED"] == "1"
 
 
 def test_worker_client_sends_json_synthesis_request(tmp_path: Path):
@@ -48,6 +53,7 @@ def test_worker_client_sends_json_synthesis_request(tmp_path: Path):
     settings = Settings(
         workspace_root=Path("D:/code/tts"),
         output_dir=tmp_path,
+        task_log_dir=tmp_path / "logs" / "tasks",
         indextts2_root=Path("D:/AI/IndexTTS2"),
     )
     client = IndexTts2WorkerClient(settings=settings, python_executable="python", popen=fake_popen)
@@ -62,6 +68,40 @@ def test_worker_client_sends_json_synthesis_request(tmp_path: Path):
     assert sent["text"] == "hello"
     assert sent["prompt_audio"] == "D:/prompt.wav"
     assert sent["emotion_text"] == "calm"
+
+
+def test_worker_client_stops_and_logs_an_unresponsive_inference(tmp_path: Path):
+    class SilentProcess(FakeProcess):
+        def __init__(self):
+            self.stdin = io.StringIO()
+            self.stdout = io.StringIO('worker booting\n{"type":"ready"}\n>> starting inference...\n')
+            self.returncode = None
+
+    process = SilentProcess()
+    settings = Settings(
+        workspace_root=Path("D:/code/tts"),
+        output_dir=tmp_path,
+        task_log_dir=tmp_path / "logs" / "tasks",
+        indextts2_root=Path("D:/AI/IndexTTS2"),
+    )
+    client = IndexTts2WorkerClient(
+        settings=settings,
+        python_executable="python",
+        popen=lambda _command, **_kwargs: process,
+        request_timeout_seconds=0.01,
+    )
+
+    try:
+        client.synthesize(SpeechRequest(model="indextts2", input="超时保护测试。"), tmp_path / "out.wav", "D:/prompt.wav")
+    except RuntimeError as exc:
+        assert "已停止无响应的模型 worker" in str(exc)
+        assert str(client.log_path) in str(exc)
+    else:
+        raise AssertionError("expected a generation timeout")
+
+    assert process.returncode == 0
+    assert client.process is None
+    assert "starting inference" in client.log_path.read_text(encoding="utf-8")
 
 
 def test_worker_client_releases_after_idle_timeout(tmp_path: Path):

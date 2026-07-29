@@ -35,6 +35,8 @@ class IndexTts2WorkerClient:
         self._reader_thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._idle_timer = None
+        self._process_log_handle: TextIO | None = None
+        self._process_log_lock = threading.Lock()
         self.last_used_at: float | None = None
         self.last_started_at: float | None = None
 
@@ -58,6 +60,10 @@ class IndexTts2WorkerClient:
     def worker_script(self) -> Path:
         return self.settings.workspace_root / "apps" / "api" / "tools" / "indextts2_worker.py"
 
+    @property
+    def log_path(self) -> Path:
+        return self.settings.task_log_dir.parent / "models" / "indextts2.log"
+
     def build_environment(self) -> dict[str, str]:
         environment = os.environ.copy()
         environment["HF_HOME"] = str(self.lazy_pack_root / "models")
@@ -66,6 +72,7 @@ class IndexTts2WorkerClient:
         environment["HF_HUB_OFFLINE"] = "1"
         environment["TRANSFORMERS_OFFLINE"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
+        environment["PYTHONUNBUFFERED"] = "1"
         prepend_paths = [
             str(self.python_dir),
             str(self.python_dir / "Scripts"),
@@ -77,6 +84,7 @@ class IndexTts2WorkerClient:
     def build_command(self) -> list[str]:
         return [
             self.python_executable,
+            "-u",
             str(self.worker_script),
             "--source-dir",
             str(self.source_dir),
@@ -94,22 +102,28 @@ class IndexTts2WorkerClient:
             return
 
         self._stdout_queue = queue.Queue()
-        self.process = self.popen(
-            self.build_command(),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=str(self.source_dir),
-            env=self.build_environment(),
-            bufsize=1,
-        )
-        self._start_reader_thread(self.process.stdout)
-        message = self._read_message(timeout_seconds=self.ready_timeout_seconds)
+        self._open_process_log()
+        try:
+            self.process = self.popen(
+                self.build_command(),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(self.source_dir),
+                env=self.build_environment(),
+                bufsize=1,
+            )
+            self._start_reader_thread(self.process.stdout)
+            message = self._read_message(timeout_seconds=self.ready_timeout_seconds)
+        except Exception:
+            self.shutdown(force=True)
+            raise
         if message.get("type") != "ready":
-            raise RuntimeError(f"IndexTTS2 worker failed to become ready: {message}")
+            self.shutdown(force=True)
+            raise RuntimeError(f"IndexTTS2 worker failed to become ready: {message}. 模型日志：{self.log_path}")
         self.last_started_at = self.now_factory()
         self.last_used_at = self.last_started_at
         self._schedule_idle_release()
@@ -130,13 +144,23 @@ class IndexTts2WorkerClient:
             self.process.stdin.write(json.dumps(message, ensure_ascii=False) + "\n")
             self.process.stdin.flush()
 
-            while True:
-                response = self._read_message(timeout_seconds=self.request_timeout_seconds)
-                if response.get("type") == "result":
-                    self.mark_used()
-                    return Path(response["output_path"])
-                if response.get("type") == "error":
-                    raise RuntimeError(response.get("message", "IndexTTS2 worker failed"))
+            try:
+                while True:
+                    response = self._read_message(timeout_seconds=self.request_timeout_seconds)
+                    if response.get("type") == "result":
+                        self.mark_used()
+                        return Path(response["output_path"])
+                    if response.get("type") == "error":
+                        raise RuntimeError(response.get("message", "IndexTTS2 worker failed"))
+            except TimeoutError as exc:
+                self.shutdown(force=True)
+                raise RuntimeError(
+                    f"IndexTTS2 推理超过 {int(self.request_timeout_seconds)} 秒未返回，"
+                    f"已停止无响应的模型 worker 并释放显存。模型日志：{self.log_path}"
+                ) from exc
+            except Exception:
+                self.shutdown(force=True)
+                raise
 
     def mark_used(self) -> None:
         self.last_used_at = self.now_factory()
@@ -146,25 +170,81 @@ class IndexTts2WorkerClient:
         if self._idle_timer is not None:
             self._idle_timer.cancel()
             self._idle_timer = None
-        if self.process is None or self.process.poll() is not None:
+        process = self.process
+        if process is None:
+            self._close_process_log()
+            return False
+        if process.poll() is not None:
+            self.process = None
+            self.last_used_at = None
+            self._close_process_log()
             return False
         if self._lock.locked() and not force:
             return False
         if force:
-            self.process.terminate()
-            self.process = None
-            self.last_used_at = None
+            self._terminate_process(process)
+            self._clear_process_state()
             return True
         try:
-            assert self.process.stdin is not None
-            self.process.stdin.write(json.dumps({"type": "shutdown"}) + "\n")
-            self.process.stdin.flush()
+            assert process.stdin is not None
+            process.stdin.write(json.dumps({"type": "shutdown"}) + "\n")
+            process.stdin.flush()
         except Exception:
-            self.process.terminate()
+            self._terminate_process(process)
         finally:
-            self.process = None
-            self.last_used_at = None
+            self._clear_process_state()
         return True
+
+    def _terminate_process(self, process) -> None:
+        try:
+            process.terminate()
+        except Exception:
+            pass
+        wait = getattr(process, "wait", None)
+        if not callable(wait):
+            return
+        try:
+            wait(timeout=5)
+            return
+        except Exception:
+            pass
+        kill = getattr(process, "kill", None)
+        if callable(kill):
+            try:
+                kill()
+            except Exception:
+                pass
+
+    def _clear_process_state(self) -> None:
+        self.process = None
+        self.last_used_at = None
+        self._close_process_log()
+
+    def _open_process_log(self) -> None:
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._close_process_log()
+        self._process_log_handle = self.log_path.open("a", encoding="utf-8")
+        self._append_process_log(f"Starting IndexTTS2 worker: {self.build_command()}")
+
+    def _close_process_log(self) -> None:
+        with self._process_log_lock:
+            if self._process_log_handle is not None:
+                self._process_log_handle.close()
+                self._process_log_handle = None
+
+    def _append_process_log(self, line: str) -> None:
+        message = line.rstrip("\r\n")
+        if not message:
+            return
+        timestamp = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        with self._process_log_lock:
+            if self._process_log_handle is None:
+                return
+            try:
+                self._process_log_handle.write(f"{timestamp} {message}\n")
+                self._process_log_handle.flush()
+            except OSError:
+                return
 
     def status(self) -> dict:
         loaded = self.process is not None and self.process.poll() is None
@@ -211,6 +291,7 @@ class IndexTts2WorkerClient:
 
         def read_stdout() -> None:
             for line in stdout:
+                self._append_process_log(line)
                 self._stdout_queue.put(line)
 
         self._reader_thread = threading.Thread(target=read_stdout, daemon=True)
@@ -219,11 +300,15 @@ class IndexTts2WorkerClient:
     def _read_message(self, timeout_seconds: float) -> dict:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
-            remaining = max(0.01, deadline - time.monotonic())
+            remaining = min(0.5, max(0.01, deadline - time.monotonic()))
             try:
                 line = self._stdout_queue.get(timeout=remaining)
             except queue.Empty:
-                break
+                if self.process is not None and self.process.poll() is not None:
+                    raise RuntimeError(
+                        f"IndexTTS2 worker exited unexpectedly (exit code {self.process.poll()}). 模型日志：{self.log_path}"
+                    )
+                continue
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:

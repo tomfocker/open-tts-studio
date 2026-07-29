@@ -25,6 +25,7 @@ class VoxCpm2ServiceManager:
         startup_timeout_seconds: float = 240.0,
         timer_factory: Callable[[float, Callable[[], None]], threading.Timer] = threading.Timer,
         now_factory: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self.settings = settings or get_settings()
         self.popen = popen
@@ -32,12 +33,14 @@ class VoxCpm2ServiceManager:
         self.startup_timeout_seconds = startup_timeout_seconds
         self.timer_factory = timer_factory
         self.now_factory = now_factory
+        self.sleep = sleep
         self.process: subprocess.Popen | None = None
         self.started_at: float | None = None
         self.last_used_at: float | None = None
         self.active_requests = 0
         self._idle_timer = None
         self._lock = threading.Lock()
+        self._process_log_handle = None
 
     @property
     def api_base(self) -> str:
@@ -50,6 +53,10 @@ class VoxCpm2ServiceManager:
     @property
     def api_script(self) -> Path:
         return self.settings.voxcpm2_root / "api.py"
+
+    @property
+    def log_path(self) -> Path:
+        return self.settings.task_log_dir.parent / "models" / "voxcpm2.log"
 
     def build_environment(self) -> dict[str, str]:
         environment = os.environ.copy()
@@ -78,17 +85,31 @@ class VoxCpm2ServiceManager:
         except Exception:
             return False
 
+    def is_ready(self, timeout_seconds: float = 2.0) -> bool:
+        """VoxCPM2 returns HTTP 200 before its background model preload finishes."""
+        try:
+            response = self.http_client.get(f"{self.api_base}/health", timeout=timeout_seconds)
+            response.raise_for_status()
+            payload = response.json()
+            models_loaded = payload.get("models_loaded") if isinstance(payload, dict) else None
+            return bool(isinstance(models_loaded, dict) and models_loaded.get("all_ready"))
+        except Exception:
+            return False
+
     def ensure_started(self) -> None:
-        if self.is_healthy():
+        if self.is_ready():
             return
-        if self.process is None or self.process.poll() is not None:
+        healthy = self.is_healthy()
+        if not healthy and (self.process is None or self.process.poll() is not None):
             self.start()
         deadline = time.monotonic() + self.startup_timeout_seconds
         while time.monotonic() < deadline:
-            if self.is_healthy():
+            if self.is_ready():
                 return
-            time.sleep(0.8)
-        raise TimeoutError("Timed out waiting for VoxCPM2 API to become ready.")
+            if self.process is not None and self.process.poll() is not None:
+                raise RuntimeError("VoxCPM2 服务在模型预热期间异常退出。")
+            self.sleep(0.8)
+        raise TimeoutError("VoxCPM2 模型预热超时：服务已启动，但 TTS/ASR 权重未完成加载。请查看模型日志。")
 
     def start(self) -> None:
         if self.process is not None and self.process.poll() is None:
@@ -98,24 +119,31 @@ class VoxCpm2ServiceManager:
         if not self.api_script.exists():
             raise FileNotFoundError(f"VoxCPM2 API script not found: {self.api_script}")
 
-        self.process = self.popen(
-            [
-                str(self.python_executable),
-                "-m",
-                "uvicorn",
-                "api:app",
-                "--host",
-                self.settings.voxcpm2_api_host,
-                "--port",
-                str(self.settings.voxcpm2_api_port),
-            ],
-            cwd=str(self.settings.voxcpm2_root),
-            env=self.build_environment(),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._close_process_log()
+        self._process_log_handle = self.log_path.open("a", encoding="utf-8")
+        try:
+            self.process = self.popen(
+                [
+                    str(self.python_executable),
+                    "-m",
+                    "uvicorn",
+                    "api:app",
+                    "--host",
+                    self.settings.voxcpm2_api_host,
+                    "--port",
+                    str(self.settings.voxcpm2_api_port),
+                ],
+                cwd=str(self.settings.voxcpm2_root),
+                env=self.build_environment(),
+                stdin=subprocess.DEVNULL,
+                stdout=self._process_log_handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except Exception:
+            self._close_process_log()
+            raise
         self.started_at = self.now_factory()
         self.last_used_at = self.started_at
         self._schedule_idle_release()
@@ -163,12 +191,14 @@ class VoxCpm2ServiceManager:
     def shutdown(self) -> bool:
         self._cancel_idle_release()
         if self.process is None or self.process.poll() is not None:
+            self._close_process_log()
             return False
         if self.active_requests > 0:
             return False
         self.process.terminate()
         self.process = None
         self.last_used_at = None
+        self._close_process_log()
         return True
 
     def force_shutdown(self) -> bool:
@@ -176,6 +206,7 @@ class VoxCpm2ServiceManager:
         self._cancel_idle_release()
         process = self.process
         if process is None or process.poll() is not None:
+            self._close_process_log()
             return False
         try:
             process.terminate()
@@ -193,7 +224,13 @@ class VoxCpm2ServiceManager:
             self.process = None
             self.last_used_at = None
             self.active_requests = 0
+            self._close_process_log()
         return True
+
+    def _close_process_log(self) -> None:
+        if self._process_log_handle is not None:
+            self._process_log_handle.close()
+            self._process_log_handle = None
 
     def _cancel_idle_release(self) -> None:
         if self._idle_timer is not None:
@@ -345,6 +382,7 @@ class VoxCpm2Adapter(TtsAdapter):
                     self.service_manager.force_shutdown()
                 raise RuntimeError(
                     f"VoxCPM2 推理超过 {int(self.request_timeout_seconds)} 秒未返回，已停止无响应的模型服务并释放显存。"
+                    f"模型日志：{self.service_manager.log_path}"
                 ) from exc
             response.raise_for_status()
         finally:

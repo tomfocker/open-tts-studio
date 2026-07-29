@@ -31,13 +31,17 @@ def test_voxcpm2_adapter_builds_expected_command(tmp_path: Path):
 
 
 class FakeHttpResponse:
-    def __init__(self, content: bytes = b"RIFFfake-wav", status_code: int = 200):
+    def __init__(self, content: bytes = b"RIFFfake-wav", status_code: int = 200, payload: dict | None = None):
         self.content = content
         self.status_code = status_code
+        self.payload = payload or {"status": "ok", "models_loaded": {"all_ready": True}}
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise RuntimeError(f"HTTP {self.status_code}")
+
+    def json(self) -> dict:
+        return self.payload
 
 
 class FakeHttpClient:
@@ -58,6 +62,17 @@ class TimeoutHttpClient(FakeHttpClient):
     def post(self, url: str, data: dict, files: dict | None, timeout: float):
         self.post_calls.append({"url": url, "data": data, "files": files, "timeout": timeout})
         raise httpx.ReadTimeout("model did not respond")
+
+
+class WarmingVoxHttpClient(FakeHttpClient):
+    def __init__(self):
+        super().__init__()
+        self.ready_states = [False, True]
+
+    def get(self, url: str, timeout: float):
+        self.get_calls.append({"url": url, "timeout": timeout})
+        ready = self.ready_states.pop(0) if self.ready_states else True
+        return FakeHttpResponse(payload={"status": "ok", "models_loaded": {"all_ready": ready}})
 
 
 class FakeProcess:
@@ -177,6 +192,21 @@ def test_voxcpm2_adapter_stops_a_managed_service_after_generation_timeout(tmp_pa
         raise AssertionError("expected a generation timeout")
 
     assert manager.process is None
+
+
+def test_voxcpm2_waits_for_background_preload_before_accepting_generation(tmp_path: Path):
+    client = WarmingVoxHttpClient()
+    manager = VoxCpm2ServiceManager(
+        settings=Settings(voxcpm2_root=tmp_path),
+        http_client=client,
+        sleep=lambda _seconds: None,
+    )
+    manager.process = FakeProcess()
+
+    manager.ensure_started()
+
+    assert len(client.get_calls) >= 2
+    assert manager.process is not None
 
 
 def test_voxcpm2_managed_service_releases_after_idle_timeout(tmp_path: Path):
