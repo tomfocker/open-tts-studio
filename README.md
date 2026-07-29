@@ -44,6 +44,36 @@ npm run package:win
 
 正式安装版会在启动后从 GitHub Releases 检查更新，也可在“设置 → 应用更新”手动检查、下载并重启安装。发布新版本时，上传 `Setup`、对应 `.blockmap` 和 `latest.yml` 到同一个 GitHub Release；便携版可作为额外下载项。
 
+### 日常本地打包
+
+本地调试或需要快速分发测试包时，继续使用：
+
+```powershell
+cd apps/desktop
+npm run package:win
+```
+
+这会在 `apps/desktop/release` 生成安装版、便携版、`latest.yml`、安装版 `.blockmap` 与 SHA-256 校验清单。本地构建不会自动创建 GitHub Release。
+
+### 正式发布
+
+正式版本由 GitHub Actions 在 Windows 环境中完成，避免依赖某一台开发电脑。发布前先将 `apps/desktop/package.json` 的 `version` 更新为目标版本并推送该提交；随后创建名称完全一致的 `v` 前缀标签：
+
+```powershell
+git tag v0.1.3
+git push origin v0.1.3
+```
+
+工作流会创建 API 虚拟环境、运行 API 与 Electron 测试、打包安装版与便携版，校验更新元数据与产物版本，并创建对应的 GitHub Release，自动上传 `Setup`、`.blockmap`、`latest.yml`、SHA-256 校验清单和便携版。同时会保留 14 天构建诊断包，便于排查发版失败。标签与 `apps/desktop/package.json` 的版本不一致时会直接失败，避免客户端读取到错误更新元数据。带连字符的标签（例如 `v0.1.3-rc.1`）会发布为预发行版。
+
+如需手动校验已下载的文件，可将其 SHA-256 与同版本 Release 中的 `OpenTTS-Studio-<版本>-checksums.txt` 对照：
+
+```powershell
+Get-FileHash .\OpenTTS-Studio-Setup-0.1.3-x64.exe -Algorithm SHA256
+```
+
+当前尚未配置 Windows 代码签名；它不影响安装或自动更新，但首次安装仍可能出现 SmartScreen 提示。
+
 ## 验证
 
 ```powershell

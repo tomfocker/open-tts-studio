@@ -20,8 +20,10 @@
     "test:electron": "node --test electron/*.test.cjs",
     "prepare:runtime": "node electron/prepare-python-runtime.cjs",
     "package:dir": "npm run prepare:runtime && npm run build && electron-builder --win dir --x64",
-    "package:portable": "npm run prepare:runtime && npm run build && electron-builder --win portable --x64",
-    "package:win": "npm run prepare:runtime && npm run build && electron-builder --win nsis portable --x64"
+    "package:portable": "npm run prepare:runtime && npm run build && electron-builder --win portable --x64 --publish never",
+    "verify:release": "node electron/release-assets.cjs",
+    "package:win": "npm run prepare:runtime && npm run build && electron-builder --win nsis portable --x64 --publish never && npm run verify:release",
+    "package:ci": "npm run package:win"
   },
   "dependencies": {
     "@types/qrcode": "^1.5.6",
@@ -63,6 +65,7 @@
           "!tools{,/**/*}",
           "!.venv{,/**/*}",
           "!.pytest_cache{,/**/*}",
+          "!*.egg-info{,/**/*}",
           "!**/__pycache__{,/**/*}"
         ]
       },
@@ -76,6 +79,7 @@
       }
     ],
     "win": {
+      "icon": "icon.svg",
       "target": [
         {
           "target": "nsis",
