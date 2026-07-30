@@ -42,6 +42,9 @@ import type {
   SpeechResult,
   SystemStatus,
   TaskSummary,
+  TranscriptionInputInfo,
+  TranscriptionJob,
+  TranscriptionJobRequest,
   UpdateVoiceRequest,
   UpdateVoiceReferenceRequest,
   VoiceAudioRepair,
@@ -350,6 +353,51 @@ export function cancelSpeechJob(jobId: string, force = false): Promise<SpeechJob
 
 export function retrySpeechJob(jobId: string): Promise<SpeechJob> {
   return jobRequest<SpeechJob>(`/v1/tts/jobs/${jobId}/retry`, { method: "POST" });
+}
+
+export async function uploadTranscriptionInput(file: File): Promise<TranscriptionInputInfo> {
+  const formData = new FormData();
+  formData.set("file", file, file.name);
+  const response = await fetchWithTimeout(`${getApiBase()}/v1/transcriptions/uploads`, { method: "POST", body: formData }, 15 * 60_000);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `媒体导入失败：${response.status}`);
+  }
+  return response.json();
+}
+
+export function createTranscriptionJob(request: TranscriptionJobRequest): Promise<TranscriptionJob> {
+  return jobRequest<TranscriptionJob>("/v1/transcriptions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
+export function fetchTranscriptionJobs(): Promise<TranscriptionJob[]> {
+  return jobRequest<TranscriptionJob[]>("/v1/transcriptions");
+}
+
+export function fetchTranscriptionJob(jobId: string): Promise<TranscriptionJob> {
+  return jobRequest<TranscriptionJob>(`/v1/transcriptions/${jobId}`);
+}
+
+export function cancelTranscriptionJob(jobId: string, force = false): Promise<TranscriptionJob> {
+  const suffix = force ? "?force=true" : "";
+  return jobRequest<TranscriptionJob>(`/v1/transcriptions/${jobId}/cancel${suffix}`, { method: "POST" });
+}
+
+export function retryTranscriptionJob(jobId: string): Promise<TranscriptionJob> {
+  return jobRequest<TranscriptionJob>(`/v1/transcriptions/${jobId}/retry`, { method: "POST" });
+}
+
+export async function fetchTranscriptionExport(jobId: string, format: "txt" | "srt"): Promise<string> {
+  const response = await fetchWithTimeout(`${getApiBase()}/v1/transcriptions/${encodeURIComponent(jobId)}/export.${format}`, undefined, 30_000);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `导出失败：${response.status}`);
+  }
+  return response.text();
 }
 
 export function clearSpeechJobHistory(): Promise<{

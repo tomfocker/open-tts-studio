@@ -1,10 +1,16 @@
 const childProcess = require("node:child_process");
+const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const DEFAULT_API_PORT = 8765;
 const DEFAULT_DEV_URL = "http://127.0.0.1:5173";
 const DEFAULT_API_HOST = "127.0.0.1";
+const MAX_TRANSCRIPTION_MEDIA_BYTES = 8 * 1024 * 1024 * 1024;
+const TRANSCRIPTION_MEDIA_EXTENSIONS = [
+  "wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm",
+  "mp4", "mkv", "mov", "avi", "m4v", "ts", "mpeg", "mpg"
+];
 
 function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
   const resolvedWorkspaceRoot = workspaceRoot || path.resolve(electronDir, "..", "..", "..");
@@ -452,6 +458,56 @@ async function selectReferenceAudio(dialogImpl) {
   return result.filePaths[0];
 }
 
+async function selectTranscriptionMedia(dialogImpl, fsPromises, inputDirectory, idFactory = randomUUID) {
+  const result = await dialogImpl.showOpenDialog({
+    title: "选择要转写的音频或视频",
+    properties: ["openFile"],
+    filters: [{ name: "Audio and video", extensions: TRANSCRIPTION_MEDIA_EXTENSIONS }]
+  });
+  if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+    return null;
+  }
+  const selectedPath = result.filePaths[0];
+  const info = await fsPromises.stat(selectedPath);
+  if (!info.isFile() || info.size <= 0 || info.size > MAX_TRANSCRIPTION_MEDIA_BYTES) {
+    throw new Error("媒体文件无效、为空或超过 8 GB");
+  }
+  const extension = path.extname(selectedPath).toLowerCase();
+  if (!extension || extension.length > 16) {
+    throw new Error("媒体文件扩展名无效");
+  }
+  const inputId = String(idFactory()).replace(/-/g, "").toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(inputId)) {
+    throw new Error("无法创建安全的媒体导入标识");
+  }
+  await fsPromises.mkdir(inputDirectory, { recursive: true });
+  const targetPath = path.join(inputDirectory, `${inputId}${extension}`);
+  await fsPromises.copyFile(selectedPath, targetPath);
+  return {
+    id: inputId,
+    fileName: path.basename(selectedPath),
+    fileSizeBytes: info.size
+  };
+}
+
+async function saveTranscriptionExport(dialogImpl, fsPromises, content, defaultName, extension) {
+  if (typeof content !== "string" || !content.trim()) {
+    throw new Error("没有可导出的转写内容");
+  }
+  const normalizedExtension = extension === "srt" ? "srt" : "txt";
+  const safeName = path.basename(String(defaultName || `transcription.${normalizedExtension}`));
+  const result = await dialogImpl.showSaveDialog({
+    title: `导出 ${normalizedExtension.toUpperCase()}`,
+    defaultPath: safeName.endsWith(`.${normalizedExtension}`) ? safeName : `${safeName}.${normalizedExtension}`,
+    filters: [{ name: normalizedExtension.toUpperCase(), extensions: [normalizedExtension] }]
+  });
+  if (result.canceled || !result.filePath) {
+    return null;
+  }
+  await fsPromises.writeFile(result.filePath, content, "utf8");
+  return result.filePath;
+}
+
 async function selectVoicePackage(dialogImpl) {
   const result = await dialogImpl.showOpenDialog({
     title: "导入音色包",
@@ -563,9 +619,11 @@ module.exports = {
   resolveDesktopSettings,
   resolveFfmpegPath,
   saveSettingsBackup,
+  saveTranscriptionExport,
   selectDirectory,
   selectModelArchive,
   selectSettingsBackup,
+  selectTranscriptionMedia,
   selectReferenceAudio,
   selectVoicePackage,
   saveVoicePackage,

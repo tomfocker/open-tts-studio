@@ -16,10 +16,12 @@ const {
   resolveDesktopSettings,
   resolveFfmpegPath,
   saveSettingsBackup,
+  saveTranscriptionExport,
   saveVoicePackage,
   selectDirectory,
   selectModelArchive,
   selectSettingsBackup,
+  selectTranscriptionMedia,
   selectReferenceAudio,
   selectVoicePackage,
   terminateProcessTree,
@@ -312,6 +314,53 @@ test("selectReferenceAudio returns null when selection is cancelled", async () =
   });
 
   assert.equal(selectedPath, null);
+});
+
+test("selectTranscriptionMedia stages a video under an opaque managed ID", async () => {
+  const calls = [];
+  const copied = [];
+  const selected = await selectTranscriptionMedia(
+    {
+      showOpenDialog: async (options) => {
+        calls.push(options);
+        return { canceled: false, filePaths: ["D:/videos/final cut.mp4"] };
+      }
+    },
+    {
+      stat: async () => ({ isFile: () => true, size: 123456 }),
+      mkdir: async () => {},
+      copyFile: async (source, destination) => copied.push({ source, destination })
+    },
+    "D:/OpenTTS/data/transcriptions/inputs",
+    () => "11111111-1111-1111-1111-111111111111"
+  );
+
+  assert.deepEqual(selected, { id: "11111111111111111111111111111111", fileName: "final cut.mp4", fileSizeBytes: 123456 });
+  assert.equal(calls[0].title, "选择要转写的音频或视频");
+  assert.ok(calls[0].filters[0].extensions.includes("mp4"));
+  assert.deepEqual(copied, [{ source: "D:/videos/final cut.mp4", destination: path.join("D:/OpenTTS/data/transcriptions/inputs", "11111111111111111111111111111111.mp4") }]);
+  assert.doesNotMatch(JSON.stringify(selected), /D:\\videos/i);
+});
+
+test("saveTranscriptionExport writes UTF-8 TXT and respects cancellation", async () => {
+  const writes = [];
+  const saved = await saveTranscriptionExport(
+    { showSaveDialog: async () => ({ canceled: false, filePath: "D:/exports/result.srt" }) },
+    { writeFile: async (...args) => writes.push(args) },
+    "第一句字幕",
+    "final.mp4.srt",
+    "srt"
+  );
+  assert.equal(saved, "D:/exports/result.srt");
+  assert.deepEqual(writes, [["D:/exports/result.srt", "第一句字幕", "utf8"]]);
+  const cancelled = await saveTranscriptionExport(
+    { showSaveDialog: async () => ({ canceled: true }) },
+    { writeFile: async () => assert.fail("must not write") },
+    "文本",
+    "result.txt",
+    "txt"
+  );
+  assert.equal(cancelled, null);
 });
 
 test("selectVoicePackage returns the ZIP selected through the native dialog", async () => {

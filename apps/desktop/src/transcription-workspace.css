@@ -1,0 +1,654 @@
+.transcriptionOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(23, 34, 44, 0.36);
+  backdrop-filter: blur(5px);
+}
+
+.transcriptionWorkspace {
+  width: min(1280px, calc(100vw - 44px));
+  max-height: min(790px, calc(100dvh - 44px));
+  min-height: 540px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line) 86%, white);
+  border-radius: 16px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 92%, white);
+  box-shadow: var(--shadow), var(--inner);
+}
+
+.transcriptionWorkspace *,
+.transcriptionWorkspace *::before,
+.transcriptionWorkspace *::after {
+  box-sizing: border-box;
+}
+
+.transcriptionWorkspace button,
+.transcriptionWorkspace select {
+  color: inherit;
+  font: inherit;
+}
+
+.transcriptionHeader,
+.transcriptionHeading,
+.transcriptionHeadingIcon,
+.transcriptionSectionHeading,
+.transcriptionSectionHeading > div,
+.transcriptionJobStatus,
+.transcriptionStatusPill,
+.transcriptionActions,
+.transcriptionFeedback,
+.transcriptionBackendField small,
+.transcriptionHistoryList button,
+.transcriptionFooter {
+  display: flex;
+  align-items: center;
+}
+
+.transcriptionHeader {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-strong) 88%, transparent);
+}
+
+.transcriptionHeading {
+  min-width: 0;
+  gap: 11px;
+}
+
+.transcriptionHeadingIcon {
+  width: 39px;
+  height: 39px;
+  flex: 0 0 39px;
+  justify-content: center;
+  border-radius: 11px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel-strong));
+  box-shadow: var(--inner);
+}
+
+.transcriptionHeading strong,
+.transcriptionHeading span,
+.transcriptionSectionHeading strong,
+.transcriptionSectionHeading small {
+  display: block;
+}
+
+.transcriptionHeading strong {
+  font-size: 17px;
+  line-height: 1.1;
+}
+
+.transcriptionHeading span,
+.transcriptionSectionHeading small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.transcriptionIconButton {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  flex: 0 0 34px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  background: var(--panel-strong);
+  cursor: pointer;
+  transition: color 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.transcriptionIconButton:hover:not(:disabled) {
+  color: var(--accent-dark);
+  border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
+  transform: translateY(-1px);
+}
+
+.transcriptionBody {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.68fr) minmax(380px, 1.32fr) minmax(205px, 0.5fr);
+  overflow: hidden;
+}
+
+.transcriptionSetup,
+.transcriptionResult,
+.transcriptionHistory {
+  min-width: 0;
+  min-height: 0;
+  padding: 18px;
+}
+
+.transcriptionSetup,
+.transcriptionHistory {
+  background: color-mix(in srgb, var(--panel) 82%, var(--app-bg));
+}
+
+.transcriptionSetup {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  border-right: 1px solid var(--line);
+}
+
+.transcriptionResult {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 13px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+}
+
+.transcriptionHistory {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  border-left: 1px solid var(--line);
+}
+
+.transcriptionSectionHeading {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.transcriptionSectionHeading > div {
+  min-width: 0;
+  gap: 8px;
+}
+
+.transcriptionSectionHeading svg {
+  flex: 0 0 auto;
+  color: var(--accent-dark);
+}
+
+.transcriptionSectionHeading strong,
+.transcriptionSectionHeading small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcriptionSectionHeading strong {
+  font-size: 13px;
+}
+
+.transcriptionPicker {
+  width: 100%;
+  min-height: 104px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 10px;
+  align-items: center;
+  padding: 14px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 38%, var(--line));
+  border-radius: 12px;
+  color: var(--text);
+  text-align: left;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-strong));
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.transcriptionPicker > svg {
+  grid-row: 1 / span 2;
+  color: var(--accent-dark);
+}
+
+.transcriptionPicker > span,
+.transcriptionPicker > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcriptionPicker > span {
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.transcriptionPicker > small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.transcriptionPicker:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong));
+  transform: translateY(-1px);
+}
+
+.transcriptionHiddenInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.transcriptionFormatPicker {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.transcriptionFormatPicker legend,
+.transcriptionBackendField > span {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.transcriptionFormatPicker label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--panel-strong);
+  cursor: pointer;
+}
+
+.transcriptionFormatPicker input {
+  position: absolute;
+  opacity: 0;
+}
+
+.transcriptionFormatPicker label.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong));
+}
+
+.transcriptionFormatPicker strong,
+.transcriptionFormatPicker small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcriptionFormatPicker strong {
+  font-size: 11px;
+}
+
+.transcriptionFormatPicker small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.transcriptionBackendField {
+  min-width: 0;
+  display: grid;
+}
+
+.transcriptionBackendField select {
+  width: 100%;
+  height: 36px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-strong);
+}
+
+.transcriptionBackendField small {
+  gap: 5px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.transcriptionBackendField small svg {
+  flex: 0 0 auto;
+  color: var(--accent-dark);
+}
+
+.transcriptionPrimaryButton,
+.transcriptionActions button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+  transition: transform 150ms ease, border-color 150ms ease, background 150ms ease;
+}
+
+.transcriptionPrimaryButton {
+  border: 0;
+  color: white;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  box-shadow: 0 9px 18px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
+.transcriptionPrimaryButton:hover:not(:disabled),
+.transcriptionActions button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.transcriptionPrimaryButton:disabled,
+.transcriptionActions button:disabled,
+.transcriptionPicker:disabled {
+  cursor: default;
+  opacity: 0.52;
+}
+
+.transcriptionJobStatus {
+  flex-wrap: wrap;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.transcriptionStatusPill {
+  gap: 4px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.transcriptionStatusPill.queued,
+.transcriptionStatusPill.running {
+  color: #496f92;
+  background: rgba(70, 118, 154, 0.13);
+}
+
+.transcriptionStatusPill.completed {
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.transcriptionStatusPill.failed,
+.transcriptionStatusPill.cancelled {
+  color: #b14f4f;
+  background: rgba(177, 79, 79, 0.12);
+}
+
+.transcriptionProgress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--line) 52%, transparent);
+}
+
+.transcriptionProgress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 220ms ease;
+}
+
+.transcriptionFeedback {
+  gap: 7px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.transcriptionFeedback.error {
+  color: #ad4949;
+  background: rgba(177, 79, 79, 0.11);
+}
+
+.transcriptionFeedback.warning {
+  color: #9c6b2b;
+  background: rgba(168, 113, 42, 0.11);
+}
+
+.transcriptionTextResult {
+  min-height: 130px;
+  margin: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--panel) 64%, var(--panel-strong));
+}
+
+.transcriptionTextResult pre {
+  margin: 0;
+  color: var(--text);
+  font: 13px/1.8 "Segoe UI", sans-serif;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.transcriptionCuePreview {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 47%, transparent);
+}
+
+.transcriptionCuePreview span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.transcriptionCuePreview code {
+  color: var(--accent-dark);
+  font: 10px/1.5 Consolas, monospace;
+}
+
+.transcriptionCuePreview small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.transcriptionEmptyState {
+  min-height: 250px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.transcriptionEmptyState svg {
+  color: var(--accent-dark);
+}
+
+.transcriptionEmptyState strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.transcriptionEmptyState span {
+  max-width: 270px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.transcriptionActions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.transcriptionActions button {
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--panel-strong);
+}
+
+.transcriptionActions button.primary {
+  border-color: transparent;
+  color: white;
+  background: var(--accent-dark);
+}
+
+.transcriptionActions.secondary {
+  margin-top: auto;
+}
+
+.transcriptionActions button.danger {
+  color: #ad4949;
+}
+
+.transcriptionHistoryList {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  overflow: auto;
+}
+
+.transcriptionHistoryList button {
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+}
+
+.transcriptionHistoryList button:hover,
+.transcriptionHistoryList button.active {
+  border-color: var(--line);
+  background: var(--panel-strong);
+}
+
+.transcriptionHistoryList button > span:last-child {
+  min-width: 0;
+}
+
+.transcriptionHistoryList strong,
+.transcriptionHistoryList small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcriptionHistoryList strong {
+  font-size: 11px;
+}
+
+.transcriptionHistoryList small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.transcriptionHistoryDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.transcriptionHistoryDot.running,
+.transcriptionHistoryDot.queued { background: #4b7598; }
+.transcriptionHistoryDot.completed { background: var(--accent); }
+.transcriptionHistoryDot.failed,
+.transcriptionHistoryDot.cancelled { background: #b14f4f; }
+
+.transcriptionHistoryEmpty {
+  padding: 12px 4px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.transcriptionFooter {
+  gap: 7px;
+  min-height: 42px;
+  padding: 10px 18px;
+  border-top: 1px solid var(--line);
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+  font-size: 11px;
+}
+
+.transcriptionFooter.error {
+  color: #ad4949;
+  background: rgba(177, 79, 79, 0.1);
+}
+
+@media (max-width: 1050px) {
+  .transcriptionWorkspace { max-height: calc(100dvh - 24px); }
+  .transcriptionOverlay { padding: 12px; }
+  .transcriptionBody {
+    grid-template-columns: minmax(250px, 0.7fr) minmax(0, 1.3fr);
+    overflow: auto;
+  }
+  .transcriptionHistory {
+    grid-column: 1 / -1;
+    grid-template-rows: auto auto;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+  .transcriptionHistoryList {
+    grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+    overflow: visible;
+  }
+}
+
+@media (max-width: 690px) {
+  body:has(.transcriptionOverlay) { overflow-x: hidden; }
+  .transcriptionOverlay { place-items: stretch; padding: 0; }
+  .transcriptionWorkspace {
+    width: 100%;
+    max-height: none;
+    min-height: 100dvh;
+    display: block;
+    overflow: auto;
+    border: 0;
+    border-radius: 0;
+  }
+  .transcriptionBody { display: block; min-height: 0; overflow: visible; }
+  .transcriptionSetup { border-right: 0; border-bottom: 1px solid var(--line); }
+  .transcriptionResult { min-height: 510px; overflow: visible; }
+  .transcriptionHistory { grid-template-rows: auto auto; border-left: 0; border-top: 1px solid var(--line); }
+  .transcriptionHistoryList { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcriptionWorkspace *,
+  .transcriptionWorkspace *::before,
+  .transcriptionWorkspace *::after { transition-duration: 1ms !important; }
+}

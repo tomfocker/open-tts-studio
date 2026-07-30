@@ -89,6 +89,23 @@ def _default_qwen_asr_work_dir() -> Path:
     return WORKSPACE_ROOT / "data" / "asr" / "qwen3-work"
 
 
+def _default_transcription_jobs_file() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_TRANSCRIPTION_JOBS_FILE")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_settings = os.environ.get("OPEN_TTS_SETTINGS_FILE")
+    if configured_settings:
+        return Path(configured_settings).parent / "transcriptions.json"
+    return WORKSPACE_ROOT / "data" / "config" / "transcriptions.json"
+
+
+def _default_transcription_input_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_TRANSCRIPTION_INPUT_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    return WORKSPACE_ROOT / "data" / "transcriptions" / "inputs"
+
+
 def _default_qwen_asr_python() -> Path:
     configured = os.environ.get("OPEN_TTS_QWEN_ASR_PYTHON")
     if configured:
@@ -291,6 +308,15 @@ class Settings(BaseModel):
     )
     qwen_asr_timeout_seconds: int = Field(
         default_factory=lambda: int(os.environ.get("OPEN_TTS_QWEN_ASR_TIMEOUT_SECONDS", "900")), ge=30, le=7200
+    )
+    # Imported audio/video stays under this controlled directory.  API task
+    # requests reference the opaque input ID only, never a caller filesystem
+    # path, so a desktop selection cannot become arbitrary path access.
+    transcription_jobs_file: Path = Field(default_factory=_default_transcription_jobs_file)
+    transcription_input_dir: Path = Field(default_factory=_default_transcription_input_dir)
+    transcription_max_input_bytes: int = Field(
+        default_factory=lambda: int(os.environ.get("OPEN_TTS_TRANSCRIPTION_MAX_INPUT_BYTES", str(8 * 1024 * 1024 * 1024))),
+        ge=1,
     )
     indextts2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_INDEXTTS2_ROOT", str(DEFAULT_INDEXTTS2_ROOT))))
     indextts2_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_INDEXTTS2_IDLE_SECONDS", "600")))

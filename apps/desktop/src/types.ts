@@ -21,6 +21,61 @@ export type SpeechResult = {
   duration_seconds: number;
 };
 
+export type TranscriptionBackend = "sensevoice" | "qwen3";
+export type TranscriptionOutputFormat = "txt" | "srt";
+export type TranscriptionJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export type TranscriptionInputInfo = {
+  id: string;
+  file_name: string;
+  file_size_bytes: number;
+};
+
+export type TranscriptionToken = {
+  text: string;
+  start_seconds: number;
+  end_seconds: number;
+};
+
+export type TranscriptionSegment = {
+  id: string;
+  text: string;
+  start_seconds: number;
+  end_seconds: number;
+};
+
+export type TranscriptionJobRequest = {
+  input_id: string;
+  source_file_name: string;
+  backend: TranscriptionBackend;
+  output_format: TranscriptionOutputFormat;
+  language: string;
+};
+
+export type TranscriptionJob = {
+  id: string;
+  status: TranscriptionJobStatus;
+  input_id: string;
+  source_file_name: string;
+  source_file_size_bytes: number;
+  backend: TranscriptionBackend;
+  output_format: TranscriptionOutputFormat;
+  language: string;
+  stage: string;
+  progress_percent: number;
+  model?: string | null;
+  duration_seconds?: number | null;
+  text?: string | null;
+  tokens: TranscriptionToken[];
+  segments: TranscriptionSegment[];
+  warnings: string[];
+  error?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  retry_of?: string | null;
+};
+
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export type AppUpdateStatus = "unavailable" | "idle" | "checking" | "available" | "up-to-date" | "downloading" | "downloaded" | "installing" | "error";

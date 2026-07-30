@@ -16,10 +16,12 @@ const {
   resolveDesktopSettings,
   resolveFfmpegPath,
   saveSettingsBackup,
+  saveTranscriptionExport,
   saveVoicePackage,
   selectDirectory,
   selectModelArchive,
   selectSettingsBackup,
+  selectTranscriptionMedia,
   selectReferenceAudio,
   selectVoicePackage,
   spawnBackendProcess,
@@ -153,6 +155,14 @@ ipcMain.handle("file:select-reference-audio", async () => {
   }
   return selectedPath;
 });
+
+ipcMain.handle("file:select-transcription-media", () => (
+  selectTranscriptionMedia(dialog, fs, path.join(paths.dataRoot, "transcriptions", "inputs"))
+));
+
+ipcMain.handle("file:save-transcription-export", (_event, content, defaultName, extension) => (
+  saveTranscriptionExport(dialog, fs, content, defaultName, extension)
+));
 
 ipcMain.handle("file:read-selected-audio", async (_event, targetPath) => {
   if (typeof targetPath !== "string" || !targetPath.trim()) {

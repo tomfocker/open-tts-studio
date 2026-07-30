@@ -172,6 +172,83 @@ class TranscriptionResult(BaseModel):
     model: str
 
 
+class TranscriptionBackend(StrEnum):
+    sensevoice = "sensevoice"
+    qwen3 = "qwen3"
+
+
+class TranscriptionOutputFormat(StrEnum):
+    txt = "txt"
+    srt = "srt"
+
+
+class TranscriptionJobStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class TranscriptionInputInfo(BaseModel):
+    """A managed local media import.  The source path is intentionally absent."""
+
+    id: str = Field(min_length=8, max_length=128)
+    file_name: str = Field(min_length=1, max_length=255)
+    file_size_bytes: int = Field(ge=0)
+
+
+class TranscriptionJobRequest(BaseModel):
+    input_id: str = Field(min_length=8, max_length=128)
+    source_file_name: str = Field(min_length=1, max_length=255)
+    backend: TranscriptionBackend = TranscriptionBackend.sensevoice
+    output_format: TranscriptionOutputFormat = TranscriptionOutputFormat.txt
+    language: str = Field(default="zh", min_length=2, max_length=16)
+
+
+class TranscriptionToken(BaseModel):
+    text: str = Field(min_length=1)
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(ge=0)
+
+
+class TranscriptionSegment(BaseModel):
+    id: str
+    text: str = Field(min_length=1)
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(ge=0)
+
+
+class TranscriptionJobInfo(BaseModel):
+    """Safe persisted state for an imported audio/video transcription task.
+
+    Source paths, temporary worker paths and any voice-reference data are
+    deliberately excluded.  `input_id` is only an opaque managed-file key.
+    """
+
+    id: str
+    status: TranscriptionJobStatus
+    input_id: str
+    source_file_name: str
+    source_file_size_bytes: int = Field(ge=0)
+    backend: TranscriptionBackend
+    output_format: TranscriptionOutputFormat
+    language: str
+    stage: str = "queued"
+    progress_percent: int = Field(default=0, ge=0, le=100)
+    model: str | None = None
+    duration_seconds: float | None = Field(default=None, ge=0)
+    text: str | None = None
+    tokens: list[TranscriptionToken] = Field(default_factory=list)
+    segments: list[TranscriptionSegment] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    retry_of: str | None = None
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 

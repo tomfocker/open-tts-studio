@@ -24,10 +24,16 @@ data/config/voices.json
 data/config/projects.json
 data/config/model-packages.json
 data/config/tasks.json
+data/config/alignments.json
 data/config/task-logs/
+data/config/transcriptions.json
 data/config/doubao-cookies.json
 data/config/doubao-data/
 data/doubao/
+data/alignments/
+data/asr/
+data/transcriptions/
+data/test-temp/
 *.wav
 *.mp3
 *.m4a
@@ -38,3 +44,6 @@ data/doubao/
 .env.*
 *.log
 *.pid
+
+# Local research checkouts
+.research/

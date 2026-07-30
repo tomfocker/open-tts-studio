@@ -58,6 +58,16 @@ Qwen DML 路径中，ONNX encoder 使用 DirectML，GGUF LLM 由本地 CapsWrite
 
 对齐请求例子、状态查询、取消与重试见仓库 [`../../docs/api-examples.md`](../../docs/api-examples.md)。持久化对齐任务仅保存哈希、音频输出 URL 和状态；不会保存角色参考音频路径、参考文本、密钥或临时请求文件。
 
+## 本地音视频转写（TXT / SRT）
+
+桌面端“音视频转写”会在 Electron 主进程将用户选择的音频或视频复制到 OpenTTS 自己的受控输入目录；渲染层和 API 仅使用不含路径的 `input_id`。API 调用方可使用上传端点取得同样的输入 ID，不能提交任意本地路径。
+
+- `TXT`：可选 `SenseVoiceSmall`（快速）或 `Qwen3-ASR`（本地高精度）。不启动强制对齐。
+- `SRT`：固定使用 `Qwen3-ASR-1.7B + Qwen3-ForcedAligner-0.6B`，按真实媒体波形生成 token 起点和字幕段落；模型或时间戳异常时任务会失败，绝不由文本长度估算时间。
+- 上传音频或视频就是最终成片时，SRT 是该文件的真实时间轴；如果之后在剪辑软件中移动、裁切或变速片段，应由剪辑时间线映射字幕偏移。
+
+任务状态、失败原因、取消、强制取消和重试位于 `/v1/transcriptions`。任务记录只保存导入文件名、大小、模型、输出文本和时间轴；不保存原始文件路径、角色参考音频、参考文本、密钥或临时模型请求。
+
 Doubao status and voice catalog:
 
 ```powershell

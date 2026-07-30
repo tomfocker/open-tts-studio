@@ -13,6 +13,7 @@ from tts_api.config import get_app_version, get_settings
 from tts_api.alignment import get_alignment_runner
 from tts_api.jobs import get_job_runner
 from tts_api.projects import get_project_runner
+from tts_api.transcription import get_transcription_runner
 from tts_api.routes import alignments, audio_assets, doubao, doubao_legacy, health, jobs, legado, model_directories, model_instances, model_packages, models, outputs, projects, realtime, runtime, settings as settings_routes, speech, system, tasks, transcriptions, voices
 
 
@@ -24,6 +25,7 @@ def create_app() -> FastAPI:
         get_job_runner()
         get_alignment_runner()
         get_project_runner()
+        get_transcription_runner()
         yield
         shutdown_indextts2_workers()
         shutdown_sensevoice_services()

@@ -18,7 +18,10 @@ class LocalTranscriber(Protocol):
     def transcribe_upload(self, stream, filename: str, language: str = "zh") -> str: ...
 
 
-def get_local_transcriber(settings: Settings) -> LocalTranscriber:
-    if settings.asr_backend == "qwen3":
+def get_local_transcriber(settings: Settings, backend: str | None = None) -> LocalTranscriber:
+    """Resolve an ASR engine without mutating the user's global ASR setting."""
+
+    active_backend = backend or settings.asr_backend
+    if active_backend == "qwen3":
         return QwenASRTranscriber(settings)
     return SenseVoiceTranscriber(settings)

@@ -96,6 +96,7 @@ import {
 } from "./api";
 import { DoubaoWorkspace } from "./DoubaoWorkspace";
 import { RealtimeWorkspace } from "./RealtimeWorkspace";
+import { TranscriptionWorkspace } from "./TranscriptionWorkspace";
 import type {
   AudioAsset,
   AppUpdateState,
@@ -144,6 +145,8 @@ declare global {
       selectDirectory: () => Promise<string | null>;
       selectModelArchive: () => Promise<string | null>;
       selectReferenceAudio: () => Promise<string | null>;
+      selectTranscriptionMedia: () => Promise<{ id: string; fileName: string; fileSizeBytes: number } | null>;
+      saveTranscriptionExport: (content: string, defaultName: string, extension: "txt" | "srt") => Promise<string | null>;
       readSelectedAudio: (targetPath: string) => Promise<Uint8Array>;
       readManagedReferenceAudio: (targetPath: string) => Promise<Uint8Array>;
       selectVoicePackage: () => Promise<string | null>;
@@ -1761,6 +1764,7 @@ export function App() {
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
   const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch" | "realtime">("single");
   const [doubaoWorkspaceOpen, setDoubaoWorkspaceOpen] = useState(false);
+  const [transcriptionWorkspaceOpen, setTranscriptionWorkspaceOpen] = useState(false);
   const [doubaoStatus, setDoubaoStatus] = useState<DoubaoStatus | null>(null);
   const [doubaoVoices, setDoubaoVoices] = useState<DoubaoVoice[]>([]);
   const [doubaoStateError, setDoubaoStateError] = useState<string | null>(null);
@@ -5432,6 +5436,9 @@ export function App() {
             <button className="toolButton" title="音频资产库" onClick={openAudioLibrary}>
               <Library size={17} strokeWidth={1.9} />
             </button>
+            <button className="toolButton" title="音视频转写" onClick={() => setTranscriptionWorkspaceOpen(true)}>
+              <FileText size={17} strokeWidth={1.9} />
+            </button>
             <button
               className={`toolButton themeToggleButton ${theme === "dark" ? "isDark" : "isLight"}${themeTransitioning ? " isTransitioning" : ""}`}
               title={theme === "dark" ? "切换为日间模式" : "切换为夜晚模式"}
@@ -6787,6 +6794,8 @@ export function App() {
         setDoubaoWorkspaceOpen(false);
         void loadDoubaoState();
       }} />}
+
+      {transcriptionWorkspaceOpen && <TranscriptionWorkspace onClose={() => setTranscriptionWorkspaceOpen(false)} />}
 
       {audioLibraryOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音频资产库">

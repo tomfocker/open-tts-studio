@@ -209,7 +209,48 @@ Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/audio/transcriptions" `
   -Form @{ file = Get-Item "D:\video\narration.wav"; language = "zh" }
 ```
 
-该接口返回 `{ "text", "language", "model" }`，用于拿到上传音频的纯文本；当前不会自动切句、生成 SRT 或持久化上传文件。后续独立的“音视频识别 / TXT / SRT”页面会在这个 ASR 基础上实现，不改变此 API 的语义。
+该接口返回 `{ "text", "language", "model" }`，用于拿到上传音频的纯文本；它不会持久化上传文件、自动切句或生成 SRT，因此可继续作为轻量、OpenAI 风格的兼容接口使用。
+
+## 本地音视频转写与真实 SRT
+
+桌面端的“音视频转写”是独立的任务 API，适合较大的真实音频/视频文件。它不接收调用方文件路径：先上传到当前 OpenTTS 本地服务取得受控 `input_id`，再创建任务。所有文件、转写和模型推理均留在本机。
+
+```powershell
+$media = Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/transcriptions/uploads" `
+  -Form @{ file = Get-Item "D:\media\final-video.mp4" }
+
+$job = Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/transcriptions" `
+  -ContentType "application/json" `
+  -Body (@{
+    input_id = $media.id
+    source_file_name = $media.file_name
+    backend = "qwen3"
+    output_format = "srt"
+    language = "zh"
+  } | ConvertTo-Json)
+
+$job.id
+# GET /v1/transcriptions/{id} until status is completed, failed or cancelled
+Invoke-RestMethod "http://127.0.0.1:8765/v1/transcriptions/$($job.id)"
+```
+
+`output_format: "txt"` supports `backend: "sensevoice"` or `"qwen3"` and never starts the forced aligner. `output_format: "srt"` requires `backend: "qwen3"`; it runs local Qwen3-ASR plus Qwen3-ForcedAligner and returns real `tokens` and short Chinese `segments`. A missing model, failed forced alignment, non-monotonic timestamp or out-of-range timestamp produces `failed` or a request error—never an estimated SRT.
+
+```powershell
+# UTF-8 content; save it wherever the calling application needs it
+Invoke-WebRequest "http://127.0.0.1:8765/v1/transcriptions/$($job.id)/export.srt" `
+  -OutFile "D:\exports\final-video.srt"
+
+# TXT is available for every completed task.
+Invoke-WebRequest "http://127.0.0.1:8765/v1/transcriptions/$($job.id)/export.txt" `
+  -OutFile "D:\exports\final-video.txt"
+
+# Active jobs may be force-cancelled; failed/cancelled jobs reuse the managed input on retry.
+Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/transcriptions/$($job.id)/cancel?force=true"
+Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/transcriptions/$($job.id)/retry"
+```
+
+SRT represents the uploaded file's own timeline. For a separate narration track or a video that will later be edited, the video editor must apply clip offsets, cuts and speed changes; ASR cannot infer a future edit timeline.
 
 ```powershell
 $speech = Invoke-RestMethod -Method POST http://127.0.0.1:8765/v1/audio/speech -ContentType "application/json" -Body (@{
