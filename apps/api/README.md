@@ -33,12 +33,26 @@ Qwen 运行时、CapsWriter 引擎与两个模型均随本机 OpenTTS 资产放�
 # 仅在使用自定义资产目录时覆盖默认值
 $env:OPEN_TTS_QWEN_ASR_MODEL_DIR = "D:\models\Qwen3-ASR-1.7B"
 $env:OPEN_TTS_ALIGNMENT_ALIGNER_MODEL_DIR = "D:\models\Qwen3-ForcedAligner-0.6B"
-$env:OPEN_TTS_SENSEVOICE_PYTHON = "D:\code\tts\models\VoxCPM2\MWAI\python.exe"
+$env:OPEN_TTS_SENSEVOICE_PYTHON = "D:\code\tts\models\SenseVoiceSmall\runtime\python.exe"
 $env:OPEN_TTS_SENSEVOICE_MODEL_DIR = "D:\code\tts\models\SenseVoiceSmall"
 $env:OPEN_TTS_SENSEVOICE_DEVICE = "cuda"
 ```
 
-最终对齐模型为 `Qwen3-ForcedAligner-0.6B`。通用 ASR（`POST /v1/audio/transcriptions` 与音色库参考音视频识别）可在设置中切换：`SenseVoiceSmall`（默认、独立 loopback 服务）或 `Qwen3-ASR-1.7B`（一次性本地子进程）。二者均不参与最终旁白对齐。4070 SUPER 12 GB 上实测的 GPU 独占显存（在相应 GPU 路径启用时）约为 SenseVoice 1.15 GiB、Qwen3-ASR 2.50 GiB、ForcedAligner 1.55 GiB；API 会串行化本地模型切换，避免生成、ASR 与对齐同时占显存。当前 CapsWriter Qwen 路径默认使用稳定的 CPU 提供程序；只有在验证过本机 DML 后，才通过 `OPEN_TTS_QWEN_ASR_DEVICE=dml` 或 `OPEN_TTS_ALIGNMENT_DEVICE=dml` 显式启用 GPU。
+最终对齐模型为 `Qwen3-ForcedAligner-0.6B`。通用 ASR（`POST /v1/audio/transcriptions` 与音色库参考音视频识别）可在设置中切换：`SenseVoiceSmall`（默认、独立 loopback 服务）或 `Qwen3-ASR-1.7B`（一次性本地子进程）。二者均不参与最终旁白对齐。API 会串行化本地模型切换，避免生成、ASR 与对齐同时占显存。当前 CapsWriter Qwen 路径默认使用稳定的 CPU 提供程序；只有在验证过本机 DML 后，才通过 `OPEN_TTS_QWEN_ASR_DEVICE=dml` 或 `OPEN_TTS_ALIGNMENT_DEVICE=dml` 显式启用 GPU。
+
+### 本机基准（RTX 4070 SUPER 12 GB）
+
+2026-07-31 以 `models/SenseVoiceSmall/example/zh.mp3`（5.616 秒中文音频）实测。下面是当前产品形态的端到端耗时，而不是只计算模型 decode；因此 SenseVoice 是已加载服务的一次请求，Qwen 是当前“一次识别一个本地子进程”的完整调用（包含模型加载）。
+
+| 后端 | 设备 | 耗时 | 转写结果 | 显存观测 |
+| --- | --- | ---: | --- | --- |
+| SenseVoiceSmall | CUDA | 0.912 秒 | 简体中文，正确 | 已加载服务整卡增量约 0.8 GiB |
+| Qwen3-ASR 1.7B | CPU | 5.757 秒 | 正确，输出为繁体 | 不使用 GPU |
+| Qwen3-ASR 1.7B | DML + Vulkan | 4.537 秒 | 正确，输出为繁体 | `nvidia-smi` 整卡峰值增量 2,615 MiB |
+
+Qwen DML 路径中，ONNX encoder 使用 DirectML，GGUF LLM 由本地 CapsWriter 自动落在 RTX 4070 SUPER 的 Vulkan 后端；日志显示模型、KV 与计算缓冲分别约为 1,194、224、305 MiB。Windows 的 WDDM/DirectML 不能提供严格的按进程显存归因，所以 2,615 MiB 是采样到的整卡峰值增量，不应视为精确的模型常驻值。
+
+结论：轻量参考音频识别、实时输入和普通转写默认选 SenseVoiceSmall；Qwen3-ASR 保留为设置中的精度/输出风格备选，而不拿它做旁白强制对齐。最终旁白固定走 Qwen3-ForcedAligner，与通用 ASR 开关无关。
 
 部署时应把 SenseVoice 权重和 Python 运行时置于独立目录并设置上述两个 `OPEN_TTS_SENSEVOICE_*` 配置。现有安装会兼容发现 VoxCPM2 包中的旧资产，但不会启动、调用或依赖 VoxCPM2 服务；迁移后可单独替换任意 TTS 包。
 
