@@ -69,6 +69,38 @@ def test_patch_detaches_legacy_vox_asr_preload_idempotently(tmp_path: Path):
     assert ensure_voxcpm2_asr_detached(tmp_path) is False
 
 
+def test_patch_repairs_the_invalid_v1_marker_written_by_early_builds(tmp_path: Path):
+    api = tmp_path / "api.py"
+    api.write_text(
+        LEGACY_API.replace(
+            "        # 使用本地 ASR 模型路径\n"
+            '        local_asr_path = "./models/iic/SenseVoiceSmall"\n'
+            "        if os.path.exists(local_asr_path):\n"
+            "            self.asr_model_id = local_asr_path\n"
+            '            logger.info(f"[VoxCPM2] 使用本地 ASR 模型: {local_asr_path}")\n'
+            "        else:\n"
+            '            self.asr_model_id = "iic/SenseVoiceSmall"\n'
+            '            logger.info(f"[VoxCPM2] 本地 ASR 模型未找到，将从 ModelScope 下载")\n\n'
+            "        self.asr_model: Optional[AutoModel] = None",
+            "        # OpenTTS-ASR-DETACH-PATCH: v1\n"
+            "        SenseVoice belongs to the shared OpenTTS ASR asset, not to the Vox\n"
+            "        # package. Keep the standalone /recognize compatibility endpoint\n"
+            "        # local-only and never fall back to a network model download.\n"
+            "        default_asr_path = os.path.abspath(os.path.join(os.path.dirname(__file__), \"..\", \"SenseVoiceSmall\"))\n"
+            '        self.asr_model_id = os.environ.get("OPEN_TTS_SENSEVOICE_MODEL_DIR", default_asr_path)\n\n'
+            "        self.asr_model: Optional[AutoModel] = None",
+        ),
+        encoding="utf-8",
+    )
+
+    assert ensure_voxcpm2_asr_detached(tmp_path) is True
+    repaired = api.read_text(encoding="utf-8")
+    compile(repaired, str(api), "exec")
+    assert PATCH_MARKER in repaired
+    assert "        # SenseVoice belongs" in repaired
+    assert "        SenseVoice belongs" not in repaired
+
+
 def test_patch_rejects_unknown_vox_api_layout(tmp_path: Path):
     (tmp_path / "api.py").write_text("print('unknown Vox build')\n", encoding="utf-8")
 

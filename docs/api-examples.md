@@ -197,6 +197,7 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/model-packages/$($
 ```
 
 Archives such as `.zip` and `.7z` can be recorded for traceability but must be extracted and re-registered as a directory before activation.
+
 # 本地旁白 ASR / 强制对齐
 
 TTS 正式文本与最终音频落盘后，Qwen3-ForcedAligner 直接以正式文本对最终波形强制对齐。未提供 `alignment` 时，`/v1/audio/speech` 的请求和响应与旧版完全相同。不会为此额外调用 ASR。
@@ -207,6 +208,8 @@ TTS 正式文本与最终音频落盘后，Qwen3-ForcedAligner 直接以正式�
 Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/audio/transcriptions" `
   -Form @{ file = Get-Item "D:\video\narration.wav"; language = "zh" }
 ```
+
+该接口返回 `{ "text", "language", "model" }`，用于拿到上传音频的纯文本；当前不会自动切句、生成 SRT 或持久化上传文件。后续独立的“音视频识别 / TXT / SRT”页面会在这个 ASR 基础上实现，不改变此 API 的语义。
 
 ```powershell
 $speech = Invoke-RestMethod -Method POST http://127.0.0.1:8765/v1/audio/speech -ContentType "application/json" -Body (@{
@@ -230,6 +233,8 @@ $speech.alignment_url    # /v1/tts/alignments/{id}
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:8765$($speech.alignment_url)"
 ```
+
+`alignment_status` 的取值为 `pending`、`completed`、`failed` 或 `cancelled`。仅 `completed` 时 `alignment` 才有值；失败时应读取同一查询结果的 `error`，不要用输入文本或推理端估时补造时间戳。
 
 完成后响应中的 `alignment` 结构如下。`segments` 是短句/短语，`tokens` 保留每个汉字（或 Qwen 模型 token）的原文索引，适合逐字动效。`words` 仅在请求 `granularity: "word"` 时提供；中文视频系统应始终优先使用 `tokens`，不要把词视为唯一的中文边界。
 
@@ -266,6 +271,8 @@ Invoke-RestMethod "http://127.0.0.1:8765$($speech.alignment_url)"
 ```
 
 Qwen3-ForcedAligner 不输出经过校准的逐 token 置信度，因此会明确返回 `token_confidence_unavailable`，而不会捏造分数；无法读取最终音频、模型未配置、正式原文未被完整对齐或时间轴越界时，状态为 `failed` 并返回明确原因。若业务需要独立转写校验，可单独调用 `/v1/audio/transcriptions` 并根据返回文本决定是否复核；该调用不改变或伪造强制对齐时间轴。
+
+相同的最终音频、正式文本和对齐模型版本会命中本地缓存；缓存和任务记录只保存音频/文本哈希及结果，不保存角色参考音频路径、参考文本、密钥或声纹资料。
 
 短音频可改用 `wait_for_result: true` 一次性等待。对齐任务也出现在 `/v1/tasks`，并可管理：
 

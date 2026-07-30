@@ -1856,9 +1856,9 @@ summary:focus-visible {
 
 .promptPresetHeader {
   min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
 }
 
@@ -1870,14 +1870,6 @@ summary:focus-visible {
   font-size: 12px;
   font-weight: 780;
   white-space: nowrap;
-}
-
-.promptPresetHeader small {
-  min-width: 0;
-  color: #7b8997;
-  font-size: 11px;
-  line-height: 1.4;
-  text-align: right;
 }
 
 .promptPresetList {
@@ -1926,10 +1918,6 @@ summary:focus-visible {
   padding: 14px;
   display: grid;
   gap: 12px;
-}
-
-.indexSamplingNote {
-  margin: 0;
 }
 
 .indexAdvancedParameters {
@@ -2063,6 +2051,33 @@ summary:focus-visible {
 
 .parameterHint {
   position: relative;
+}
+
+.inlineHelp {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #748899;
+  cursor: help;
+}
+
+.inlineHelp:hover {
+  color: #3c7655;
+  background: rgba(95, 173, 121, 0.12);
+}
+
+.inlineHelp:focus-visible {
+  outline: 2px solid rgba(66, 139, 92, 0.52);
+  outline-offset: 2px;
+}
+
+/* Keep the left-rail parameter tooltip inside its clipped panel. */
+.paramsPanel .inlineHelp::after {
+  width: 184px;
 }
 
 .parameterHint::after {
@@ -3538,6 +3553,16 @@ audio {
   min-width: 0;
 }
 
+.modelSwitchWarning.neutral {
+  border-color: rgba(84, 116, 139, 0.18);
+  color: #526e82;
+  background: rgba(233, 242, 248, 0.72);
+}
+
+.modelSwitchWarning.neutral strong {
+  color: #405f75;
+}
+
 .modelSwitchWarning strong,
 .modelSwitchWarning span {
   display: block;
@@ -3559,6 +3584,10 @@ audio {
 .modelSwitchNote {
   margin: 0;
   padding: 0 2px;
+}
+
+.modelSwitchWarning.neutral span {
+  color: #637b8e;
 }
 
 .batchProjectBody {
@@ -5971,14 +6000,6 @@ audio {
     justify-self: start;
   }
 
-  .promptPresetHeader {
-    grid-template-columns: 1fr;
-  }
-
-  .promptPresetHeader small {
-    text-align: left;
-  }
-
   .voicePanelTitle,
   .samplerLoginRow {
     align-items: flex-start;
@@ -6284,6 +6305,103 @@ audio {
   gap: 12px;
 }
 
+.settingsAdvancedDetails {
+  min-width: 0;
+  border-radius: 8px;
+  color: #405368;
+  background: rgba(248, 251, 253, 0.5);
+  box-shadow: var(--inner);
+}
+
+.settingsAdvancedDetails > summary {
+  min-width: 0;
+  min-height: 58px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 9px;
+  list-style: none;
+}
+
+.settingsAdvancedDetails > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settingsAdvancedIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #607789;
+  background: rgba(224, 233, 241, 0.62);
+  box-shadow: var(--inner);
+  display: grid;
+  place-items: center;
+}
+
+.settingsAdvancedSummary {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settingsAdvancedSummary strong,
+.settingsAdvancedSummary small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsAdvancedSummary strong {
+  color: #405368;
+  font-size: 13px;
+}
+
+.settingsAdvancedSummary small {
+  color: #718093;
+  font-size: 11px;
+}
+
+.settingsAdvancedDetails > summary > svg {
+  color: #708293;
+  transition: transform 160ms ease;
+}
+
+.settingsAdvancedDetails[open] > summary {
+  border-bottom: 1px solid rgba(89, 109, 127, 0.14);
+}
+
+.settingsAdvancedDetails[open] > summary > svg {
+  transform: rotate(180deg);
+}
+
+.settingsAdvancedDetails > .modelCenterList,
+.settingsAdvancedDetails > .settingsGroup {
+  margin: 10px;
+}
+
+.settingsNumberInput {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.settingsNumberInput > span {
+  color: #718093;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.settingsIdleTimeout small {
+  color: #718093;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .editorDock {
   border-radius: 0;
   background: transparent;
@@ -6478,6 +6596,31 @@ audio {
   color: var(--text);
   border-color: var(--line);
   background: #293541;
+}
+
+:root[data-theme="dark"] .settingsAdvancedDetails {
+  color: var(--text);
+  background: rgba(38, 50, 61, 0.8);
+}
+
+:root[data-theme="dark"] .settingsAdvancedDetails[open] > summary {
+  border-color: var(--line);
+}
+
+:root[data-theme="dark"] .settingsAdvancedIcon {
+  color: #bfd0dd;
+  background: rgba(68, 84, 98, 0.7);
+}
+
+:root[data-theme="dark"] .settingsAdvancedSummary strong {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .settingsAdvancedSummary small,
+:root[data-theme="dark"] .settingsAdvancedDetails > summary > svg,
+:root[data-theme="dark"] .settingsNumberInput > span,
+:root[data-theme="dark"] .settingsIdleTimeout small {
+  color: var(--muted);
 }
 
 :root[data-theme="dark"] .generationProgressBar,

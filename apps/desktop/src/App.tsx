@@ -828,13 +828,21 @@ function voiceSourceLabel(sourceType: string | undefined) {
 
 function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
   const modelStoreRoot = settings?.model_store_root ?? "models";
+  // IndexTTS2 is a worker while Vox/GPT-SoVITS are API services, hence the
+  // two legacy backend fields. The desktop exposes one user policy and keeps
+  // both values in sync; prefer the longer existing value on migration so an
+  // update never releases a previously long-lived model sooner than expected.
+  const idleTimeoutSeconds = Math.max(
+    settings?.indextts2_idle_timeout_seconds ?? 600,
+    settings?.local_api_idle_timeout_seconds ?? 600
+  );
   return {
     api_host: settings?.api_host ?? "127.0.0.1",
     api_port: settings?.api_port ?? 8765,
     output_dir: settings?.output_dir ?? "D:\\code\\tts\\data\\outputs",
     indextts2_root: settings?.indextts2_root ?? `${modelStoreRoot}\\IndexTTS2`,
-    indextts2_idle_timeout_seconds: settings?.indextts2_idle_timeout_seconds ?? 600,
-    local_api_idle_timeout_seconds: settings?.local_api_idle_timeout_seconds ?? 600,
+    indextts2_idle_timeout_seconds: idleTimeoutSeconds,
+    local_api_idle_timeout_seconds: idleTimeoutSeconds,
     asr_backend: settings?.asr_backend ?? "sensevoice",
     voxcpm2_root: settings?.voxcpm2_root ?? `${modelStoreRoot}\\VoxCPM2`,
     voxcpm2_api_host: settings?.voxcpm2_api_host ?? "127.0.0.1",
@@ -1473,7 +1481,7 @@ function getControlPromptPresets(model: ModelInfo | undefined, mode: CloneMode):
 
 function controlPromptGuide(model: ModelInfo | undefined, mode: CloneMode) {
   if (model?.id === "indextts2") {
-    return "推荐只写一种明确情绪；留空会跟随参考音频的原始表达。";
+    return "IndexTTS2 的情绪文本控制来自上游实验能力。建议只写一种明确情绪，例如惊讶、愤怒、悲伤、恐惧或平静；留空会跟随参考音频的原始表达。";
   }
   if (model?.id === "voxcpm2" && mode === "音色设计") {
     return "推荐结构：年龄与性别 + 音色 + 情绪 + 语速 + 使用场景。";
@@ -1895,7 +1903,11 @@ export function App() {
   const setControlPrompt = (value: string) => {
     setControlPromptDrafts((drafts) => ({ ...drafts, [controlPromptContextKey]: value }));
   };
-  const showVoiceLibrary = !isDoubao && needsReferenceAudio;
+  // 音色库是角色资产，不是某一种生成模式的临时参数。音色设计模式虽然
+  // 不会把参考音频提交给 TTS，也仍应让用户看见、管理并预先选择已有音色。
+  // 之前把整个列表随 needsReferenceAudio 隐藏，导致“1 个音色”与“没有
+  // 可用音色”同时出现，误导用户认为导入数据丢失。
+  const showVoiceLibrary = !isDoubao;
   const showCfgSteps = selectedModel === "voxcpm2";
   const showIndexSampling = selectedModel === "indextts2";
   const showSpeedControl = isDoubao || hasFeature(selectedModelInfo, "duration_control");
@@ -1947,6 +1959,10 @@ export function App() {
   const pendingSwitchLoadedModels = (pendingModelSwitch?.loadedModelIds ?? []).map(
     (modelId) => models.find((model) => model.id === modelId)?.display_name ?? modelId
   );
+  const pendingSwitchTarget = pendingModelSwitch
+    ? models.find((model) => model.id === pendingModelSwitch.targetModelId)
+    : null;
+  const pendingSwitchIsCloud = pendingModelSwitch?.targetModelId === "doubao-web";
   const samplerBridgeAvailable = typeof window !== "undefined" && Boolean(window.desktopBilibiliSampler);
   const samplerSelectedItem = useMemo(() => {
     const parsedLink = samplerState.parsedLink;
@@ -4195,24 +4211,17 @@ export function App() {
     if (modelSwitchLocked) {
       return;
     }
-    if (targetModelId === "doubao-web") {
-      selectModel(targetModelId);
-      setModelWarmupState(null);
-      void loadDoubaoState();
-      return;
-    }
     const workers = systemStatus?.workers;
     const loadedModelIds = workers
       ? (["indextts2", "voxcpm2", "gptsovits"] as const).filter(
           (modelId) => modelId !== targetModelId && workers[modelId]?.loaded
         )
       : [];
-    if (loadedModelIds.length > 0) {
-      setPendingModelSwitch({ targetModelId, loadedModelIds });
-      return;
-    }
-    selectModel(targetModelId);
-    queueModelWarmup(targetModelId);
+    // Every manual model change takes the same confirmation path.  Before this
+    // point a dialog appeared only when a monitoring snapshot happened to show
+    // another resident worker, while an equally consequential preheat could
+    // start without any explanation.
+    setPendingModelSwitch({ targetModelId, loadedModelIds });
   }
 
   function confirmModelSwitch() {
@@ -4222,6 +4231,9 @@ export function App() {
     selectModel(pendingModelSwitch.targetModelId);
     if (pendingModelSwitch.targetModelId !== "doubao-web") {
       queueModelWarmup(pendingModelSwitch.targetModelId);
+    } else {
+      setModelWarmupState(null);
+      void loadDoubaoState();
     }
     setPendingModelSwitch(null);
   }
@@ -5638,7 +5650,15 @@ export function App() {
                   <div className="promptPresetSection">
                     <div className="promptPresetHeader">
                       <span><Wand2 size={15} strokeWidth={1.9} />快速预设</span>
-                      <small>{controlPromptGuide(selectedModelInfo, cloneMode)}</small>
+                      <span
+                        className="inlineHelp parameterHint tooltipEnd"
+                        tabIndex={0}
+                        role="note"
+                        aria-label={controlPromptGuide(selectedModelInfo, cloneMode)}
+                        data-tooltip={controlPromptGuide(selectedModelInfo, cloneMode)}
+                      >
+                        <Info size={15} strokeWidth={2} aria-hidden="true" />
+                      </span>
                     </div>
                     <div className="promptPresetList" aria-label="提示词快速预设">
                       {controlPromptPresets.map((preset) => {
@@ -5671,14 +5691,8 @@ export function App() {
                 className="controlPrompt referencePrompt"
                 value={referenceText}
                 onChange={(event) => setReferenceText(event.target.value)}
-                placeholder="参考音频对应原文（可在音色库中一键识别并校对）"
+                placeholder="参考音频对应原文"
               />
-            )}
-            {selectedModel === "indextts2" && showControlPrompt && (
-              <div className="capabilityNote compactCapabilityNote">
-                <Sparkles size={17} strokeWidth={1.9} />
-                <span>情绪文本控制来自 IndexTTS2 上游实验能力；建议使用惊讶、愤怒、悲伤、恐惧或平静。留空则完整复刻参考音色及表达。</span>
-              </div>
             )}
             {selectedModel === "voxcpm2" && cloneMode === "可控克隆" && (
               <div className="cloneModeWarning">
@@ -5700,6 +5714,17 @@ export function App() {
             <div className="panelTitle">
               <SlidersHorizontal size={17} strokeWidth={1.9} />
               <span>参数</span>
+              {showIndexSampling && (
+                <span
+                  className="inlineHelp parameterHint"
+                  tabIndex={0}
+                  role="note"
+                  aria-label="IndexTTS2 是自回归模型，没有扩散步数；高级参数控制 GPT 音频 Token 采样。"
+                  data-tooltip="IndexTTS2 是自回归模型，没有扩散步数；高级参数控制 GPT 音频 Token 采样。"
+                >
+                  <Info size={15} strokeWidth={2} aria-hidden="true" />
+                </span>
+              )}
             </div>
             {showCfgSteps && (
               <>
@@ -5717,10 +5742,6 @@ export function App() {
             )}
             {showIndexSampling && (
               <>
-                <div className="capabilityNote compactCapabilityNote indexSamplingNote">
-                  <Info size={17} strokeWidth={1.9} />
-                  <span>IndexTTS2 是自回归模型，没有扩散“步数”；以下参数控制 GPT 音频 Token 采样。</span>
-                </div>
                 <details className="indexAdvancedParameters">
                   <summary>IndexTTS2 高级采样参数</summary>
                   <div className="indexAdvancedParameterList">
@@ -5850,7 +5871,7 @@ export function App() {
                   {modelSwitchLocked && (
                     <small className="modelSwitchLock" title={modelSwitchLockMessage}>
                       <Lock size={12} strokeWidth={2} />
-                      模型切换已锁定
+                      {loading || hasActiveBatchGeneration ? "当前任务结束后可切换" : "当前模型准备完成后可切换"}
                     </small>
                   )}
                   {modelWarmupState?.modelId === selectedModel && (
@@ -7082,19 +7103,26 @@ export function App() {
               </button>
             </header>
             <div className="settingsBody modelSwitchBody">
-              <div className="modelSwitchWarning">
-                <AlertCircle size={20} strokeWidth={1.9} />
+              <div className={pendingSwitchLoadedModels.length > 0 ? "modelSwitchWarning" : "modelSwitchWarning neutral"}>
+                {pendingSwitchLoadedModels.length > 0 ? <AlertCircle size={20} strokeWidth={1.9} /> : <Info size={20} strokeWidth={1.9} />}
                 <div>
-                  <strong>{pendingSwitchLoadedModels.join("、")} 仍在显存中</strong>
+                  <strong>
+                    {pendingSwitchIsCloud
+                      ? `切换到 ${pendingSwitchTarget?.display_name ?? "豆包 Web TTS"}`
+                      : pendingSwitchLoadedModels.length > 0
+                        ? `${pendingSwitchLoadedModels.join("、")} 仍在显存中`
+                        : `准备切换到 ${pendingSwitchTarget?.display_name ?? pendingModelSwitch.targetModelId}`}
+                  </strong>
                   <span>
-                    切换到 {models.find((model) => model.id === pendingModelSwitch.targetModelId)?.display_name ?? pendingModelSwitch.targetModelId}
-                    后会立即释放这些由 OpenTTS 托管的模型，并开始预热新模型，避免生成时才临时加载。
+                    {pendingSwitchIsCloud
+                      ? "云端模型不会加载或释放本地 TTS 显存；本机模型会按当前空闲策略继续保留或自动释放。"
+                      : pendingSwitchLoadedModels.length > 0
+                        ? `确认后会释放这些由 OpenTTS 托管的模型，再预热 ${pendingSwitchTarget?.display_name ?? pendingModelSwitch.targetModelId}。`
+                        : `确认后会预热 ${pendingSwitchTarget?.display_name ?? pendingModelSwitch.targetModelId}；若后台检测到其他本软件托管模型，仍会先安全释放。`}
                   </span>
                 </div>
               </div>
-              <p className="modelSwitchNote">
-                预热期间模型切换会暂时锁定；完成后可以直接生成。以后切回原模型时仍需重新加载到显存。
-              </p>
+              {!pendingSwitchIsCloud && <p className="modelSwitchNote">预热期间无法再次切换；完成后即可直接生成。之后切回其他本地模型时也会按相同规则确认。</p>}
             </div>
             <footer className="settingsFooter">
               <button className="secondaryAction settingsAction" onClick={() => setPendingModelSwitch(null)}>
@@ -7383,8 +7411,106 @@ export function App() {
               <div className="settingsGroup">
                 <div className="settingsGroupTitle">
                   <Cpu size={16} strokeWidth={1.9} />
-                  <span>本地模型</span>
+                  <span>生成偏好</span>
                 </div>
+                <div className="startupModelSettings">
+                  <label className="settingsField">
+                    <span>启动默认模型</span>
+                    <select
+                      value={settingsDraft.default_model_id}
+                      onChange={(event) => {
+                        const modelId = event.target.value as SettingsDraft["default_model_id"];
+                        setSettingsDraft((draft) => ({
+                          ...draft,
+                          default_model_id: modelId,
+                          prewarm_default_model_on_startup: modelId === "doubao-web" ? false : draft.prewarm_default_model_on_startup
+                        }));
+                      }}
+                    >
+                      {startupModelOptions.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.display_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="startupPrewarmCard">
+                    <div>
+                      <strong>打开软件时预热默认模型</strong>
+                      <span>{settingsDraft.default_model_id === "doubao-web" ? "豆包是云端模型，不需要加载权重；启动时只会检查账号与音色状态。" : "后台加载模型权重，不会自动生成语音；会占用对应显存，并先处理其他本软件托管模型。"}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={settingsDraft.prewarm_default_model_on_startup ? "settingsPrewarmToggle active" : "settingsPrewarmToggle"}
+                      aria-pressed={settingsDraft.prewarm_default_model_on_startup}
+                      disabled={settingsDraft.default_model_id === "doubao-web"}
+                      onClick={() =>
+                        setSettingsDraft((draft) => ({
+                          ...draft,
+                          prewarm_default_model_on_startup: !draft.prewarm_default_model_on_startup
+                        }))
+                      }
+                    >
+                      <Cpu size={16} strokeWidth={1.9} />
+                      <span>{settingsDraft.prewarm_default_model_on_startup ? "已开启" : "未开启"}</span>
+                    </button>
+                  </div>
+                </div>
+                <label className="settingsField settingsIdleTimeout">
+                  <span>空闲后释放显存</span>
+                  <div className="settingsNumberInput">
+                    <input
+                      type="number"
+                      min={30}
+                      max={86400}
+                      step={30}
+                      value={settingsDraft.indextts2_idle_timeout_seconds}
+                      onChange={(event) => {
+                        const seconds = Number(event.target.value);
+                        setSettingsDraft((draft) => ({
+                          ...draft,
+                          indextts2_idle_timeout_seconds: seconds,
+                          local_api_idle_timeout_seconds: seconds
+                        }));
+                      }}
+                    />
+                    <span>秒</span>
+                  </div>
+                  <small>生成结束后，所有由本软件托管的本地 TTS 模型都按这个时间释放显存。</small>
+                </label>
+                <label className="settingsField">
+                  <span>本地 ASR 引擎</span>
+                  <select
+                    value={settingsDraft.asr_backend}
+                    onChange={(event) =>
+                      setSettingsDraft((draft) => ({
+                        ...draft,
+                        asr_backend: event.target.value as SettingsDraft["asr_backend"]
+                      }))
+                    }
+                  >
+                    <option value="sensevoice">SenseVoiceSmall（轻量、快速）</option>
+                    <option value="qwen3">Qwen3-ASR 1.7B（更重、适合精度优先）</option>
+                  </select>
+                  <small>
+                    {settingsDraft.asr_backend === "qwen3"
+                      ? appSettings?.qwen_asr_model_installed
+                        ? "使用已配置的本地 Qwen3-ASR；只用于转写和音色库参考音频，不参与旁白强制对齐。"
+                        : "Qwen3-ASR 尚未配置完整本地模型/运行时；保存前请按部署文档配置。"
+                      : appSettings?.sensevoice_ready
+                        ? "按需启动独立 SenseVoiceSmall；只用于转写和音色库参考音频，不参与旁白强制对齐。"
+                        : "SenseVoiceSmall 尚未配置完整本地模型/运行时；保存前请按部署文档配置。"}
+                  </small>
+                </label>
+                <details className="settingsAdvancedDetails">
+                  <summary>
+                    <span className="settingsAdvancedIcon"><Settings size={16} strokeWidth={1.9} /></span>
+                    <span className="settingsAdvancedSummary">
+                      <strong>高级维护</strong>
+                      <small>模型目录、运行状态和稳定包（{modelInstances.length} 个模型）</small>
+                    </span>
+                    <ChevronDown size={16} strokeWidth={2} />
+                  </summary>
                 <div className="modelCenterList">
                   {modelInstances.map((instance) => {
                     const healthResult = modelHealthResults[instance.model_id];
@@ -7549,107 +7675,18 @@ export function App() {
                     );
                   })}
                 </div>
-                <div className="startupModelSettings">
-                  <label className="settingsField">
-                    <span>启动默认模型</span>
-                    <select
-                      value={settingsDraft.default_model_id}
-                      onChange={(event) => {
-                        const modelId = event.target.value as SettingsDraft["default_model_id"];
-                        setSettingsDraft((draft) => ({
-                          ...draft,
-                          default_model_id: modelId,
-                          prewarm_default_model_on_startup: modelId === "doubao-web" ? false : draft.prewarm_default_model_on_startup
-                        }));
-                      }}
-                    >
-                      {startupModelOptions.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.display_name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="startupPrewarmCard">
-                    <div>
-                      <strong>打开软件时预热默认模型</strong>
-                      <span>{settingsDraft.default_model_id === "doubao-web" ? "豆包是云端模型，不需要加载权重；启动时只会检查账号与音色状态。" : "后台加载模型权重，不会自动生成语音；会占用对应显存，并先处理其他本软件托管模型。"}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className={settingsDraft.prewarm_default_model_on_startup ? "settingsPrewarmToggle active" : "settingsPrewarmToggle"}
-                      aria-pressed={settingsDraft.prewarm_default_model_on_startup}
-                      disabled={settingsDraft.default_model_id === "doubao-web"}
-                      onClick={() =>
-                        setSettingsDraft((draft) => ({
-                          ...draft,
-                          prewarm_default_model_on_startup: !draft.prewarm_default_model_on_startup
-                        }))
-                      }
-                    >
-                      <Cpu size={16} strokeWidth={1.9} />
-                      <span>{settingsDraft.prewarm_default_model_on_startup ? "已开启" : "未开启"}</span>
-                    </button>
-                  </div>
-                </div>
-                <label className="settingsField">
-                  <span>IndexTTS2 空闲释放显存</span>
-                  <input
-                    type="number"
-                    min={30}
-                    max={86400}
-                    step={30}
-                    value={settingsDraft.indextts2_idle_timeout_seconds}
-                    onChange={(event) =>
-                      setSettingsDraft((draft) => ({
-                        ...draft,
-                        indextts2_idle_timeout_seconds: Number(event.target.value)
-                      }))
-                    }
-                  />
-                </label>
-                <label className="settingsField">
-                  <span>VoxCPM2 / GPT-SoVITS 空闲停止服务</span>
-                  <input
-                    type="number"
-                    min={30}
-                    max={86400}
-                    step={30}
-                    value={settingsDraft.local_api_idle_timeout_seconds}
-                    onChange={(event) =>
-                      setSettingsDraft((draft) => ({
-                        ...draft,
-                        local_api_idle_timeout_seconds: Number(event.target.value)
-                      }))
-                    }
-                  />
-                </label>
-                <label className="settingsField">
-                  <span>本地 ASR 引擎</span>
-                  <select
-                    value={settingsDraft.asr_backend}
-                    onChange={(event) =>
-                      setSettingsDraft((draft) => ({
-                        ...draft,
-                        asr_backend: event.target.value as SettingsDraft["asr_backend"]
-                      }))
-                    }
-                  >
-                    <option value="sensevoice">SenseVoiceSmall（轻量、快速）</option>
-                    <option value="qwen3">Qwen3-ASR 1.7B（更重、适合精度优先）</option>
-                  </select>
-                  <small>
-                    {settingsDraft.asr_backend === "qwen3"
-                      ? appSettings?.qwen_asr_model_installed
-                        ? "使用已配置的本地 Qwen3-ASR；只用于转写和音色库参考音频，不参与旁白强制对齐。"
-                        : "Qwen3-ASR 尚未配置完整本地模型/运行时；保存前请按部署文档配置。"
-                      : appSettings?.sensevoice_ready
-                        ? "按需启动独立 SenseVoiceSmall；只用于转写和音色库参考音频，不参与旁白强制对齐。"
-                        : "SenseVoiceSmall 尚未配置完整本地模型/运行时；保存前请按部署文档配置。"}
-                  </small>
-                </label>
+                </details>
               </div>
 
+              <details className="settingsAdvancedDetails modelAssetsDetails">
+                <summary>
+                  <span className="settingsAdvancedIcon"><Library size={16} strokeWidth={1.9} /></span>
+                  <span className="settingsAdvancedSummary">
+                    <strong>模型包与目录</strong>
+                    <small>登记、预检或切换稳定模型包（{modelPackages.length} 个已登记）</small>
+                  </span>
+                  <ChevronDown size={16} strokeWidth={2} />
+                </summary>
               <div className="settingsGroup modelPackageGroup">
                 <div className="settingsGroupTitle">
                   <Library size={16} strokeWidth={1.9} />
@@ -7724,6 +7761,7 @@ export function App() {
                   </div>
                 )}
               </div>
+              </details>
 
               <div className="settingsGroup">
                 <div className="settingsGroupTitle">

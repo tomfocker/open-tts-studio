@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 
-PATCH_MARKER = "OpenTTS-ASR-DETACH-PATCH: v1"
+PATCH_MARKER = "OpenTTS-ASR-DETACH-PATCH: v2"
 
 
 _LEGACY_ASR_CONFIG = re.compile(
@@ -34,6 +34,12 @@ _DETACHED_ASR_LOAD = """        if not os.path.isdir(self.asr_model_id):
         self.asr_model = AutoModel("""
 _LEGACY_PRELOAD_ASR = re.compile(
     r'(?ms)^        # 2\. 加载 ASR 模型（SenseVoice）\r?\n.*?(?=^        models_loaded\["all_ready"\] = True)'
+)
+_DETACHED_ASR_CONFIG = re.compile(
+    r"(?ms)^        # OpenTTS-ASR-DETACH-PATCH: v[12]\r?\n.*?^        self\.asr_model: Optional\[AutoModel\] = None"
+)
+_UNVERSIONED_DETACHED_ASR_CONFIG = re.compile(
+    r"(?ms)^        # SenseVoice belongs to the shared OpenTTS ASR asset, not to the Vox\r?\n.*?^        self\.asr_model: Optional\[AutoModel\] = None"
 )
 
 
@@ -56,12 +62,33 @@ def _write_atomically(path: Path, content: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _mark_existing_detached_source(source: str) -> str | None:
-    """Recognise the pre-versioned local patch used by existing installations."""
-    legacy_local_patch = "# SenseVoice belongs to the shared OpenTTS ASR asset, not to the Vox"
-    if legacy_local_patch not in source:
-        return None
-    return source.replace(legacy_local_patch, f"# {PATCH_MARKER}\n        {legacy_local_patch[2:]}", 1)
+def _detached_config() -> str:
+    return f"""        # {PATCH_MARKER}
+        # SenseVoice belongs to the shared OpenTTS ASR asset, not to the Vox
+        # package. Keep the standalone /recognize compatibility endpoint
+        # local-only and never fall back to a network model download.
+        default_asr_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "SenseVoiceSmall"))
+        self.asr_model_id = os.environ.get("OPEN_TTS_SENSEVOICE_MODEL_DIR", default_asr_path)
+
+        self.asr_model: Optional[AutoModel] = None"""
+
+
+def _normalise_detached_preload(source: str) -> str:
+    """Keep the upstream background preload strictly TTS-only."""
+    source, _ = _LEGACY_PRELOAD_ASR.subn("", source, count=1)
+    source = source.replace("[1/2]", "[1/1]")
+    source = source.replace('"""预加载所有模型：TTS 和 ASR"""', '"""预加载 TTS；独立 ASR 按 /recognize 请求懒加载。"""')
+    source = source.replace("[VoxCPM2] 开始预加载所有模型...", "[VoxCPM2] 开始预加载 TTS 模型...")
+    source = source.replace("[VoxCPM2] 所有模型加载完成！服务已就绪 🚀", "[VoxCPM2] TTS 模型加载完成！服务已就绪 🚀")
+    return source
+
+
+def _verify_detached_preload(source: str) -> None:
+    preload_start = source.find("def preload_models")
+    preload_end = source.find("executor.submit(preload_models)", preload_start)
+    preload = source[preload_start : preload_end if preload_end >= 0 else None]
+    if preload_start < 0 or "service.get_or_load_asr()" in preload:
+        raise RuntimeError("Unsupported VoxCPM2 preload layout; refusing to start with embedded ASR enabled.")
 
 
 def ensure_voxcpm2_asr_detached(voxcpm2_root: Path) -> bool:
@@ -84,29 +111,17 @@ def ensure_voxcpm2_asr_detached(voxcpm2_root: Path) -> bool:
     if PATCH_MARKER in source:
         return False
 
-    existing = _mark_existing_detached_source(source)
-    if existing is not None:
-        _write_atomically(api_path, existing)
-        return True
-
-    detached_config = """        # OpenTTS-ASR-DETACH-PATCH: v1
-        # SenseVoice belongs to the shared OpenTTS ASR asset, not to the Vox
-        # package. Keep the standalone /recognize compatibility endpoint
-        # local-only and never fall back to a network model download.
-        default_asr_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "SenseVoiceSmall"))
-        self.asr_model_id = os.environ.get("OPEN_TTS_SENSEVOICE_MODEL_DIR", default_asr_path)
-
-        self.asr_model: Optional[AutoModel] = None"""
-    source, config_count = _LEGACY_ASR_CONFIG.subn(detached_config, source, count=1)
-    if config_count != 1 or _LEGACY_ASR_LOAD.search(source) is None:
+    detached_config = _detached_config()
+    source, config_count = _DETACHED_ASR_CONFIG.subn(detached_config, source, count=1)
+    if config_count == 0:
+        source, config_count = _UNVERSIONED_DETACHED_ASR_CONFIG.subn(detached_config, source, count=1)
+    if config_count == 0:
+        source, config_count = _LEGACY_ASR_CONFIG.subn(detached_config, source, count=1)
+    if config_count != 1:
         raise RuntimeError("Unsupported VoxCPM2 api.py layout; update the OpenTTS ASR separation patch before starting Vox.")
-    source, load_count = _LEGACY_ASR_LOAD.subn(_DETACHED_ASR_LOAD, source, count=1)
-    if load_count != 1:
-        raise RuntimeError("Unsupported VoxCPM2 ASR loader layout; refusing to start with embedded ASR enabled.")
-    source, preload_count = _LEGACY_PRELOAD_ASR.subn("", source, count=1)
-    if preload_count != 1:
-        raise RuntimeError("Unsupported VoxCPM2 preload layout; refusing to start with embedded ASR enabled.")
-    source = source.replace("[1/2]", "[1/1]")
-    source = source.replace('"""预加载所有模型：TTS 和 ASR"""', '"""预加载 TTS；独立 ASR 按 /recognize 请求懒加载。"""')
+
+    source, _ = _LEGACY_ASR_LOAD.subn(_DETACHED_ASR_LOAD, source, count=1)
+    source = _normalise_detached_preload(source)
+    _verify_detached_preload(source)
     _write_atomically(api_path, source)
     return True
