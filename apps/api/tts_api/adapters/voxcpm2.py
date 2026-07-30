@@ -11,6 +11,7 @@ from tts_api.adapters.base import TtsAdapter
 from tts_api.audio import create_output_path, probe_audio_metadata, read_wav_metadata
 from tts_api.config import Settings, get_settings
 from tts_api.schemas import SpeechRequest, SpeechResult
+from tts_api.voxcpm2_patch import ensure_voxcpm2_asr_detached
 
 
 _DEFAULT_SERVICE_MANAGER = object()
@@ -118,6 +119,7 @@ class VoxCpm2ServiceManager:
             raise FileNotFoundError(f"VoxCPM2 Python not found: {self.python_executable}")
         if not self.api_script.exists():
             raise FileNotFoundError(f"VoxCPM2 API script not found: {self.api_script}")
+        ensure_voxcpm2_asr_detached(self.settings.voxcpm2_root)
 
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._close_process_log()
