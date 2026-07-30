@@ -27,6 +27,7 @@ const { createUpdateService } = require("./updater-runtime.cjs");
 
 let mainWindow;
 let backendProcess;
+const selectedPreviewAudioPaths = new Set();
 const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
 const packagedDataRoot = app.isPackaged ? path.join(app.getPath("userData"), "data") : undefined;
 const packagedModelStoreRoot = app.isPackaged ? path.join(app.getPath("userData"), "models") : undefined;
@@ -124,7 +125,28 @@ ipcMain.handle("file:open-path", (_event, targetPath) => openLocalPath(targetPat
 
 ipcMain.handle("external:open-legado-import", (_event, targetUrl) => openLegadoImportUrl(targetUrl, shell));
 
-ipcMain.handle("file:select-reference-audio", () => selectReferenceAudio(dialog));
+ipcMain.handle("file:select-reference-audio", async () => {
+  const selectedPath = await selectReferenceAudio(dialog);
+  if (selectedPath) {
+    selectedPreviewAudioPaths.add(path.resolve(selectedPath));
+  }
+  return selectedPath;
+});
+
+ipcMain.handle("file:read-selected-audio", async (_event, targetPath) => {
+  if (typeof targetPath !== "string" || !targetPath.trim()) {
+    throw new Error("Audio path is required");
+  }
+  const normalizedPath = path.resolve(targetPath);
+  if (!selectedPreviewAudioPaths.has(normalizedPath)) {
+    throw new Error("请先通过应用选择参考音频");
+  }
+  const info = await fs.stat(normalizedPath);
+  if (!info.isFile() || info.size > 200 * 1024 * 1024) {
+    throw new Error("参考音频无效或超过 200 MB");
+  }
+  return fs.readFile(normalizedPath);
+});
 
 ipcMain.handle("file:select-voice-package", () => selectVoicePackage(dialog));
 

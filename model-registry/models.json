@@ -52,7 +52,7 @@
     "commercial_use": "restricted",
     "recommended_vram_gb": 6,
     "features": ["voice_clone", "extreme_clone", "duration_control"],
-    "request_capabilities": ["reference_audio", "reference_text", "speed"],
+    "request_capabilities": ["voice", "reference_audio", "reference_text", "speed"],
     "requires_reference_audio": true,
     "native_sample_rate": 32000,
     "adapter": "gptsovits"

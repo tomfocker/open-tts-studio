@@ -291,7 +291,7 @@ async function selectReferenceAudio(dialogImpl) {
     filters: [
       {
         name: "Audio",
-        extensions: ["wav", "mp3", "flac", "m4a", "ogg"]
+        extensions: ["wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm"]
       }
     ]
   });

@@ -4,13 +4,16 @@ import threading
 import time
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlencode
 
 import httpx
+import yaml
 
 from tts_api.adapters.base import TtsAdapter
 from tts_api.audio import create_output_path, read_wav_metadata
 from tts_api.config import Settings, get_settings
 from tts_api.schemas import SpeechRequest, SpeechResult
+from tts_api.voice_library import find_stored_voice
 
 
 _DEFAULT_SERVICE_MANAGER = object()
@@ -36,6 +39,7 @@ class GptSoVitsServiceManager:
         self.started_at: float | None = None
         self.last_used_at: float | None = None
         self.active_requests = 0
+        self.active_weight_pair: tuple[str, str] | None = None
         self._idle_timer = None
         self._lock = threading.Lock()
 
@@ -129,7 +133,45 @@ class GptSoVitsServiceManager:
         )
         self.started_at = self.now_factory()
         self.last_used_at = self.started_at
+        self.active_weight_pair = self.default_weight_pair()
         self._schedule_idle_release()
+
+    def default_weight_pair(self) -> tuple[str, str] | None:
+        """Read the pair configured for a clean GPT-SoVITS start."""
+        try:
+            raw = yaml.safe_load(self.config_path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            return None
+        if not isinstance(raw, dict):
+            return None
+        profile = raw.get("custom")
+        if not isinstance(profile, dict):
+            profile = raw.get("v2ProPlus")
+        if not isinstance(profile, dict):
+            return None
+        gpt_path = self._resolve_weight_path(profile.get("t2s_weights_path"))
+        sovits_path = self._resolve_weight_path(profile.get("vits_weights_path"))
+        if gpt_path is None or sovits_path is None:
+            return None
+        return gpt_path, sovits_path
+
+    def ensure_weight_pair(self, weight_pair: tuple[str, str], http_client=httpx) -> None:
+        if self.active_weight_pair == weight_pair:
+            return
+        gpt_path, sovits_path = weight_pair
+        for endpoint, path in (("set_gpt_weights", gpt_path), ("set_sovits_weights", sovits_path)):
+            query = urlencode({"weights_path": path})
+            response = http_client.get(f"{self.api_base}/{endpoint}?{query}", timeout=240.0)
+            response.raise_for_status()
+        self.active_weight_pair = weight_pair
+
+    def _resolve_weight_path(self, value: object) -> str | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = self.settings.gptsovits_root / path
+        return str(path.resolve())
 
     def begin_request(self) -> None:
         with self._lock:
@@ -180,6 +222,7 @@ class GptSoVitsServiceManager:
         self.process.terminate()
         self.process = None
         self.last_used_at = None
+        self.active_weight_pair = None
         return True
 
     def force_shutdown(self) -> bool:
@@ -203,6 +246,7 @@ class GptSoVitsServiceManager:
             self.process = None
             self.last_used_at = None
             self.active_requests = 0
+            self.active_weight_pair = None
         return True
 
     def _cancel_idle_release(self) -> None:
@@ -323,11 +367,42 @@ class GptSoVitsAdapter(TtsAdapter):
             "media_type": "wav",
         }
 
+    def resolve_weight_pair(self, request: SpeechRequest) -> tuple[str, str] | None:
+        if not request.voice:
+            return None
+        voice = find_stored_voice(request.voice, self.settings)
+        if voice is None or voice.model_binding is None:
+            return None
+        binding = voice.model_binding
+        if binding.model_id != "gptsovits":
+            raise ValueError(f"音色「{voice.name}」仅支持 {binding.model_id}，不能用于 GPT-SoVITS。")
+        gpt_path = self._resolve_bound_weight_path(binding.weights.get("gpt_weights_path"))
+        sovits_path = self._resolve_bound_weight_path(binding.weights.get("sovits_weights_path"))
+        if gpt_path is None or sovits_path is None:
+            raise ValueError(f"音色「{voice.name}」的 GPT-SoVITS 专属权重配置不完整。")
+        if not gpt_path.is_file() or not sovits_path.is_file():
+            raise ValueError(f"音色「{voice.name}」的 GPT-SoVITS 专属权重不完整或已移动。")
+        return str(gpt_path.resolve()), str(sovits_path.resolve())
+
+    def _resolve_bound_weight_path(self, value: object) -> Path | None:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = self.settings.gptsovits_root / path
+        return path
+
     def synthesize(self, request: SpeechRequest) -> SpeechResult:
         payload = self.build_payload(request)
+        weight_pair = self.resolve_weight_pair(request)
         if self.service_manager is not None:
             self.service_manager.ensure_started()
+            desired_weight_pair = weight_pair or self.service_manager.default_weight_pair()
+            if desired_weight_pair is not None:
+                self.service_manager.ensure_weight_pair(desired_weight_pair, http_client=self.http_client)
             self.service_manager.begin_request()
+        elif weight_pair is not None:
+            self._switch_weight_pair(weight_pair)
 
         output_path = create_output_path(self.settings.output_dir, ".wav")
         try:
@@ -349,6 +424,12 @@ class GptSoVitsAdapter(TtsAdapter):
             sample_rate=sample_rate,
             duration_seconds=duration_seconds,
         )
+
+    def _switch_weight_pair(self, weight_pair: tuple[str, str]) -> None:
+        for endpoint, path in (("set_gpt_weights", weight_pair[0]), ("set_sovits_weights", weight_pair[1])):
+            query = urlencode({"weights_path": path})
+            response = self.http_client.get(f"{self.api_base}/{endpoint}?{query}", timeout=240.0)
+            response.raise_for_status()
 
     def _normalize_language(self, language: str | None) -> str | None:
         if not language:

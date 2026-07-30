@@ -8,6 +8,7 @@ from tts_api.audio import write_sine_wav
 from tts_api.config import get_settings
 from tts_api.main import app
 from tts_api.routes import voices as voice_routes
+from tts_api import voice_library
 
 
 def test_list_voices_returns_builtin_default():
@@ -72,6 +73,119 @@ def test_update_voice_replaces_audio_and_reference_text(tmp_path: Path, monkeypa
     assert updated["reference_text"] == "替换后的参考文本。"
     assert updated["reference_audio_managed"] is True
     assert Path(updated["reference_audio"]).is_file()
+
+
+def test_create_voice_trims_reference_audio_before_storing(tmp_path: Path, monkeypatch):
+    voice_library_file = tmp_path / "voices.json"
+    source_audio = tmp_path / "source.wav"
+    write_sine_wav(source_audio, duration_seconds=10)
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(voice_library_file))
+    get_settings.cache_clear()
+    commands: list[list[str]] = []
+
+    def fake_ffmpeg(command, **_kwargs):
+        commands.append(command)
+        write_sine_wav(Path(command[-1]), duration_seconds=4)
+
+    monkeypatch.setattr(voice_library.subprocess, "run", fake_ffmpeg)
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/tts/voices",
+        json={
+            "name": "Trimmed Narrator",
+            "reference_audio": str(source_audio),
+            "trim_start_seconds": 2,
+            "trim_end_seconds": 6,
+            "authorization_status": "authorized",
+        },
+    )
+
+    assert response.status_code == 200
+    voice = response.json()
+    assert Path(voice["reference_audio"]).suffix == ".wav"
+    assert Path(voice["reference_audio"]).is_file()
+    assert commands and "-ss" in commands[0] and "-t" in commands[0]
+
+
+def test_create_voice_rejects_incomplete_trim_range(tmp_path: Path, monkeypatch):
+    source_audio = tmp_path / "source.wav"
+    write_sine_wav(source_audio, duration_seconds=5)
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(tmp_path / "voices.json"))
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/tts/voices",
+        json={
+            "name": "Broken Trim",
+            "reference_audio": str(source_audio),
+            "trim_start_seconds": 2,
+            "authorization_status": "authorized",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "起点和终点" in response.json()["detail"]
+
+
+def test_create_voice_rejects_trim_without_reference_audio(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(tmp_path / "voices.json"))
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    response = client.post(
+        "/v1/tts/voices",
+        json={
+            "name": "Missing Audio",
+            "trim_start_seconds": 2,
+            "trim_end_seconds": 6,
+            "authorization_status": "authorized",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "参考音频" in response.json()["detail"]
+
+
+def test_model_bound_voice_is_preserved_and_cannot_export_as_plain_voice_package(tmp_path: Path, monkeypatch):
+    voice_library_file = tmp_path / "voices.json"
+    source_audio = tmp_path / "source.wav"
+    gpt_weights = tmp_path / "speaker.ckpt"
+    sovits_weights = tmp_path / "speaker.pth"
+    write_sine_wav(source_audio, duration_seconds=5)
+    gpt_weights.write_bytes(b"gpt")
+    sovits_weights.write_bytes(b"sovits")
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(voice_library_file))
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    created = client.post(
+        "/v1/tts/voices",
+        json={
+            "name": "Fine-tuned Speaker",
+            "reference_audio": str(source_audio),
+            "authorization_status": "authorized",
+            "source_type": "gptsovits_model_weights",
+            "model_binding": {
+                "model_id": "gptsovits",
+                "weights": {
+                    "gpt_weights_path": str(gpt_weights),
+                    "sovits_weights_path": str(sovits_weights),
+                },
+            },
+        },
+    )
+
+    assert created.status_code == 200
+    voice = created.json()
+    assert voice["model_binding"]["model_id"] == "gptsovits"
+    listed = client.get("/v1/tts/voices").json()
+    assert any(item["id"] == voice["id"] and item["model_binding"] for item in listed)
+
+    export = client.post(f"/v1/tts/voices/{voice['id']}/export")
+    assert export.status_code == 422
+    assert "模型专属权重" in export.json()["detail"]
 
 
 def test_voice_reference_recognition_returns_editable_transcript(tmp_path: Path, monkeypatch):

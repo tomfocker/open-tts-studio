@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
@@ -25,10 +26,22 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def ingest_reference_audio(*, source_path: str, voice_id: str, settings: Settings) -> dict[str, str | bool | None]:
+def ingest_reference_audio(
+    *,
+    source_path: str,
+    voice_id: str,
+    settings: Settings,
+    trim_start_seconds: float | None = None,
+    trim_end_seconds: float | None = None,
+) -> dict[str, str | bool | None]:
     source = Path(source_path).expanduser()
     original_path = str(source)
+    should_trim = trim_start_seconds is not None or trim_end_seconds is not None
+    if should_trim and (trim_start_seconds is None or trim_end_seconds is None or trim_end_seconds <= trim_start_seconds):
+        raise HTTPException(status_code=422, detail="裁切范围无效，请重新选择起点和终点。")
     if not source.is_file():
+        if should_trim:
+            raise HTTPException(status_code=404, detail="未找到需要裁切的参考音频。")
         return {
             "reference_audio": original_path,
             "original_reference_audio": original_path,
@@ -36,12 +49,20 @@ def ingest_reference_audio(*, source_path: str, voice_id: str, settings: Setting
             "reference_audio_managed": False,
         }
 
-    suffix = source.suffix.lower() or ".wav"
+    suffix = ".wav" if should_trim else source.suffix.lower() or ".wav"
     destination = settings.voice_asset_dir / voice_id / f"reference{suffix}"
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
-        if source.resolve() != destination.resolve():
-            shutil.copy2(source, destination)
+        if should_trim:
+            _trim_reference_audio(
+                source=source,
+                destination=destination,
+                ffmpeg_path=settings.ffmpeg_path,
+                start_seconds=trim_start_seconds,
+                end_seconds=trim_end_seconds,
+            )
+        elif source.resolve() != destination.resolve():
+            _copy_reference_audio(source, destination)
         return {
             "reference_audio": str(destination),
             "original_reference_audio": original_path,
@@ -57,6 +78,57 @@ def ingest_reference_audio(*, source_path: str, voice_id: str, settings: Setting
         }
 
 
+def _copy_reference_audio(source: Path, destination: Path) -> None:
+    """Copy atomically so a failed replacement cannot corrupt a saved voice."""
+    temporary = destination.with_name(f"{destination.stem}.incoming{destination.suffix}")
+    temporary.unlink(missing_ok=True)
+    try:
+        shutil.copy2(source, temporary)
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _trim_reference_audio(*, source: Path, destination: Path, ffmpeg_path: str, start_seconds: float, end_seconds: float) -> None:
+    """Decode the selected portion to WAV before replacing the managed asset."""
+    temporary = destination.with_name(f"{destination.stem}.incoming.wav")
+    temporary.unlink(missing_ok=True)
+    duration_seconds = end_seconds - start_seconds
+    command = [
+        ffmpeg_path,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-i",
+        str(source),
+        "-ss",
+        f"{start_seconds:.3f}",
+        "-t",
+        f"{duration_seconds:.3f}",
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-c:a",
+        "pcm_s16le",
+        str(temporary),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, timeout=60)
+        if not temporary.is_file() or temporary.stat().st_size <= 44:
+            raise RuntimeError("裁切结果为空")
+        temporary.replace(destination)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail="找不到 FFmpeg，无法裁切参考音频。") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="裁切参考音频超时，请缩短片段后重试。") from exc
+    except (subprocess.CalledProcessError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail="无法裁切该参考音频，请检查文件是否可正常播放。") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 def file_sha256(path: Path) -> str:
     digest = sha256()
     with path.open("rb") as audio_file:
@@ -65,7 +137,32 @@ def file_sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def find_stored_voice(voice_id: str, settings: Settings) -> VoiceInfo | None:
+    """Find a user-managed voice without importing the HTTP route layer."""
+    library_file = settings.voice_library_file
+    if not library_file.exists():
+        return None
+    try:
+        data = json.loads(library_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    raw_voices = data.get("voices", []) if isinstance(data, dict) else []
+    for raw_voice in raw_voices:
+        try:
+            voice = VoiceInfo.model_validate(raw_voice)
+        except Exception:
+            continue
+        if voice.id == voice_id:
+            return voice
+    return None
+
+
 def create_voice_package(voice: VoiceInfo, settings: Settings) -> Path:
+    if voice.model_binding is not None:
+        raise HTTPException(
+            status_code=422,
+            detail="模型专属权重不能导出为普通音色包；请在目标电脑单独安装对应模型权重。",
+        )
     reference_path = Path(voice.reference_audio or "")
     if not reference_path.is_file():
         raise HTTPException(status_code=422, detail="参考音频不存在，无法导出音色包。请先替换参考音频。")

@@ -144,6 +144,238 @@
   color: #9f3d3d;
 }
 
+.referenceAudioEditorOverlay {
+  z-index: 30;
+}
+
+.referenceAudioEditorDialog {
+  width: min(700px, 100%);
+}
+
+.referenceAudioEditorBody {
+  align-content: start;
+  gap: 12px;
+}
+
+.referenceAudioFileCard,
+.referenceAudioPlayer,
+.referenceAudioTrimCard,
+.referenceAudioAdvice,
+.referenceAudioAsrOption {
+  min-width: 0;
+  border: 1px solid rgba(107, 128, 146, 0.16);
+  border-radius: 10px;
+  background: rgba(248, 251, 253, 0.66);
+  box-shadow: var(--inner);
+}
+
+.referenceAudioFileCard,
+.referenceAudioPlayer,
+.referenceAudioTrimHeading,
+.referenceAudioAsrOption {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.referenceAudioFileCard {
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.referenceAudioFileCard > div,
+.referenceAudioPlayerInfo,
+.referenceAudioAdvice > div,
+.referenceAudioAsrOption > span {
+  min-width: 0;
+}
+
+.referenceAudioFileCard strong,
+.referenceAudioFileCard span,
+.referenceAudioPlayerInfo strong,
+.referenceAudioPlayerInfo span,
+.referenceAudioTrimHeading strong,
+.referenceAudioTrimHeading span,
+.referenceAudioAdvice strong,
+.referenceAudioAdvice span,
+.referenceAudioAsrOption strong,
+.referenceAudioAsrOption small {
+  display: block;
+}
+
+.referenceAudioFileCard strong,
+.referenceAudioPlayerInfo strong,
+.referenceAudioTrimHeading strong,
+.referenceAudioAdvice strong,
+.referenceAudioAsrOption strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.referenceAudioFileCard > div > span,
+.referenceAudioPlayerInfo span,
+.referenceAudioTrimHeading span,
+.referenceAudioAdvice span,
+.referenceAudioAsrOption small,
+.referenceAudioDuration {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.referenceAudioFileCard > div > span {
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.referenceAudioDuration {
+  flex: 0 0 auto;
+  margin-top: 0;
+  font-family: "JetBrains Mono", Consolas, monospace;
+}
+
+.referenceAudioPlayer {
+  padding: 11px 14px;
+}
+
+.referenceAudioPlayButton {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+}
+
+.referenceAudioTrimCard {
+  padding: 14px;
+}
+
+.referenceAudioTrimHeading {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.referenceAudioResetButton {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.audioWaveform {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(109, 130, 149, 0.16);
+  border-radius: 8px;
+  padding: 0;
+  background: rgba(222, 231, 239, 0.68);
+  box-shadow: inset 7px 7px 16px rgba(126, 145, 164, 0.1), inset -7px -7px 16px rgba(255, 255, 255, 0.52);
+  cursor: pointer;
+}
+
+.audioWaveform canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.audioWaveform:focus-visible {
+  outline: 0;
+  box-shadow: inset 7px 7px 16px rgba(126, 145, 164, 0.1), inset -7px -7px 16px rgba(255, 255, 255, 0.52), 0 0 0 2px rgba(79, 186, 111, 0.28);
+}
+
+.audioWaveform:disabled {
+  cursor: default;
+}
+
+.audioWaveformStatus {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  border-radius: 5px;
+  padding: 2px 5px;
+  color: #6e7d8b;
+  background: rgba(244, 248, 251, 0.76);
+  font-size: 10px;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+.referenceAudioWaveform {
+  height: 102px;
+  margin-bottom: 13px;
+  touch-action: none;
+}
+
+.referenceAudioTrimControls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 13px;
+}
+
+.referenceAudioSliders {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.referenceAudioSliders label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.referenceAudioSliders input {
+  width: 100%;
+  accent-color: #58a879;
+}
+
+.referenceAudioAdvice {
+  align-items: flex-start;
+  padding: 12px 13px;
+  color: #477a5b;
+  background: rgba(234, 247, 238, 0.74);
+}
+
+.referenceAudioAdvice > svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.referenceAudioAdvice strong {
+  color: #326e4c;
+}
+
+.referenceAudioNameField {
+  max-width: 360px;
+}
+
+.referenceAudioAsrOption {
+  align-items: flex-start;
+  padding: 12px 13px;
+  cursor: pointer;
+}
+
+.referenceAudioAsrOption input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: #58a879;
+}
+
+.referenceAudioAsrOption small {
+  max-width: 560px;
+}
+
 @media (max-width: 720px) {
   .voiceManagerDialog {
     width: calc(100vw - 24px);
@@ -169,6 +401,16 @@
 
   .voiceManagerFooter .settingsFooterSpacer {
     display: none;
+  }
+
+  .referenceAudioFileCard,
+  .referenceAudioPlayer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .referenceAudioTrimControls {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -728,6 +970,19 @@ summary:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   box-shadow: 0 5px 12px rgba(83, 102, 121, 0.12), var(--inner);
+}
+
+.voiceModelWeightBadge {
+  margin-top: -4px;
+  padding: 2px 6px;
+  border: 1px solid rgba(133, 90, 171, 0.22);
+  border-radius: 999px;
+  color: #7d4d9e;
+  background: rgba(246, 237, 255, 0.88);
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
 }
 
 .voiceCard small {
@@ -1549,6 +1804,22 @@ input[type="range"]::-webkit-slider-thumb {
   font-weight: 720;
 }
 
+.drawGeneratingSummary {
+  justify-self: center;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 7px 12px;
+  color: #647585;
+  font-size: 12px;
+}
+
+.drawGeneratingSummary strong {
+  color: #377957;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+}
+
 .progressConsole {
   border-radius: 8px;
   padding: 16px;
@@ -1696,6 +1967,114 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 22px;
 }
 
+.drawCandidatesStage {
+  width: min(760px, calc(100% - 42px));
+  max-height: calc(100% - 36px);
+  overflow-y: auto;
+  padding: 3px 2px;
+}
+
+.drawCandidatesHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 2px 13px;
+}
+
+.drawCandidatesHeader div,
+.drawCandidatesHeader span,
+.drawCandidatesHeader strong {
+  min-width: 0;
+  display: block;
+}
+
+.drawCandidatesHeader span {
+  color: #4a9270;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.drawCandidatesHeader strong {
+  margin-top: 4px;
+  color: #33475a;
+  font-size: 16px;
+}
+
+.drawCandidatesHeader small {
+  flex: 0 0 auto;
+  color: #6e7e8d;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.drawCandidateGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(138px, 1fr));
+  gap: 10px;
+}
+
+.drawCandidateCard {
+  position: relative;
+  min-width: 0;
+  min-height: 122px;
+  border: 1px solid rgba(115, 137, 157, 0.16);
+  border-radius: 10px;
+  padding: 13px 12px;
+  color: #4a6374;
+  text-align: left;
+  background: rgba(247, 251, 253, 0.76);
+  box-shadow: 0 10px 20px rgba(82, 101, 119, 0.1), var(--inner);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  gap: 5px 8px;
+}
+
+.drawCandidateCard:hover {
+  transform: translateY(-1px);
+  border-color: rgba(62, 139, 96, 0.38);
+}
+
+.drawCandidateCard.active {
+  border-color: rgba(48, 135, 88, 0.56);
+  background: rgba(240, 250, 244, 0.9);
+  box-shadow: 0 12px 24px rgba(72, 144, 101, 0.16), var(--inner);
+}
+
+.drawCandidateIndex {
+  color: #7190a2;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+}
+
+.drawCandidateCard > svg {
+  color: #5ca678;
+}
+
+.drawCandidateCard strong {
+  grid-column: 1 / -1;
+  color: #30485c;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 21px;
+}
+
+.drawCandidateCard small {
+  grid-column: 1 / -1;
+  color: #6c7d8d;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.drawCandidateCheck {
+  position: absolute;
+  right: 9px;
+  bottom: 9px;
+  color: #31845a;
+}
+
 .resultIcon {
   margin: 0;
 }
@@ -1736,6 +2115,50 @@ input[type="range"]::-webkit-slider-thumb {
   padding: 0 18px;
   margin-left: 2px;
   box-shadow: 0 10px 20px rgba(50, 127, 85, 0.2), var(--inner);
+}
+
+.drawGenerateButton {
+  height: 42px;
+  padding: 0 13px;
+  color: #3b7656;
+  background: rgba(239, 249, 243, 0.86);
+}
+
+.drawControl {
+  height: 40px;
+  border-radius: 8px;
+  padding: 4px;
+  color: #6b7e8e;
+  background: rgba(216, 227, 236, 0.58);
+  box-shadow: var(--inner);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.drawControl > span {
+  padding: 0 5px;
+  color: #577082;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.drawControl button {
+  width: 27px;
+  height: 30px;
+  border-radius: 6px;
+  color: #708191;
+  background: transparent;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.drawControl button:hover,
+.drawControl button.active {
+  color: #2d7954;
+  background: rgba(249, 253, 250, 0.92);
+  box-shadow: 0 5px 10px rgba(82, 101, 119, 0.1), var(--inner);
 }
 
 .dockButton {
@@ -1830,28 +2253,8 @@ audio {
   white-space: nowrap;
 }
 
-.playerTrack {
-  min-width: 0;
+.playerWaveform {
   height: 54px;
-  border-radius: 8px;
-  overflow: hidden;
-  background:
-    repeating-linear-gradient(
-      90deg,
-      rgba(115, 129, 145, 0.18) 0,
-      rgba(115, 129, 145, 0.18) 2px,
-      transparent 2px,
-      transparent 14px
-    ),
-    rgba(222, 231, 239, 0.68);
-  box-shadow: inset 9px 9px 20px rgba(126, 145, 164, 0.12), inset -8px -8px 18px rgba(255, 255, 255, 0.6);
-}
-
-.trackFill {
-  height: 100%;
-  min-width: 0;
-  background: linear-gradient(90deg, rgba(79, 186, 111, 0.28), rgba(79, 186, 111, 0.62));
-  transition: width 140ms ease;
 }
 
 .playerInfo {
@@ -4467,7 +4870,7 @@ audio {
     justify-self: end;
   }
 
-  .playerTrack,
+  .playerWaveform,
   .playerInfo,
   .voiceSaveButton {
     grid-column: 1 / -1;

@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 from tts_api.adapters.gptsovits import GptSoVitsAdapter, GptSoVitsServiceManager
 from tts_api.config import Settings
@@ -133,6 +134,80 @@ def test_gptsovits_adapter_requires_reference_audio(tmp_path: Path):
         assert "reference audio" in str(exc)
     else:
         raise AssertionError("Expected GPT-SoVITS to require a reference audio file.")
+
+
+def test_gptsovits_adapter_switches_to_model_bound_voice_weights(tmp_path: Path, monkeypatch):
+    reference_audio = tmp_path / "nanami-ref.wav"
+    gpt_weights = tmp_path / "nanami.ckpt"
+    sovits_weights = tmp_path / "nanami.pth"
+    for path in (reference_audio, gpt_weights, sovits_weights):
+        path.write_bytes(b"model-data")
+    voice_library_file = tmp_path / "voices.json"
+    voice_library_file.write_text(
+        json.dumps(
+            {
+                "voices": [
+                    {
+                        "id": "nanami",
+                        "name": "娜娜米",
+                        "reference_audio": str(reference_audio),
+                        "authorization_status": "authorized",
+                        "source_type": "gptsovits_model_weights",
+                        "reference_audio_managed": False,
+                        "model_binding": {
+                            "model_id": "gptsovits",
+                            "weights": {
+                                "gpt_weights_path": str(gpt_weights),
+                                "sovits_weights_path": str(sovits_weights),
+                            },
+                        },
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    settings = Settings(
+        output_dir=tmp_path / "outputs",
+        gptsovits_root=tmp_path / "GPT-SoVITS",
+        gptsovits_api_port=9889,
+        voice_library_file=voice_library_file,
+    )
+    client = FakeHttpClient()
+    adapter = GptSoVitsAdapter(settings=settings, http_client=client, service_manager=None)
+
+    adapter.synthesize(
+        SpeechRequest(
+            model="gptsovits",
+            input="这是专属权重音色输出。",
+            voice="nanami",
+            reference_audio=str(reference_audio),
+        )
+    )
+
+    assert len(client.get_calls) == 2
+    assert "set_gpt_weights" in client.get_calls[0]["url"]
+    assert "nanami.ckpt" in client.get_calls[0]["url"]
+    assert "set_sovits_weights" in client.get_calls[1]["url"]
+    assert "nanami.pth" in client.get_calls[1]["url"]
+
+
+def test_gptsovits_service_manager_reads_relative_default_weight_pair(tmp_path: Path):
+    root = tmp_path / "GPT-SoVITS"
+    config = root / "GPT_SoVITS" / "configs"
+    config.mkdir(parents=True)
+    (root / "weights").mkdir()
+    gpt_weights = root / "weights" / "default.ckpt"
+    sovits_weights = root / "weights" / "default.pth"
+    gpt_weights.write_bytes(b"gpt")
+    sovits_weights.write_bytes(b"sovits")
+    (config / "tts_infer.yaml").write_text(
+        "custom:\n  t2s_weights_path: weights/default.ckpt\n  vits_weights_path: weights/default.pth\n",
+        encoding="utf-8",
+    )
+    manager = GptSoVitsServiceManager(settings=Settings(gptsovits_root=root))
+
+    assert manager.default_weight_pair() == (str(gpt_weights.resolve()), str(sovits_weights.resolve()))
 
 
 def test_gptsovits_managed_service_releases_after_idle_timeout(tmp_path: Path):

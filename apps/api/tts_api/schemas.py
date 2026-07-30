@@ -128,6 +128,13 @@ class AudioAsset(BaseModel):
     project_title: str | None = None
 
 
+class ModelVoiceBinding(BaseModel):
+    """A voice entry backed by weights that only one model can load."""
+
+    model_id: str = Field(min_length=1, max_length=80)
+    weights: dict[str, str] = Field(default_factory=dict)
+
+
 class VoiceInfo(BaseModel):
     id: str
     name: str
@@ -139,6 +146,7 @@ class VoiceInfo(BaseModel):
     original_reference_audio: str | None = None
     reference_audio_sha256: str | None = None
     reference_audio_managed: bool = False
+    model_binding: ModelVoiceBinding | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -146,15 +154,20 @@ class VoiceInfo(BaseModel):
 class CreateVoiceRequest(BaseModel):
     name: str = Field(min_length=1)
     reference_audio: str | None = None
+    trim_start_seconds: float | None = Field(default=None, ge=0)
+    trim_end_seconds: float | None = Field(default=None, gt=0)
     reference_text: str | None = None
     authorization_status: str
     source_type: str = Field(default="local_import", max_length=80)
     source_url: str | None = Field(default=None, max_length=2000)
+    model_binding: ModelVoiceBinding | None = None
 
 
 class UpdateVoiceRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1)
     reference_audio: str | None = Field(default=None, min_length=1)
+    trim_start_seconds: float | None = Field(default=None, ge=0)
+    trim_end_seconds: float | None = Field(default=None, gt=0)
     reference_text: str | None = None
     authorization_status: str | None = None
     source_type: str | None = Field(default=None, max_length=80)

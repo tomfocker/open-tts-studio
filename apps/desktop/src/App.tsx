@@ -37,7 +37,7 @@ import {
   X
 } from "lucide-react";
 import QRCode from "qrcode";
-import { CSSProperties, ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ChangeEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   activateModelPackage,
@@ -81,7 +81,8 @@ import {
   updateBatchProject,
   updateModelPackage,
   updateModelInstance,
-  updateVoice
+  updateVoice,
+  type GenerateSpeechOptions
 } from "./api";
 import { DoubaoWorkspace } from "./DoubaoWorkspace";
 import type {
@@ -128,6 +129,7 @@ declare global {
       selectDirectory: () => Promise<string | null>;
       selectModelArchive: () => Promise<string | null>;
       selectReferenceAudio: () => Promise<string | null>;
+      readSelectedAudio: (targetPath: string) => Promise<Uint8Array>;
       selectVoicePackage: () => Promise<string | null>;
       saveVoicePackage: (sourcePath: string, defaultName: string) => Promise<string | null>;
       saveSettingsBackup: (content: string) => Promise<string | null>;
@@ -173,12 +175,274 @@ type VoicePreset = {
   sourceUrl?: string;
   referenceAudioManaged?: boolean;
   originalReferenceAudio?: string;
+  modelBinding?: {
+    modelId: string;
+    weights: Record<string, string>;
+  };
 };
 
 type VoiceManagerDraft = {
   name: string;
   referenceText: string;
 };
+
+type ReferenceAudioEditorTarget =
+  | { kind: "create" }
+  | { kind: "replace"; voiceId: string };
+
+type ReferenceAudioEditorState = {
+  sourcePath: string;
+  previewUrl: string;
+  name: string;
+  durationSeconds: number;
+  trimStartSeconds: number;
+  trimEndSeconds: number;
+  autoRecognize: boolean;
+  target: ReferenceAudioEditorTarget;
+};
+
+type WaveformStatus = "idle" | "loading" | "ready" | "unavailable";
+
+type AudioWaveformProps = {
+  peaks: number[];
+  status: WaveformStatus;
+  progressRatio?: number;
+  selectionStartRatio?: number;
+  selectionEndRatio?: number;
+  editableSelection?: boolean;
+  onSeekRatio?: (ratio: number) => void;
+  onSelectionChange?: (boundary: "start" | "end", ratio: number) => void;
+  ariaLabel: string;
+  className?: string;
+};
+
+type DrawCandidate = {
+  id: string;
+  index: number;
+  result: SpeechResult;
+  modelName: string;
+  voiceName: string;
+  input: string;
+};
+
+type DrawSession = {
+  id: string;
+  total: number;
+  currentIndex: number;
+  successful: number;
+  failed: number;
+  status: "running" | "stopping" | "completed" | "cancelled";
+  activeJobId: string | null;
+  cancelRequested: boolean;
+  model: string;
+  input: string;
+  options: GenerateSpeechOptions;
+  modelName: string;
+  voiceName: string;
+  handlingTerminalJob: boolean;
+};
+
+const WAVEFORM_SAMPLE_COUNT = 360;
+const WAVEFORM_MAX_ANALYSIS_BYTES = 64 * 1024 * 1024;
+
+function clampWaveformRatio(value: number | undefined, fallback: number) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return fallback;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function buildWaveformPeaks(audioBuffer: AudioBuffer, peakCount = WAVEFORM_SAMPLE_COUNT) {
+  const channels = Array.from({ length: audioBuffer.numberOfChannels }, (_, index) => audioBuffer.getChannelData(index));
+  if (channels.length === 0 || audioBuffer.length === 0) {
+    return [];
+  }
+  const bucketSize = Math.max(1, Math.ceil(audioBuffer.length / peakCount));
+  const stepSize = Math.max(1, Math.floor(bucketSize / 1800));
+  const peaks = Array.from({ length: peakCount }, (_, bucketIndex) => {
+    const start = bucketIndex * bucketSize;
+    const end = Math.min(audioBuffer.length, start + bucketSize);
+    let peak = 0;
+    for (let sampleIndex = start; sampleIndex < end; sampleIndex += stepSize) {
+      for (const channel of channels) {
+        peak = Math.max(peak, Math.abs(channel[sampleIndex] ?? 0));
+      }
+    }
+    return peak;
+  });
+  const largestPeak = Math.max(...peaks, 0);
+  return largestPeak > 0 ? peaks.map((peak) => peak / largestPeak) : peaks;
+}
+
+async function decodeWaveformPeaks(audioData: ArrayBuffer) {
+  if (audioData.byteLength > WAVEFORM_MAX_ANALYSIS_BYTES) {
+    throw new Error("参考音频较大，已跳过波形分析");
+  }
+  if (!window.AudioContext) {
+    throw new Error("当前环境不支持音频波形分析");
+  }
+  const audioContext = new window.AudioContext();
+  try {
+    const decoded = await audioContext.decodeAudioData(audioData.slice(0));
+    return buildWaveformPeaks(decoded);
+  } finally {
+    await audioContext.close().catch(() => undefined);
+  }
+}
+
+function AudioWaveform({
+  peaks,
+  status,
+  progressRatio = 0,
+  selectionStartRatio = 0,
+  selectionEndRatio = 1,
+  editableSelection = false,
+  onSeekRatio,
+  onSelectionChange,
+  ariaLabel,
+  className
+}: AudioWaveformProps) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const dragBoundaryRef = useRef<"start" | "end" | null>(null);
+  const startRatio = clampWaveformRatio(selectionStartRatio, 0);
+  const endRatio = Math.max(startRatio, clampWaveformRatio(selectionEndRatio, 1));
+  const currentRatio = clampWaveformRatio(progressRatio, 0);
+  const interactive = Boolean(onSeekRatio || onSelectionChange);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    let frameId = 0;
+    const draw = () => {
+      const context = canvas.getContext("2d");
+      const bounds = canvas.getBoundingClientRect();
+      if (!context || bounds.width <= 0 || bounds.height <= 0) {
+        return;
+      }
+      const pixelRatio = window.devicePixelRatio || 1;
+      const width = Math.floor(bounds.width);
+      const height = Math.floor(bounds.height);
+      canvas.width = Math.max(1, Math.floor(width * pixelRatio));
+      canvas.height = Math.max(1, Math.floor(height * pixelRatio));
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, width, height);
+      context.fillStyle = "rgba(222, 231, 239, 0.68)";
+      context.fillRect(0, 0, width, height);
+
+      const selectedStart = startRatio * width;
+      const selectedEnd = endRatio * width;
+      if (peaks.length > 0) {
+        const barWidth = Math.max(1, width / peaks.length - 1);
+        for (let index = 0; index < peaks.length; index += 1) {
+          const ratio = index / Math.max(1, peaks.length - 1);
+          const x = ratio * width;
+          const amplitude = Math.max(0, Math.min(1, peaks[index] ?? 0));
+          const barHeight = Math.max(1, amplitude * Math.max(4, height - 12));
+          const insideSelection = x >= selectedStart && x <= selectedEnd;
+          context.fillStyle = insideSelection ? "rgba(69, 157, 101, 0.82)" : "rgba(115, 137, 157, 0.44)";
+          context.fillRect(x, (height - barHeight) / 2, barWidth, barHeight);
+        }
+      } else {
+        context.fillStyle = "rgba(115, 137, 157, 0.36)";
+        context.fillRect(0, Math.floor(height / 2), width, 1);
+      }
+
+      if (editableSelection) {
+        context.fillStyle = "rgba(54, 68, 82, 0.15)";
+        context.fillRect(0, 0, selectedStart, height);
+        context.fillRect(selectedEnd, 0, Math.max(0, width - selectedEnd), height);
+        context.fillStyle = "rgba(44, 127, 77, 0.9)";
+        context.fillRect(selectedStart - 1, 0, 2, height);
+        context.fillRect(selectedEnd - 1, 0, 2, height);
+      }
+
+      if (currentRatio > 0) {
+        const currentX = currentRatio * width;
+        context.fillStyle = "rgba(39, 76, 104, 0.92)";
+        context.fillRect(currentX - 1, 0, 2, height);
+      }
+    };
+    const queueDraw = () => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(draw);
+    };
+    const resizeObserver = new ResizeObserver(queueDraw);
+    resizeObserver.observe(canvas);
+    queueDraw();
+    return () => {
+      cancelAnimationFrame(frameId);
+      resizeObserver.disconnect();
+    };
+  }, [currentRatio, editableSelection, endRatio, peaks, startRatio]);
+
+  const getPointerRatio = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return clampWaveformRatio((event.clientX - bounds.left) / Math.max(1, bounds.width), 0);
+  };
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!interactive) {
+      return;
+    }
+    const ratio = getPointerRatio(event);
+    if (editableSelection && onSelectionChange) {
+      const handleThreshold = 0.035;
+      if (Math.abs(ratio - startRatio) <= handleThreshold || ratio < startRatio) {
+        dragBoundaryRef.current = "start";
+        onSelectionChange("start", ratio);
+      } else if (Math.abs(ratio - endRatio) <= handleThreshold || ratio > endRatio) {
+        dragBoundaryRef.current = "end";
+        onSelectionChange("end", ratio);
+      } else {
+        onSeekRatio?.(ratio);
+      }
+    } else {
+      onSeekRatio?.(ratio);
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const boundary = dragBoundaryRef.current;
+    if (!boundary || !onSelectionChange) {
+      return;
+    }
+    onSelectionChange(boundary, getPointerRatio(event));
+  };
+
+  const endPointerDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    dragBoundaryRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const statusLabel = status === "loading" ? "正在分析真实波形…" : status === "unavailable" ? "此音频无法分析波形" : "";
+  return (
+    <button
+      className={["audioWaveform", className].filter(Boolean).join(" ")}
+      type="button"
+      disabled={!interactive}
+      aria-label={ariaLabel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={endPointerDrag}
+      onPointerCancel={endPointerDrag}
+      onKeyDown={(event) => {
+        if (!onSeekRatio || (event.key !== "ArrowLeft" && event.key !== "ArrowRight")) {
+          return;
+        }
+        event.preventDefault();
+        onSeekRatio(clampWaveformRatio(currentRatio + (event.key === "ArrowRight" ? 0.03 : -0.03), 0));
+      }}
+    >
+      <canvas ref={canvasRef} aria-hidden="true" />
+      {statusLabel && <span className="audioWaveformStatus">{statusLabel}</span>}
+    </button>
+  );
+}
 
 type GenerationProgress = {
   percent: number;
@@ -464,6 +728,9 @@ function voiceQualityLabel(report: VoiceQualityReport) {
 }
 
 function voiceSourceLabel(sourceType: string | undefined) {
+  if (sourceType === "gptsovits_model_weights") {
+    return "模型专属权重";
+  }
   if (sourceType === "bilibili") {
     return "B 站取样";
   }
@@ -501,6 +768,31 @@ function getFileBaseName(filePath: string) {
   return fileName.replace(/\.[^.]+$/, "") || "本地音色";
 }
 
+function getAudioMimeType(filePath: string) {
+  const suffix = filePath.split(".").pop()?.toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    wav: "audio/wav",
+    mp3: "audio/mpeg",
+    flac: "audio/flac",
+    m4a: "audio/mp4",
+    aac: "audio/aac",
+    ogg: "audio/ogg",
+    opus: "audio/ogg; codecs=opus",
+    webm: "audio/webm"
+  };
+  return (suffix && mimeTypes[suffix]) || "application/octet-stream";
+}
+
+function referenceAudioRecommendation(modelId: string) {
+  if (modelId === "gptsovits") {
+    return "GPT-SoVITS 建议 3～10 秒（推荐 5～8 秒）：单人、干净、自然说话即可。";
+  }
+  if (modelId === "voxcpm2") {
+    return "VoxCPM2 建议 5～15 秒：极致克隆时，参考文字必须与该片段逐字一致。";
+  }
+  return "IndexTTS2 建议 5～15 秒：保留清晰、无背景音乐的单人语音，效果更稳定。";
+}
+
 function voiceColorFromId(id: string) {
   const palettes = [
     "linear-gradient(135deg, #47646b 0%, #a8ced0 100%)",
@@ -514,13 +806,18 @@ function voiceColorFromId(id: string) {
 }
 
 function createImportedVoicePreset(voice: VoiceInfo): VoicePreset | null {
-  if (!voice.reference_audio) {
+  if (!voice.reference_audio && !voice.model_binding) {
     return null;
   }
+  const modelBinding = voice.model_binding
+    ? { modelId: voice.model_binding.model_id, weights: voice.model_binding.weights }
+    : undefined;
   return {
     id: voice.id,
     name: voice.name,
-    subtitle: "本地导入",
+    subtitle: modelBinding
+      ? `${modelBinding.modelId === "gptsovits" ? "GPT-SoVITS" : modelBinding.modelId} · 专属权重`
+      : voiceSourceLabel(voice.source_type),
     initials: voice.name.trim().slice(0, 1) || "音",
     background: voiceColorFromId(voice.id),
     referenceAudio: voice.reference_audio,
@@ -529,7 +826,8 @@ function createImportedVoicePreset(voice: VoiceInfo): VoicePreset | null {
     sourceType: voice.source_type,
     sourceUrl: voice.source_url ?? undefined,
     referenceAudioManaged: voice.reference_audio_managed,
-    originalReferenceAudio: voice.original_reference_audio ?? undefined
+    originalReferenceAudio: voice.original_reference_audio ?? undefined,
+    modelBinding
   };
 }
 
@@ -1240,6 +1538,10 @@ export function App() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [activeSpeechJob, setActiveSpeechJob] = useState<SpeechJob | null>(null);
   const [activeSpeechContext, setActiveSpeechContext] = useState<{ modelName: string; voiceName: string } | null>(null);
+  const [drawCount, setDrawCount] = useState<2 | 3 | 4>(3);
+  const [drawSession, setDrawSession] = useState<DrawSession | null>(null);
+  const [drawCandidates, setDrawCandidates] = useState<DrawCandidate[]>([]);
+  const [selectedDrawCandidateId, setSelectedDrawCandidateId] = useState<string | null>(null);
   const [taskCenterOpen, setTaskCenterOpen] = useState(false);
   const [remoteTasks, setRemoteTasks] = useState<TaskSummary[]>([]);
   const [taskCenterAction, setTaskCenterAction] = useState<string | null>(null);
@@ -1282,6 +1584,13 @@ export function App() {
   const [modelPackageNote, setModelPackageNote] = useState("");
   const [modelPackageAction, setModelPackageAction] = useState<string | null>(null);
   const [voiceImporting, setVoiceImporting] = useState(false);
+  const [referenceAudioEditor, setReferenceAudioEditor] = useState<ReferenceAudioEditorState | null>(null);
+  const [referenceAudioEditorSaving, setReferenceAudioEditorSaving] = useState(false);
+  const [referenceAudioEditorError, setReferenceAudioEditorError] = useState<string | null>(null);
+  const [referenceAudioPreviewTime, setReferenceAudioPreviewTime] = useState(0);
+  const [referenceAudioPreviewPlaying, setReferenceAudioPreviewPlaying] = useState(false);
+  const [referenceAudioWaveformPeaks, setReferenceAudioWaveformPeaks] = useState<number[]>([]);
+  const [referenceAudioWaveformStatus, setReferenceAudioWaveformStatus] = useState<WaveformStatus>("idle");
   const [recognizingVoiceIds, setRecognizingVoiceIds] = useState<string[]>([]);
   const [voiceSaving, setVoiceSaving] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
@@ -1322,7 +1631,12 @@ export function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackTime, setPlaybackTime] = useState(0);
   const [playbackDuration, setPlaybackDuration] = useState(0);
+  const [resultWaveformPeaks, setResultWaveformPeaks] = useState<number[]>([]);
+  const [resultWaveformStatus, setResultWaveformStatus] = useState<WaveformStatus>("idle");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const referenceAudioPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const referenceAudioPreviewUrlRef = useRef<string | null>(null);
+  const referenceAudioWaveformRequestRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
   const lastSamplerDefaultNameRef = useRef("");
@@ -1331,6 +1645,7 @@ export function App() {
   const managedVoiceIdRef = useRef(managedVoiceId);
   const voiceRecognitionRequestsRef = useRef(new Map<string, Promise<void>>());
   const pendingModelWarmupRef = useRef<string | null>(null);
+  const drawSessionRef = useRef<DrawSession | null>(null);
 
   const selectedModelInfo = useMemo(
     () => models.find((model) => model.id === selectedModel),
@@ -1361,18 +1676,22 @@ export function App() {
     [batchProjectDoubaoVoiceId, doubaoVoices]
   );
 
+  const visibleManagedVoices = useMemo(
+    () => customVoices.filter((voice) => !voice.modelBinding || voice.modelBinding.modelId === selectedModel),
+    [customVoices, selectedModel]
+  );
   const availableVoices = useMemo(() => {
     const importVoice = voicePresets.find((voice) => voice.id === "custom");
-    return importVoice ? [...customVoices, importVoice] : customVoices;
-  }, [customVoices]);
+    return importVoice ? [...visibleManagedVoices, importVoice] : visibleManagedVoices;
+  }, [visibleManagedVoices]);
 
   const selectedVoiceInfo = useMemo(
     () => availableVoices.find((voice) => voice.id === selectedVoice) ?? availableVoices[0] ?? voicePresets[0],
     [availableVoices, selectedVoice]
   );
   const managedVoice = useMemo(
-    () => customVoices.find((voice) => voice.id === managedVoiceId) ?? customVoices[0] ?? null,
-    [customVoices, managedVoiceId]
+    () => visibleManagedVoices.find((voice) => voice.id === managedVoiceId) ?? visibleManagedVoices[0] ?? null,
+    [visibleManagedVoices, managedVoiceId]
   );
   const editingBatchProject = useMemo(
     () => batchProjects.find((project) => project.id === editingBatchProjectId) ?? null,
@@ -1423,6 +1742,9 @@ export function App() {
   const online = models.length > 0 && !backendError;
   const visibleError = error ?? backendError;
   const resultSavedToVoiceLibrary = Boolean(result && savedVoicePath === result.file_path);
+  const referenceAudioSelectionDuration = referenceAudioEditor
+    ? Math.max(0, referenceAudioEditor.trimEndSeconds - referenceAudioEditor.trimStartSeconds)
+    : 0;
   const doubaoUsable = doubaoStatus?.status === "ready" && (doubaoStatus.cookies.valid ?? 0) > 0;
   const currentVoiceName = isDoubao ? selectedDoubaoVoice?.name ?? "未选择音色" : selectedVoiceInfo.name;
   const canGenerate =
@@ -1817,7 +2139,7 @@ export function App() {
   }
 
   function openVoiceManager() {
-    const preferred = customVoices.find((voice) => voice.id === selectedVoice) ?? customVoices[0] ?? null;
+    const preferred = visibleManagedVoices.find((voice) => voice.id === selectedVoice) ?? visibleManagedVoices[0] ?? null;
     setManagedVoiceId(preferred?.id ?? null);
     setVoiceManagerDraft(createVoiceManagerDraft(preferred));
     setVoiceManagerError(null);
@@ -1857,6 +2179,227 @@ export function App() {
     }
   }
 
+  async function openReferenceAudioEditor(sourcePath: string, target: ReferenceAudioEditorTarget) {
+    if (!window.desktopFiles?.readSelectedAudio) {
+      throw new Error("此版本暂不支持导入前试听，请更新桌面软件后重试。");
+    }
+    const audioBytes = await window.desktopFiles.readSelectedAudio(sourcePath);
+    const previewUrl = URL.createObjectURL(new Blob([audioBytes], { type: getAudioMimeType(sourcePath) }));
+    if (referenceAudioPreviewUrlRef.current) {
+      URL.revokeObjectURL(referenceAudioPreviewUrlRef.current);
+    }
+    referenceAudioPreviewUrlRef.current = previewUrl;
+    setReferenceAudioPreviewTime(0);
+    setReferenceAudioEditorError(null);
+    const waveformRequestId = referenceAudioWaveformRequestRef.current + 1;
+    referenceAudioWaveformRequestRef.current = waveformRequestId;
+    setReferenceAudioWaveformPeaks([]);
+    setReferenceAudioWaveformStatus("loading");
+    setReferenceAudioEditor({
+      sourcePath,
+      previewUrl,
+      name: getFileBaseName(sourcePath),
+      durationSeconds: 0,
+      trimStartSeconds: 0,
+      trimEndSeconds: 0,
+      autoRecognize: false,
+      target
+    });
+    void decodeWaveformPeaks(new Uint8Array(audioBytes).buffer)
+      .then((peaks) => {
+        if (referenceAudioWaveformRequestRef.current === waveformRequestId) {
+          setReferenceAudioWaveformPeaks(peaks);
+          setReferenceAudioWaveformStatus(peaks.length > 0 ? "ready" : "unavailable");
+        }
+      })
+      .catch(() => {
+        if (referenceAudioWaveformRequestRef.current === waveformRequestId) {
+          setReferenceAudioWaveformPeaks([]);
+          setReferenceAudioWaveformStatus("unavailable");
+        }
+      });
+  }
+
+  function closeReferenceAudioEditor() {
+    referenceAudioPreviewRef.current?.pause();
+    if (referenceAudioPreviewUrlRef.current) {
+      URL.revokeObjectURL(referenceAudioPreviewUrlRef.current);
+      referenceAudioPreviewUrlRef.current = null;
+    }
+    referenceAudioWaveformRequestRef.current += 1;
+    setReferenceAudioPreviewTime(0);
+    setReferenceAudioPreviewPlaying(false);
+    setReferenceAudioWaveformPeaks([]);
+    setReferenceAudioWaveformStatus("idle");
+    setReferenceAudioEditorError(null);
+    setReferenceAudioEditor(null);
+  }
+
+  function onReferenceAudioMetadataLoaded(durationSeconds: number) {
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      setReferenceAudioEditorError("无法读取这条音频的时长，请换一个可正常播放的文件。");
+      return;
+    }
+    setReferenceAudioEditor((editor) =>
+      editor
+        ? {
+            ...editor,
+            durationSeconds,
+            trimStartSeconds: 0,
+            trimEndSeconds: durationSeconds
+          }
+        : editor
+    );
+  }
+
+  function updateReferenceAudioTrim(boundary: "start" | "end", rawValue: string) {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    setReferenceAudioEditor((editor) => {
+      if (!editor || editor.durationSeconds <= 0) {
+        return editor;
+      }
+      const minimumGap = Math.min(0.1, editor.durationSeconds);
+      if (boundary === "start") {
+        return {
+          ...editor,
+          trimStartSeconds: Math.max(0, Math.min(value, editor.trimEndSeconds - minimumGap))
+        };
+      }
+      return {
+        ...editor,
+        trimEndSeconds: Math.min(editor.durationSeconds, Math.max(value, editor.trimStartSeconds + minimumGap))
+      };
+    });
+  }
+
+  function onReferenceAudioPreviewTimeUpdate(currentTime: number) {
+    setReferenceAudioPreviewTime(currentTime);
+    const editor = referenceAudioEditor;
+    const player = referenceAudioPreviewRef.current;
+    if (editor && player && editor.trimEndSeconds > editor.trimStartSeconds && currentTime >= editor.trimEndSeconds) {
+      player.currentTime = editor.trimEndSeconds;
+      player.pause();
+    }
+  }
+
+  function seekReferenceAudioPreview(ratio: number) {
+    const editor = referenceAudioEditor;
+    const player = referenceAudioPreviewRef.current;
+    if (!editor || !player || editor.durationSeconds <= 0) {
+      return;
+    }
+    const nextTime = Math.max(0, Math.min(editor.durationSeconds, ratio * editor.durationSeconds));
+    player.currentTime = nextTime;
+    setReferenceAudioPreviewTime(nextTime);
+  }
+
+  function updateReferenceAudioTrimRatio(boundary: "start" | "end", ratio: number) {
+    const durationSeconds = referenceAudioEditor?.durationSeconds ?? 0;
+    if (durationSeconds <= 0) {
+      return;
+    }
+    updateReferenceAudioTrim(boundary, String(ratio * durationSeconds));
+  }
+
+  async function toggleReferenceAudioPreview() {
+    const player = referenceAudioPreviewRef.current;
+    const editor = referenceAudioEditor;
+    if (!player || !editor) {
+      return;
+    }
+    if (player.paused) {
+      try {
+        if (player.currentTime < editor.trimStartSeconds || player.currentTime >= editor.trimEndSeconds) {
+          player.currentTime = editor.trimStartSeconds;
+        }
+        await player.play();
+        setReferenceAudioPreviewPlaying(true);
+      } catch (err) {
+        setReferenceAudioEditorError(err instanceof Error ? err.message : "无法播放这条参考音频。");
+      }
+    } else {
+      player.pause();
+      setReferenceAudioPreviewPlaying(false);
+    }
+  }
+
+  async function saveReferenceAudioEditor() {
+    const editor = referenceAudioEditor;
+    if (!editor || !editor.name.trim()) {
+      setReferenceAudioEditorError("请填写音色名称。");
+      return;
+    }
+    if (editor.durationSeconds <= 0 || editor.trimEndSeconds <= editor.trimStartSeconds) {
+      setReferenceAudioEditorError("请等待音频加载完成后再设置裁切范围。");
+      return;
+    }
+
+    const hasTrimmedSelection = editor.trimStartSeconds > 0.05 || editor.trimEndSeconds < editor.durationSeconds - 0.05;
+    const trimPayload = hasTrimmedSelection
+      ? {
+          trim_start_seconds: Number(editor.trimStartSeconds.toFixed(3)),
+          trim_end_seconds: Number(editor.trimEndSeconds.toFixed(3))
+        }
+      : {};
+    setReferenceAudioEditorSaving(true);
+    setReferenceAudioEditorError(null);
+    try {
+      if (editor.target.kind === "create") {
+        setVoiceImporting(true);
+        const createdVoice = await createVoice({
+          name: editor.name.trim(),
+          reference_audio: editor.sourcePath,
+          authorization_status: "authorized",
+          source_type: "local_import",
+          ...trimPayload
+        });
+        const preset = createImportedVoicePreset(createdVoice);
+        if (preset) {
+          setCustomVoices((voices) => [...voices.filter((voice) => voice.id !== preset.id), preset]);
+          selectedVoiceRef.current = preset.id;
+          setSelectedVoice(preset.id);
+          setReferenceText("");
+          setVoiceMessage(
+            editor.autoRecognize
+              ? `已保存 ${preset.name}，正在识别选中片段的参考文本…`
+              : `已保存 ${preset.name}。可在音色库中识别或填写参考文本。`
+          );
+          if (editor.autoRecognize) {
+            startAutomaticVoiceRecognition(createdVoice);
+          }
+        }
+      } else {
+        const updated = await updateVoice(editor.target.voiceId, {
+          reference_audio: editor.sourcePath,
+          reference_text: null,
+          ...trimPayload
+        });
+        mergeManagedVoice(updated, selectedVoice === updated.id);
+        setVoiceManagerDraft((draft) => ({ ...draft, referenceText: "" }));
+        if (selectedVoice === updated.id) {
+          setReferenceText("");
+        }
+        setVoiceManagerMessage(
+          editor.autoRecognize
+            ? "参考音频已替换，正在识别选中片段的参考文本。"
+            : "参考音频已替换。需要时可点击“识别参考文本”。"
+        );
+        if (editor.autoRecognize) {
+          startAutomaticVoiceRecognition(updated);
+        }
+      }
+      closeReferenceAudioEditor();
+    } catch (err) {
+      setReferenceAudioEditorError(err instanceof Error ? err.message : "保存参考音频失败");
+    } finally {
+      setVoiceImporting(false);
+      setReferenceAudioEditorSaving(false);
+    }
+  }
+
   async function onReplaceVoiceReference() {
     if (!managedVoice || !window.desktopFiles?.selectReferenceAudio) {
       setVoiceManagerError("请在桌面软件中选择参考音频。");
@@ -1869,16 +2412,7 @@ export function App() {
       if (!audioPath) {
         return;
       }
-      const updated = await updateVoice(managedVoice.id, {
-        reference_audio: audioPath,
-        reference_text: null
-      });
-      mergeManagedVoice(updated, selectedVoice === updated.id);
-      if (selectedVoice === updated.id) {
-        setReferenceText("");
-      }
-      setVoiceManagerMessage("参考音频已替换并复制到本软件的音色目录，正在自动识别原文。");
-      startAutomaticVoiceRecognition(updated);
+      await openReferenceAudioEditor(audioPath, { kind: "replace", voiceId: managedVoice.id });
     } catch (err) {
       setVoiceManagerError(err instanceof Error ? err.message : "替换参考音频失败");
     } finally {
@@ -2097,7 +2631,11 @@ export function App() {
         title: batchProjectTitle.trim(),
         model: batchProjectModel,
         segments: segments.map((text) => ({ text })),
-        voice: batchProjectModel === "doubao-web" ? batchProjectDoubaoVoice?.style_id : undefined,
+        voice: batchProjectModel === "doubao-web"
+          ? batchProjectDoubaoVoice?.style_id
+          : batchProjectModel === "gptsovits"
+            ? selectedVoice
+            : undefined,
         pitch: batchProjectModel === "doubao-web" ? batchProjectDoubaoPitch : undefined,
         response_format: batchProjectModel === "doubao-web" ? batchProjectDoubaoFormat : "wav",
         reference_audio: batchProjectModel === "doubao-web" ? undefined : selectedVoiceInfo.referenceAudio,
@@ -2670,21 +3208,7 @@ export function App() {
       if (!audioPath) {
         return;
       }
-      const createdVoice = await createVoice({
-        name: getFileBaseName(audioPath),
-        reference_audio: audioPath,
-        authorization_status: "authorized",
-        source_type: "local_import"
-      });
-      const preset = createImportedVoicePreset(createdVoice);
-      if (preset) {
-        setCustomVoices((voices) => [...voices.filter((voice) => voice.id !== preset.id), preset]);
-        selectedVoiceRef.current = preset.id;
-        setSelectedVoice(preset.id);
-        setReferenceText("");
-        setVoiceMessage(`已导入 ${preset.name}，正在自动识别参考文本…`);
-        startAutomaticVoiceRecognition(createdVoice);
-      }
+      await openReferenceAudioEditor(audioPath, { kind: "create" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "导入音色失败");
     } finally {
@@ -3160,6 +3684,183 @@ export function App() {
     setPendingModelSwitch(null);
   }
 
+  function createCurrentSpeechOptions(): GenerateSpeechOptions {
+    return {
+      voice: isDoubao ? selectedDoubaoVoice?.style_id : selectedModel === "gptsovits" ? selectedVoice : undefined,
+      referenceAudio: needsReferenceAudio ? selectedVoiceInfo.referenceAudio : undefined,
+      referenceText: needsExtremeReferenceText || selectedModel === "gptsovits" ? effectiveReferenceText.trim() || undefined : undefined,
+      emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
+      speed: showSpeedControl ? speed : 1,
+      pitch: isDoubao ? doubaoPitch : undefined,
+      responseFormat: isDoubao ? doubaoFormat : "wav",
+      cfg: showCfgSteps ? cfg : undefined,
+      inferenceSteps: showCfgSteps ? steps : undefined,
+      temperature: showIndexSampling ? indexTemperature : undefined,
+      topP: showIndexSampling ? indexTopP : undefined,
+      topK: showIndexSampling ? indexTopK : undefined,
+      numBeams: showIndexSampling ? indexNumBeams : undefined,
+      repetitionPenalty: showIndexSampling ? indexRepetitionPenalty : undefined,
+      maxMelTokens: showIndexSampling ? indexMaxMelTokens : undefined,
+      normalize: showNormalizeToggle ? normalizeText : undefined,
+      denoise: showDenoiseToggle ? denoise : undefined
+    };
+  }
+
+  function publishDrawSession(session: DrawSession | null) {
+    setDrawSession(session ? { ...session } : null);
+  }
+
+  function selectDrawCandidate(candidate: DrawCandidate) {
+    audioRef.current?.pause();
+    setIsPlaying(false);
+    setResult(candidate.result);
+    setResultReferenceText(candidate.input);
+    setResultModelName(candidate.modelName);
+    setResultVoiceName(candidate.voiceName);
+    setSavedVoicePath(null);
+    setPlaybackTime(0);
+    setPlaybackDuration(candidate.result.duration_seconds);
+    setSelectedDrawCandidateId(candidate.id);
+  }
+
+  function finishDrawSession(session: DrawSession, status: Extract<DrawSession["status"], "completed" | "cancelled">) {
+    if (drawSessionRef.current?.id !== session.id) {
+      return;
+    }
+    session.status = status;
+    session.activeJobId = null;
+    session.handlingTerminalJob = false;
+    drawSessionRef.current = null;
+    publishDrawSession(session);
+    setLoading(false);
+    setGenerationStartedAt(null);
+    setActiveSpeechJob(null);
+    setActiveSpeechContext(null);
+    if (status === "completed" && session.successful === 0) {
+      setError("抽卡已结束，但没有生成出可用音频。请查看任务中心中的失败原因。");
+    }
+    void loadSystemStatus();
+  }
+
+  async function startNextDrawJob(session: DrawSession) {
+    if (drawSessionRef.current?.id !== session.id) {
+      return;
+    }
+    if (session.cancelRequested) {
+      finishDrawSession(session, "cancelled");
+      return;
+    }
+    session.handlingTerminalJob = false;
+    session.activeJobId = null;
+    publishDrawSession(session);
+    try {
+      const job = await createSpeechJob(session.model, session.input, session.options);
+      if (drawSessionRef.current?.id !== session.id || session.cancelRequested) {
+        await cancelSpeechJob(job.id, false).catch(() => undefined);
+        if (drawSessionRef.current?.id === session.id) {
+          finishDrawSession(session, "cancelled");
+        }
+        return;
+      }
+      session.activeJobId = job.id;
+      publishDrawSession(session);
+      setActiveSpeechContext({ modelName: session.modelName, voiceName: session.voiceName });
+      setActiveSpeechJob(job);
+      void loadTaskSummaries();
+    } catch (err) {
+      session.failed += 1;
+      if (session.currentIndex >= session.total || session.cancelRequested) {
+        finishDrawSession(session, session.cancelRequested ? "cancelled" : "completed");
+        return;
+      }
+      session.currentIndex += 1;
+      publishDrawSession(session);
+      void startNextDrawJob(session);
+    }
+  }
+
+  async function handleDrawTerminalJob(job: SpeechJob) {
+    const session = drawSessionRef.current;
+    if (!session || session.activeJobId !== job.id) {
+      return false;
+    }
+    if (session.handlingTerminalJob) {
+      return true;
+    }
+    session.handlingTerminalJob = true;
+    if (job.status === "succeeded" && job.result) {
+      const candidate: DrawCandidate = {
+        id: job.id,
+        index: session.currentIndex,
+        result: job.result,
+        modelName: session.modelName,
+        voiceName: session.voiceName,
+        input: session.input
+      };
+      session.successful += 1;
+      setDrawCandidates((candidates) => [...candidates, candidate]);
+      if (session.successful === 1) {
+        selectDrawCandidate(candidate);
+      }
+    } else if (job.status !== "cancelled") {
+      session.failed += 1;
+    }
+
+    setActiveSpeechJob(null);
+    setActiveSpeechContext(null);
+    session.activeJobId = null;
+    if (session.cancelRequested || job.status === "cancelled") {
+      finishDrawSession(session, "cancelled");
+      return true;
+    }
+    if (session.currentIndex >= session.total) {
+      finishDrawSession(session, "completed");
+      return true;
+    }
+    session.currentIndex += 1;
+    publishDrawSession(session);
+    void startNextDrawJob(session);
+    return true;
+  }
+
+  async function onDrawGenerate() {
+    if (!canGenerate) {
+      return;
+    }
+    const requestText = input.trim();
+    const session: DrawSession = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      total: drawCount,
+      currentIndex: 1,
+      successful: 0,
+      failed: 0,
+      status: "running",
+      activeJobId: null,
+      cancelRequested: false,
+      model: selectedModel,
+      input: requestText,
+      options: createCurrentSpeechOptions(),
+      modelName: selectedModelInfo?.display_name ?? selectedModel,
+      voiceName: currentVoiceName,
+      handlingTerminalJob: false
+    };
+    setLoading(true);
+    setError(null);
+    setIsPlaying(false);
+    setResult(null);
+    setResultReferenceText("");
+    setResultModelName("");
+    setResultVoiceName("");
+    setSavedVoicePath(null);
+    setDrawCandidates([]);
+    setSelectedDrawCandidateId(null);
+    drawSessionRef.current = session;
+    publishDrawSession(session);
+    setGenerationStartedAt(Date.now());
+    setElapsedSeconds(0);
+    await startNextDrawJob(session);
+  }
+
   async function onGenerate() {
     setLoading(true);
     setError(null);
@@ -3169,6 +3870,10 @@ export function App() {
     setResultModelName("");
     setResultVoiceName("");
     setSavedVoicePath(null);
+    drawSessionRef.current = null;
+    setDrawSession(null);
+    setDrawCandidates([]);
+    setSelectedDrawCandidateId(null);
     const startedAt = Date.now();
     const requestText = input.trim();
     const requestModelName = selectedModelInfo?.display_name ?? selectedModel;
@@ -3176,25 +3881,7 @@ export function App() {
     setGenerationStartedAt(startedAt);
     setElapsedSeconds(0);
     try {
-      const job = await createSpeechJob(selectedModel, requestText, {
-        voice: isDoubao ? selectedDoubaoVoice?.style_id : undefined,
-        referenceAudio: needsReferenceAudio ? selectedVoiceInfo.referenceAudio : undefined,
-        referenceText: needsExtremeReferenceText || selectedModel === "gptsovits" ? effectiveReferenceText.trim() || undefined : undefined,
-        emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
-        speed: showSpeedControl ? speed : 1,
-        pitch: isDoubao ? doubaoPitch : undefined,
-        responseFormat: isDoubao ? doubaoFormat : "wav",
-        cfg: showCfgSteps ? cfg : undefined,
-        inferenceSteps: showCfgSteps ? steps : undefined,
-        temperature: showIndexSampling ? indexTemperature : undefined,
-        topP: showIndexSampling ? indexTopP : undefined,
-        topK: showIndexSampling ? indexTopK : undefined,
-        numBeams: showIndexSampling ? indexNumBeams : undefined,
-        repetitionPenalty: showIndexSampling ? indexRepetitionPenalty : undefined,
-        maxMelTokens: showIndexSampling ? indexMaxMelTokens : undefined,
-        normalize: showNormalizeToggle ? normalizeText : undefined,
-        denoise: showDenoiseToggle ? denoise : undefined
-      });
+      const job = await createSpeechJob(selectedModel, requestText, createCurrentSpeechOptions());
       setActiveSpeechContext({ modelName: requestModelName, voiceName: requestVoiceName });
       setActiveSpeechJob(job);
       void loadTaskSummaries();
@@ -3207,20 +3894,35 @@ export function App() {
   }
 
   async function onForceStopActiveGeneration() {
-    if (!activeSpeechJob) {
+    const activeDrawSession = drawSessionRef.current;
+    if (!activeSpeechJob && !activeDrawSession) {
       return;
     }
-    const isCloudJob = activeSpeechJob.request.model === "doubao-web";
-    if (!window.confirm(isCloudJob
-      ? "将终止当前豆包生成请求，未保存的本次结果会丢失，是否继续？"
-      : "将终止当前生成并关闭该模型进程以释放显存。未保存的本次结果会丢失，是否继续？")) {
+    const isCloudJob = activeSpeechJob?.request.model === "doubao-web";
+    const drawMessage = activeDrawSession
+      ? `将停止本轮抽卡，已完成的 ${activeDrawSession.successful} 条会保留，后续 ${Math.max(0, activeDrawSession.total - activeDrawSession.currentIndex)} 条不再生成。是否继续？`
+      : isCloudJob
+        ? "将终止当前豆包生成请求，未保存的本次结果会丢失，是否继续？"
+        : "将终止当前生成并关闭该模型进程以释放显存。未保存的本次结果会丢失，是否继续？";
+    if (!window.confirm(drawMessage)) {
       return;
     }
     setError(null);
     try {
+      if (activeDrawSession) {
+        activeDrawSession.cancelRequested = true;
+        activeDrawSession.status = "stopping";
+        publishDrawSession(activeDrawSession);
+      }
+      if (!activeSpeechJob) {
+        if (activeDrawSession) {
+          finishDrawSession(activeDrawSession, "cancelled");
+        }
+        return;
+      }
       const cancelled = await cancelSpeechJob(activeSpeechJob.id, true);
       setActiveSpeechJob(cancelled);
-      setTaskCenterMessage(isCloudJob ? "已终止豆包生成请求。" : "已终止无响应的生成任务，模型显存正在释放。");
+      setTaskCenterMessage(activeDrawSession ? "已停止本轮抽卡，正在结束当前任务。" : isCloudJob ? "已终止豆包生成请求。" : "已终止无响应的生成任务，模型显存正在释放。");
       void loadTaskSummaries();
     } catch (err) {
       setError(err instanceof Error ? err.message : "终止生成失败");
@@ -3232,9 +3934,15 @@ export function App() {
     setTaskCenterError(null);
     try {
       if (task.source === "speech") {
+        const activeDrawSession = drawSessionRef.current;
+        if (activeDrawSession?.activeJobId === task.id) {
+          activeDrawSession.cancelRequested = true;
+          activeDrawSession.status = "stopping";
+          publishDrawSession(activeDrawSession);
+        }
         const force = task.status === "running";
         await cancelSpeechJob(task.id, force);
-        setTaskCenterMessage(force ? "已终止当前生成，并请求释放模型显存。" : "排队生成任务已取消。");
+        setTaskCenterMessage(activeDrawSession?.activeJobId === task.id ? "已停止本轮抽卡，当前任务结束后不会继续生成。" : force ? "已终止当前生成，并请求释放模型显存。" : "排队生成任务已取消。");
       } else if (task.source === "batch_project") {
         const projectId = task.id.replace(/^project:/, "");
         const updated = await cancelBatchProject(projectId);
@@ -3363,6 +4071,17 @@ export function App() {
     }
   }
 
+  function seekGeneratedAudio(ratio: number) {
+    const player = audioRef.current;
+    const durationSeconds = playbackDuration || result?.duration_seconds || 0;
+    if (!player || durationSeconds <= 0) {
+      return;
+    }
+    const nextTime = Math.max(0, Math.min(durationSeconds, ratio * durationSeconds));
+    player.currentTime = nextTime;
+    setPlaybackTime(nextTime);
+  }
+
   function onImportText(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) {
@@ -3420,6 +4139,14 @@ export function App() {
   }
 
   useEffect(() => {
+    return () => {
+      if (referenceAudioPreviewUrlRef.current) {
+        URL.revokeObjectURL(referenceAudioPreviewUrlRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     loadModels();
     loadVoices();
     void loadDoubaoState();
@@ -3439,6 +4166,13 @@ export function App() {
   useEffect(() => {
     selectedVoiceRef.current = selectedVoice;
   }, [selectedVoice]);
+
+  useEffect(() => {
+    if (selectedVoice === "custom" || availableVoices.some((voice) => voice.id === selectedVoice)) {
+      return;
+    }
+    setSelectedVoice(availableVoices[0]?.id ?? "custom");
+  }, [availableVoices, selectedVoice]);
 
   useEffect(() => {
     managedVoiceIdRef.current = managedVoiceId;
@@ -3534,6 +4268,13 @@ export function App() {
         if (!isTerminalTaskStatus(job.status)) {
           return;
         }
+        if (await handleDrawTerminalJob(job)) {
+          void loadModelInstances();
+          if (job.request.model === "doubao-web") {
+            void loadDoubaoState();
+          }
+          return;
+        }
         if (job.status === "succeeded" && job.result) {
           setResult(job.result);
           setResultReferenceText(job.request.input);
@@ -3604,6 +4345,40 @@ export function App() {
   useEffect(() => {
     setIsPlaying(false);
     setPlaybackTime(0);
+  }, [audioUrl]);
+
+  useEffect(() => {
+    if (!audioUrl) {
+      setResultWaveformPeaks([]);
+      setResultWaveformStatus("idle");
+      return undefined;
+    }
+    const controller = new AbortController();
+    let disposed = false;
+    setResultWaveformPeaks([]);
+    setResultWaveformStatus("loading");
+    void (async () => {
+      try {
+        const response = await fetch(audioUrl, { signal: controller.signal });
+        if (!response.ok) {
+          throw new Error(`音频读取失败：${response.status}`);
+        }
+        const peaks = await decodeWaveformPeaks(await response.arrayBuffer());
+        if (!disposed) {
+          setResultWaveformPeaks(peaks);
+          setResultWaveformStatus(peaks.length > 0 ? "ready" : "unavailable");
+        }
+      } catch (err) {
+        if (!disposed && !(err instanceof DOMException && err.name === "AbortError")) {
+          setResultWaveformPeaks([]);
+          setResultWaveformStatus("unavailable");
+        }
+      }
+    })();
+    return () => {
+      disposed = true;
+      controller.abort();
+    };
   }, [audioUrl]);
 
   useEffect(() => {
@@ -3838,19 +4613,23 @@ export function App() {
                         return;
                       }
                       setSelectedVoice(voice.id);
+                      if (voice.modelBinding) {
+                        setReferenceText(voice.referenceText ?? "");
+                      }
                     }}
                     disabled={voice.id === "custom" && voiceImporting}
                     title={voice.name}
-                  >
-                    <span
+                    >
+                      <span
                       className="voiceAvatar"
                       style={{ "--avatar-bg": voice.background } as CSSProperties}
                       aria-hidden="true"
                     >
                       {voice.initials}
-                    </span>
-                    <span className="voiceName">{voice.name}</span>
-                    <small>{voice.subtitle}</small>
+                      </span>
+                      <span className="voiceName">{voice.name}</span>
+                      {voice.modelBinding && <span className="voiceModelWeightBadge">专属权重</span>}
+                      <small>{voice.subtitle}</small>
                   </button>
                 ))}
               </div>
@@ -4167,8 +4946,14 @@ export function App() {
                 <div className="generatingState">
                   <div className="pulseBadge">
                     <Loader2 className="spin" size={18} />
-                    <span>{selectedModelInfo?.display_name ?? selectedModel} 正在生成</span>
+                    <span>{drawSession ? `抽卡第 ${drawSession.currentIndex}/${drawSession.total} 条生成中` : `${selectedModelInfo?.display_name ?? selectedModel} 正在生成`}</span>
                   </div>
+                  {drawSession && (
+                    <div className="drawGeneratingSummary">
+                      <span>同一参数串行生成，不会并发占用显存</span>
+                      <strong>已获得 {drawSession.successful} 条 · 失败 {drawSession.failed} 条</strong>
+                    </div>
+                  )}
                   <div className="progressConsole">
                     <div className="progressHeader">
                       <div>
@@ -4211,6 +4996,33 @@ export function App() {
                     ))}
                   </div>
                 </div>
+              ) : drawCandidates.length > 0 ? (
+                <section className="drawCandidatesStage" aria-label="抽卡候选结果">
+                  <header className="drawCandidatesHeader">
+                    <div>
+                      <span>抽卡结果</span>
+                      <strong>{drawSession?.status === "cancelled" ? "已停止，已完成的候选仍可选择" : "选择一条作为当前试听结果"}</strong>
+                    </div>
+                    <small>{drawCandidates.length} / {drawSession?.total ?? drawCandidates.length} 条可用</small>
+                  </header>
+                  <div className="drawCandidateGrid">
+                    {drawCandidates.map((candidate) => (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        className={candidate.id === selectedDrawCandidateId ? "drawCandidateCard active" : "drawCandidateCard"}
+                        aria-pressed={candidate.id === selectedDrawCandidateId}
+                        onClick={() => selectDrawCandidate(candidate)}
+                      >
+                        <span className="drawCandidateIndex">第 {candidate.index} 条</span>
+                        <Volume2 size={20} strokeWidth={1.8} />
+                        <strong>{formatDuration(candidate.result.duration_seconds)}</strong>
+                        <small>{candidate.result.sample_rate} Hz · 点击选中试听</small>
+                        {candidate.id === selectedDrawCandidateId && <CheckCircle2 className="drawCandidateCheck" size={16} strokeWidth={2.2} />}
+                      </button>
+                    ))}
+                  </div>
+                </section>
               ) : result ? (
                 <div className="resultCard">
                   <div className="resultIcon">
@@ -4249,6 +5061,25 @@ export function App() {
                 <button className="roundAdd" title="创建批量任务" onClick={openBatchProjectWorkspace}>
                   <Plus size={18} strokeWidth={2} />
                 </button>
+                <div className="drawControl" role="group" aria-label="抽卡生成条数" title="同一参数串行生成多条候选；不会并行占用显存。">
+                  <span>抽卡</span>
+                  {([2, 3, 4] as const).map((count) => (
+                    <button
+                      key={count}
+                      type="button"
+                      className={drawCount === count ? "active" : ""}
+                      disabled={loading}
+                      aria-pressed={drawCount === count}
+                      onClick={() => setDrawCount(count)}
+                    >
+                      {count}
+                    </button>
+                  ))}
+                </div>
+                <button className="secondaryAction drawGenerateButton" disabled={!canGenerate} onClick={() => void onDrawGenerate()} title="同一参数串行生成多条候选，完成后可挑选试听">
+                  {loading ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} strokeWidth={1.9} />}
+                  <span>抽 {drawCount} 条</span>
+                </button>
                 <button className="primaryAction editorGenerateButton" disabled={!canGenerate} onClick={onGenerate}>
                   {loading ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} strokeWidth={1.9} />}
                   <span>{loading ? "生成中" : "开始生成"}</span>
@@ -4278,9 +5109,14 @@ export function App() {
               <span>/</span>
               <span>{formatDuration(playbackDuration || result?.duration_seconds)}</span>
             </div>
-            <div className="playerTrack">
-              <div className="trackFill" style={{ width: `${progress}%` }} />
-            </div>
+            <AudioWaveform
+              className="playerWaveform"
+              peaks={resultWaveformPeaks}
+              status={resultWaveformStatus}
+              progressRatio={progress / 100}
+              onSeekRatio={seekGeneratedAudio}
+              ariaLabel="生成音频播放波形，点击可跳转试听位置"
+            />
             <div className="playerInfo">
               {result ? (
                 <>
@@ -4360,7 +5196,7 @@ export function App() {
             </header>
 
             <div className="settingsBody voiceManagerBody">
-              {customVoices.length === 0 ? (
+              {visibleManagedVoices.length === 0 ? (
                 <div className="voiceManagerEmpty">
                   <Library size={24} strokeWidth={1.7} />
                   <strong>还没有已保存的音色</strong>
@@ -4369,7 +5205,7 @@ export function App() {
               ) : (
                 <div className="voiceManagerLayout">
                   <aside className="voiceManagerList" aria-label="音色列表">
-                    {customVoices.map((voice) => (
+                    {visibleManagedVoices.map((voice) => (
                       <button
                         key={voice.id}
                         type="button"
@@ -4379,7 +5215,7 @@ export function App() {
                         <span className="voiceAvatar" style={{ "--avatar-bg": voice.background } as CSSProperties} aria-hidden="true">{voice.initials}</span>
                         <span>
                           <strong>{voice.name}</strong>
-                          <small>{voice.referenceAudioManaged ? "参考音频已托管" : "外部参考路径"}</small>
+                          <small>{voice.modelBinding ? "GPT-SoVITS 专属权重" : voice.referenceAudioManaged ? "参考音频已托管" : "外部参考路径"}</small>
                         </span>
                       </button>
                     ))}
@@ -4398,7 +5234,7 @@ export function App() {
                         </button>
                       </div>
                       <p className="voiceManagerHint">
-                        替换后会自动复制到音色目录并后台识别原文，原文件可以移动或删除。极致克隆和 GPT-SoVITS 使用前仍建议核对文本。
+                        替换时可先试听和裁切，再保存到音色目录；是否识别参考文字由你在保存前决定。极致克隆和 GPT-SoVITS 使用前仍建议核对文本。
                       </p>
                       <label className="settingsField">
                         <span>音色名称（可重命名）</span>
@@ -4424,6 +5260,7 @@ export function App() {
                       </button>
                       <div className="voiceManagerMetadata">
                         <span>来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
+                        {managedVoice.modelBinding && <span>限定模型：GPT-SoVITS</span>}
                         <span>授权：{managedVoice.authorizationStatus ?? "未标注"}</span>
                       </div>
                     </section>
@@ -4452,7 +5289,7 @@ export function App() {
                 <span>导入音色包</span>
               </button>
               {managedVoice && (
-                <button className="secondaryAction settingsAction" type="button" disabled={voiceManagerAction !== null} onClick={() => void onExportVoicePackage()}>
+                <button className="secondaryAction settingsAction" type="button" title={managedVoice.modelBinding ? "模型专属权重不能导出为普通音色包" : undefined} disabled={voiceManagerAction !== null || Boolean(managedVoice.modelBinding)} onClick={() => void onExportVoicePackage()}>
                   {voiceManagerAction === "export" ? <Loader2 className="spin" size={16} /> : <Upload size={16} strokeWidth={1.9} />}
                   <span>导出音色包</span>
                 </button>
@@ -4460,6 +5297,206 @@ export function App() {
               <button className="primaryAction settingsAction" type="button" disabled={!managedVoice || voiceManagerAction !== null} onClick={() => void onSaveVoiceManagerDetails()}>
                 {voiceManagerAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
                 <span>保存名称和原文</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
+      {referenceAudioEditor && (
+        <div
+          className="settingsOverlay referenceAudioEditorOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="裁切参考音频"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !referenceAudioEditorSaving) {
+              closeReferenceAudioEditor();
+            }
+          }}
+        >
+          <section className="settingsDialog referenceAudioEditorDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>参考音频裁切</strong>
+                <span>先试听并保留有效片段，再写入本软件的音色库</span>
+              </div>
+              <button className="modalClose" title="取消导入" disabled={referenceAudioEditorSaving} onClick={closeReferenceAudioEditor}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+
+            <div className="settingsBody referenceAudioEditorBody">
+              <section className="referenceAudioFileCard">
+                <div>
+                  <strong>{getFileBaseName(referenceAudioEditor.sourcePath)}</strong>
+                  <span title={referenceAudioEditor.sourcePath}>{referenceAudioEditor.sourcePath}</span>
+                </div>
+                <span className="referenceAudioDuration">
+                  {referenceAudioEditor.durationSeconds > 0 ? `原始时长 ${formatDuration(referenceAudioEditor.durationSeconds)}` : "正在读取时长"}
+                </span>
+              </section>
+
+              <section className="referenceAudioPlayer" aria-label="参考音频预览">
+                <button
+                  className="playButton referenceAudioPlayButton"
+                  type="button"
+                  disabled={referenceAudioEditor.durationSeconds <= 0}
+                  title={referenceAudioPreviewPlaying ? "暂停试听" : "播放试听"}
+                  onClick={() => void toggleReferenceAudioPreview()}
+                >
+                  {referenceAudioPreviewPlaying ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+                </button>
+                <div className="referenceAudioPlayerInfo">
+                  <strong>{referenceAudioPreviewPlaying ? "正在试听" : "点击试听参考音频"}</strong>
+                  <span>{formatDuration(referenceAudioPreviewTime)} / {formatDuration(referenceAudioEditor.durationSeconds)}</span>
+                </div>
+                <audio
+                  ref={referenceAudioPreviewRef}
+                  src={referenceAudioEditor.previewUrl}
+                  preload="metadata"
+                  onLoadedMetadata={(event) => onReferenceAudioMetadataLoaded(event.currentTarget.duration)}
+                  onTimeUpdate={(event) => onReferenceAudioPreviewTimeUpdate(event.currentTarget.currentTime)}
+                  onPlay={() => setReferenceAudioPreviewPlaying(true)}
+                  onPause={() => setReferenceAudioPreviewPlaying(false)}
+                  onEnded={() => setReferenceAudioPreviewPlaying(false)}
+                  onError={() => setReferenceAudioEditorError("这条音频无法在应用内播放，请检查编码或换一个文件。")}
+                />
+              </section>
+
+              <section className="referenceAudioTrimCard">
+                <div className="referenceAudioTrimHeading">
+                  <div>
+                    <strong>保留片段</strong>
+                    <span>当前选区 {referenceAudioSelectionDuration.toFixed(1)} 秒</span>
+                  </div>
+                  <button
+                    className="secondaryAction referenceAudioResetButton"
+                    type="button"
+                    disabled={referenceAudioEditor.durationSeconds <= 0 || referenceAudioEditorSaving}
+                    onClick={() => setReferenceAudioEditor((editor) => editor ? { ...editor, trimStartSeconds: 0, trimEndSeconds: editor.durationSeconds } : editor)}
+                  >
+                    <span>保留完整音频</span>
+                  </button>
+                </div>
+                <AudioWaveform
+                  className="referenceAudioWaveform"
+                  peaks={referenceAudioWaveformPeaks}
+                  status={referenceAudioWaveformStatus}
+                  progressRatio={referenceAudioEditor.durationSeconds > 0 ? referenceAudioPreviewTime / referenceAudioEditor.durationSeconds : 0}
+                  selectionStartRatio={referenceAudioEditor.durationSeconds > 0 ? referenceAudioEditor.trimStartSeconds / referenceAudioEditor.durationSeconds : 0}
+                  selectionEndRatio={referenceAudioEditor.durationSeconds > 0 ? referenceAudioEditor.trimEndSeconds / referenceAudioEditor.durationSeconds : 1}
+                  editableSelection
+                  onSeekRatio={seekReferenceAudioPreview}
+                  onSelectionChange={updateReferenceAudioTrimRatio}
+                  ariaLabel="参考音频真实波形，可拖动两端选区或点击试听位置"
+                />
+                <div className="referenceAudioTrimControls">
+                  <label className="settingsField">
+                    <span>起点（秒）</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max={Math.max(0, referenceAudioEditor.trimEndSeconds - 0.1)}
+                      step="0.1"
+                      disabled={referenceAudioEditor.durationSeconds <= 0 || referenceAudioEditorSaving}
+                      value={Number(referenceAudioEditor.trimStartSeconds.toFixed(1))}
+                      onChange={(event) => updateReferenceAudioTrim("start", event.target.value)}
+                    />
+                  </label>
+                  <label className="settingsField">
+                    <span>终点（秒）</span>
+                    <input
+                      type="number"
+                      min={Math.min(referenceAudioEditor.durationSeconds, referenceAudioEditor.trimStartSeconds + 0.1)}
+                      max={referenceAudioEditor.durationSeconds || undefined}
+                      step="0.1"
+                      disabled={referenceAudioEditor.durationSeconds <= 0 || referenceAudioEditorSaving}
+                      value={Number(referenceAudioEditor.trimEndSeconds.toFixed(1))}
+                      onChange={(event) => updateReferenceAudioTrim("end", event.target.value)}
+                    />
+                  </label>
+                </div>
+                <div className="referenceAudioSliders" aria-label="裁切选区滑块">
+                  <label>
+                    <span>起点</span>
+                    <input
+                      type="range"
+                      min="0"
+                      max={Math.max(0, referenceAudioEditor.trimEndSeconds - 0.1)}
+                      step="0.1"
+                      disabled={referenceAudioEditor.durationSeconds <= 0 || referenceAudioEditorSaving}
+                      value={referenceAudioEditor.trimStartSeconds}
+                      onChange={(event) => updateReferenceAudioTrim("start", event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>终点</span>
+                    <input
+                      type="range"
+                      min={Math.min(referenceAudioEditor.durationSeconds, referenceAudioEditor.trimStartSeconds + 0.1)}
+                      max={referenceAudioEditor.durationSeconds || undefined}
+                      step="0.1"
+                      disabled={referenceAudioEditor.durationSeconds <= 0 || referenceAudioEditorSaving}
+                      value={referenceAudioEditor.trimEndSeconds}
+                      onChange={(event) => updateReferenceAudioTrim("end", event.target.value)}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="referenceAudioAdvice">
+                <Info size={17} strokeWidth={1.9} />
+                <div>
+                  <strong>推荐选择干净的单人语音</strong>
+                  <span>{referenceAudioRecommendation(selectedModel)}</span>
+                  <span>尽量避开背景音乐、多人对话、长停顿与明显混响；裁切后的片段会以 WAV 托管，不会改动原文件。</span>
+                </div>
+              </section>
+
+              <label className="settingsField referenceAudioNameField">
+                <span>音色名称</span>
+                <input
+                  value={referenceAudioEditor.name}
+                  disabled={referenceAudioEditorSaving}
+                  onChange={(event) => setReferenceAudioEditor((editor) => editor ? { ...editor, name: event.target.value } : editor)}
+                />
+              </label>
+
+              <label className="referenceAudioAsrOption">
+                <input
+                  type="checkbox"
+                  checked={referenceAudioEditor.autoRecognize}
+                  disabled={referenceAudioEditorSaving}
+                  onChange={(event) => setReferenceAudioEditor((editor) => editor ? { ...editor, autoRecognize: event.target.checked } : editor)}
+                />
+                <span>
+                  <strong>保存后识别参考文字（ASR）</strong>
+                  <small>会按需启动 VoxCPM2 识别当前选中片段；识别结果仍可在音色库中校对和修改。</small>
+                </span>
+              </label>
+
+              {referenceAudioEditorError && (
+                <div className="settingsFeedback error">
+                  <AlertCircle size={16} strokeWidth={1.9} />
+                  <span>{referenceAudioEditorError}</span>
+                </div>
+              )}
+            </div>
+
+            <footer className="settingsFooter">
+              <button className="secondaryAction settingsAction" type="button" disabled={referenceAudioEditorSaving} onClick={closeReferenceAudioEditor}>
+                <span>取消</span>
+              </button>
+              <span className="settingsFooterSpacer" />
+              <button
+                className="primaryAction settingsAction"
+                type="button"
+                disabled={referenceAudioEditorSaving || referenceAudioEditor.durationSeconds <= 0}
+                onClick={() => void saveReferenceAudioEditor()}
+              >
+                {referenceAudioEditorSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
+                <span>{referenceAudioEditorSaving ? "正在保存" : "保存到音色库"}</span>
               </button>
             </footer>
           </section>

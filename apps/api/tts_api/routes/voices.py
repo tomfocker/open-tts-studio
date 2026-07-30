@@ -73,8 +73,20 @@ def list_voices() -> list[VoiceInfo]:
 def create_voice(request: CreateVoiceRequest) -> VoiceInfo:
     settings = get_settings()
     voice_id = uuid4().hex
+    trim_start_seconds, trim_end_seconds = _resolve_trim_range(
+        request.trim_start_seconds,
+        request.trim_end_seconds,
+    )
+    if (trim_start_seconds is not None or trim_end_seconds is not None) and not request.reference_audio:
+        raise HTTPException(status_code=422, detail="裁切参数需要和参考音频一起提交。")
     reference_asset = (
-        ingest_reference_audio(source_path=request.reference_audio, voice_id=voice_id, settings=settings)
+        ingest_reference_audio(
+            source_path=request.reference_audio,
+            voice_id=voice_id,
+            settings=settings,
+            trim_start_seconds=trim_start_seconds,
+            trim_end_seconds=trim_end_seconds,
+        )
         if request.reference_audio
         else {}
     )
@@ -85,6 +97,7 @@ def create_voice(request: CreateVoiceRequest) -> VoiceInfo:
         authorization_status=request.authorization_status,
         source_type=request.source_type,
         source_url=request.source_url,
+        model_binding=request.model_binding,
         **reference_asset,
     )
     custom_voices = load_custom_voices()
@@ -108,13 +121,37 @@ def update_voice(voice_id: str, request: UpdateVoiceRequest) -> VoiceInfo:
     if "source_type" in changes and isinstance(changes["source_type"], str):
         changes["source_type"] = changes["source_type"].strip() or voice.source_type
     reference_audio = changes.pop("reference_audio", None)
+    trim_start_seconds = changes.pop("trim_start_seconds", None)
+    trim_end_seconds = changes.pop("trim_end_seconds", None)
     if reference_audio is not None:
-        changes.update(ingest_reference_audio(source_path=reference_audio, voice_id=voice_id, settings=get_settings()))
+        trim_start_seconds, trim_end_seconds = _resolve_trim_range(trim_start_seconds, trim_end_seconds)
+        changes.update(
+            ingest_reference_audio(
+                source_path=reference_audio,
+                voice_id=voice_id,
+                settings=get_settings(),
+                trim_start_seconds=trim_start_seconds,
+                trim_end_seconds=trim_end_seconds,
+            )
+        )
+    elif trim_start_seconds is not None or trim_end_seconds is not None:
+        raise HTTPException(status_code=422, detail="裁切参数需要和参考音频一起提交。")
     changes["updated_at"] = utc_now()
     updated = voice.model_copy(update=changes)
     custom_voices[voice_id] = updated
     save_custom_voices(custom_voices)
     return updated
+
+
+def _resolve_trim_range(start_seconds: float | None, end_seconds: float | None) -> tuple[float | None, float | None]:
+    """Keep trimming opt-in and reject partial/invalid client ranges early."""
+    if start_seconds is None and end_seconds is None:
+        return None, None
+    if start_seconds is None or end_seconds is None:
+        raise HTTPException(status_code=422, detail="裁切时请同时提供起点和终点。")
+    if end_seconds <= start_seconds:
+        raise HTTPException(status_code=422, detail="裁切终点必须晚于起点。")
+    return start_seconds, end_seconds
 
 
 @router.post("/v1/tts/voices/{voice_id}/export", response_model=VoicePackageExport)

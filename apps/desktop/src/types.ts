@@ -211,6 +211,10 @@ export type VoiceInfo = {
   original_reference_audio?: string | null;
   reference_audio_sha256?: string | null;
   reference_audio_managed: boolean;
+  model_binding?: {
+    model_id: string;
+    weights: Record<string, string>;
+  } | null;
   created_at: string;
   updated_at: string;
 };
@@ -218,13 +222,22 @@ export type VoiceInfo = {
 export type CreateVoiceRequest = {
   name: string;
   reference_audio?: string | null;
+  trim_start_seconds?: number | null;
+  trim_end_seconds?: number | null;
   reference_text?: string | null;
   authorization_status: string;
   source_type?: string;
   source_url?: string | null;
+  model_binding?: {
+    model_id: string;
+    weights: Record<string, string>;
+  } | null;
 };
 
-export type UpdateVoiceRequest = Partial<Pick<VoiceInfo, "name" | "reference_audio" | "reference_text" | "authorization_status" | "source_type" | "source_url">>;
+export type UpdateVoiceRequest = Partial<Pick<VoiceInfo, "name" | "reference_audio" | "reference_text" | "authorization_status" | "source_type" | "source_url">> & {
+  trim_start_seconds?: number | null;
+  trim_end_seconds?: number | null;
+};
 
 export type VoicePackageExport = {
   file_name: string;
