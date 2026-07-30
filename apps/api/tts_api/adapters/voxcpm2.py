@@ -8,7 +8,7 @@ from typing import Callable
 import httpx
 
 from tts_api.adapters.base import TtsAdapter
-from tts_api.audio import create_output_path, read_wav_metadata
+from tts_api.audio import create_output_path, probe_audio_metadata, read_wav_metadata
 from tts_api.config import Settings, get_settings
 from tts_api.schemas import SpeechRequest, SpeechResult
 
@@ -396,10 +396,7 @@ class VoxCpm2Adapter(TtsAdapter):
                 self.service_manager.finish_request()
 
         output_path.write_bytes(response.content)
-        try:
-            sample_rate, duration_seconds = read_wav_metadata(output_path)
-        except Exception:
-            sample_rate, duration_seconds = 48000, 0.0
+        sample_rate, duration_seconds = probe_audio_metadata(output_path, self.settings.ffmpeg_path)
         return SpeechResult(
             audio_url=f"/outputs/{output_path.name}",
             file_path=str(output_path),
@@ -407,41 +404,3 @@ class VoxCpm2Adapter(TtsAdapter):
             sample_rate=sample_rate,
             duration_seconds=duration_seconds,
         )
-
-    def recognize_reference_audio(self, reference_audio: str) -> str:
-        """Transcribe a saved voice with the ASR bundled alongside VoxCPM2."""
-        reference_path = Path(reference_audio)
-        if not reference_path.is_file():
-            raise FileNotFoundError(f"参考音频不存在：{reference_path}")
-
-        if self.service_manager is not None:
-            self.service_manager.ensure_started()
-            self.service_manager.begin_request()
-
-        file_handle = None
-        try:
-            file_handle = reference_path.open("rb")
-            response = self.http_client.post(
-                f"{self.api_base}/recognize",
-                files={"audio": (reference_path.name, file_handle, "application/octet-stream")},
-                timeout=self.request_timeout_seconds,
-            )
-        except httpx.TimeoutException as exc:
-            if self.service_manager is not None:
-                self.service_manager.force_shutdown()
-            raise RuntimeError(
-                f"VoxCPM2 参考音频识别超过 {int(self.request_timeout_seconds)} 秒未返回，"
-                "已停止无响应的模型服务并释放显存。"
-            ) from exc
-        finally:
-            if file_handle is not None:
-                file_handle.close()
-            if self.service_manager is not None:
-                self.service_manager.finish_request()
-
-        response.raise_for_status()
-        payload = response.json()
-        text = payload.get("text") if isinstance(payload, dict) else None
-        if not isinstance(text, str) or not text.strip():
-            raise RuntimeError("VoxCPM2 未从参考音频中识别到可用文本。")
-        return text.strip()

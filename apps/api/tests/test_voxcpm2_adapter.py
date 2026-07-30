@@ -1,4 +1,6 @@
 from pathlib import Path
+from io import BytesIO
+import wave
 
 import httpx
 
@@ -30,9 +32,19 @@ def test_voxcpm2_adapter_builds_expected_command(tmp_path: Path):
     assert output_path.suffix == ".wav"
 
 
+def valid_wav_bytes(sample_rate: int = 48000) -> bytes:
+    buffer = BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(b"\0\0" * sample_rate)
+    return buffer.getvalue()
+
+
 class FakeHttpResponse:
-    def __init__(self, content: bytes = b"RIFFfake-wav", status_code: int = 200, payload: dict | None = None):
-        self.content = content
+    def __init__(self, content: bytes | None = None, status_code: int = 200, payload: dict | None = None):
+        self.content = content if content is not None else valid_wav_bytes()
         self.status_code = status_code
         self.payload = payload or {"status": "ok", "models_loaded": {"all_ready": True}}
 
@@ -191,23 +203,6 @@ def test_voxcpm2_extreme_clone_ignores_voice_design_instruction(tmp_path: Path):
 
     assert client.post_calls[0]["data"]["prompt_text"] == "参考音频实际说的内容。"
     assert client.post_calls[0]["data"]["control_instruction"] == ""
-
-
-def test_voxcpm2_adapter_recognizes_reference_audio(tmp_path: Path):
-    reference_audio = tmp_path / "reference.mp3"
-    reference_audio.write_bytes(b"fake-mp3")
-    client = FakeHttpClient()
-    client.post = lambda url, data=None, files=None, timeout=0: (
-        client.post_calls.append({"url": url, "data": data, "files": files, "timeout": timeout})
-        or FakeHttpResponse(payload={"text": "这是参考音频实际说的内容。"})
-    )
-    adapter = VoxCpm2Adapter(settings=Settings(output_dir=tmp_path), http_client=client, service_manager=None)
-
-    text = adapter.recognize_reference_audio(str(reference_audio))
-
-    assert text == "这是参考音频实际说的内容。"
-    assert client.post_calls[0]["url"].endswith("/recognize")
-    assert client.post_calls[0]["files"]["audio"][0] == "reference.mp3"
 
 
 def test_voxcpm2_adapter_stops_a_managed_service_after_generation_timeout(tmp_path: Path):

@@ -34,6 +34,7 @@ import httpx
 import numpy as np
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from tts_api.adapters.asr import get_local_transcriber
 from tts_api.adapters.voxcpm2 import VoxCpm2Adapter
 from tts_api.adapters.whispera_streaming import (
     WhisperaStreamingGenerationError,
@@ -203,8 +204,9 @@ def _run_asr(payload: bytes) -> str:
     try:
         settings = resolve_runtime_settings(get_settings())
         with local_gpu_generation_lock:
-            release_conflicting_runtimes("voxcpm2", settings)
-            return VoxCpm2Adapter(settings=settings).recognize_reference_audio(str(audio_path))
+            transcriber = get_local_transcriber(settings)
+            release_conflicting_runtimes(transcriber.runtime_model_id, settings)
+            return transcriber.transcribe_path(audio_path, language="zh")
     finally:
         audio_path.unlink(missing_ok=True)
 

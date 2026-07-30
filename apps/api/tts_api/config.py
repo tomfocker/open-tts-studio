@@ -1,6 +1,7 @@
 from functools import lru_cache
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -12,6 +13,11 @@ MODEL_STORE_ROOT = WORKSPACE_ROOT / "models"
 DEFAULT_INDEXTTS2_ROOT = MODEL_STORE_ROOT / "IndexTTS2"
 DEFAULT_VOXCPM2_ROOT = MODEL_STORE_ROOT / "VoxCPM2"
 DEFAULT_GPTSOVITS_ROOT = MODEL_STORE_ROOT / "GPT-SoVITS"
+DEFAULT_SENSEVOICE_ROOT = MODEL_STORE_ROOT / "SenseVoiceSmall"
+DEFAULT_QWEN_ASR_ROOT = MODEL_STORE_ROOT / "Qwen3-ASR-1.7B"
+DEFAULT_QWEN_ALIGNER_ROOT = MODEL_STORE_ROOT / "Qwen3-ForcedAligner-0.6B"
+DEFAULT_CAPSWRITER_ROOT = MODEL_STORE_ROOT / "CapsWriter-Offline"
+DEFAULT_QWEN_RUNTIME_ROOT = MODEL_STORE_ROOT / "Qwen3-runtime"
 DEFAULT_SETTINGS_FILE = WORKSPACE_ROOT / "data" / "config" / "user-settings.json"
 
 
@@ -50,6 +56,108 @@ def _default_task_log_dir() -> Path:
     if configured_settings:
         return Path(configured_settings).parent / "task-logs"
     return WORKSPACE_ROOT / "data" / "logs" / "tasks"
+
+
+def _default_alignment_jobs_file() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_ALIGNMENT_JOBS_FILE")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_tasks = os.environ.get("OPEN_TTS_TASKS_FILE")
+    if configured_tasks:
+        return Path(configured_tasks).with_name("alignments.json")
+    return WORKSPACE_ROOT / "data" / "config" / "alignments.json"
+
+
+def _default_alignment_cache_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_ALIGNMENT_CACHE_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    return WORKSPACE_ROOT / "data" / "alignments" / "cache"
+
+
+def _default_alignment_work_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_ALIGNMENT_WORK_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    return WORKSPACE_ROOT / "data" / "alignments" / "work"
+
+
+def _default_qwen_asr_work_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_QWEN_ASR_WORK_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    return WORKSPACE_ROOT / "data" / "asr" / "qwen3-work"
+
+
+def _default_qwen_asr_python() -> Path:
+    configured = os.environ.get("OPEN_TTS_QWEN_ASR_PYTHON")
+    if configured:
+        return Path(configured)
+    bundled = DEFAULT_QWEN_RUNTIME_ROOT / "python.exe"
+    if bundled.is_file():
+        return bundled
+    return Path(os.environ.get("OPEN_TTS_ALIGNMENT_PYTHON", sys.executable))
+
+
+def _default_qwen_asr_capswriter_root() -> Path | None:
+    configured = os.environ.get("OPEN_TTS_QWEN_ASR_CAPSWRITER_ROOT") or os.environ.get("OPEN_TTS_ALIGNMENT_CAPSWRITER_ROOT")
+    if configured:
+        return Path(configured)
+    return DEFAULT_CAPSWRITER_ROOT if DEFAULT_CAPSWRITER_ROOT.is_dir() else None
+
+
+def _default_qwen_asr_model_dir() -> Path:
+    # The former alignment-only variable remains a migration fallback for
+    # existing local Qwen installs. New deployments should use the dedicated
+    # OPEN_TTS_QWEN_ASR_MODEL_DIR setting.
+    configured = os.environ.get("OPEN_TTS_QWEN_ASR_MODEL_DIR") or os.environ.get("OPEN_TTS_ALIGNMENT_ASR_MODEL_DIR")
+    return Path(configured) if configured else DEFAULT_QWEN_ASR_ROOT
+
+
+def _default_alignment_python() -> Path:
+    configured = os.environ.get("OPEN_TTS_ALIGNMENT_PYTHON")
+    if configured:
+        return Path(configured)
+    bundled = DEFAULT_QWEN_RUNTIME_ROOT / "python.exe"
+    return bundled if bundled.is_file() else Path(sys.executable)
+
+
+def _default_alignment_capswriter_root() -> Path | None:
+    configured = os.environ.get("OPEN_TTS_ALIGNMENT_CAPSWRITER_ROOT")
+    if configured:
+        return Path(configured)
+    return DEFAULT_CAPSWRITER_ROOT if DEFAULT_CAPSWRITER_ROOT.is_dir() else None
+
+
+def _default_alignment_aligner_model_dir() -> Path | None:
+    configured = os.environ.get("OPEN_TTS_ALIGNMENT_ALIGNER_MODEL_DIR")
+    if configured:
+        return Path(configured)
+    return DEFAULT_QWEN_ALIGNER_ROOT if DEFAULT_QWEN_ALIGNER_ROOT.is_dir() else None
+
+
+def _default_sensevoice_model_dir() -> Path:
+    """Resolve the standalone SenseVoice model asset only.
+
+    OpenTTS deliberately never discovers ASR weights inside a TTS package.
+    Install the asset in ``models/SenseVoiceSmall`` or set
+    ``OPEN_TTS_SENSEVOICE_MODEL_DIR`` explicitly.
+    """
+
+    configured = os.environ.get("OPEN_TTS_SENSEVOICE_MODEL_DIR")
+    if configured:
+        return Path(configured)
+    return DEFAULT_SENSEVOICE_ROOT
+
+
+def _default_sensevoice_python() -> Path:
+    """Resolve the configured local ASR runtime without starting any TTS service."""
+
+    configured = os.environ.get("OPEN_TTS_SENSEVOICE_PYTHON")
+    if configured:
+        return Path(configured)
+    standalone = DEFAULT_SENSEVOICE_ROOT / "runtime" / "python.exe"
+    return standalone
 
 
 def _default_voice_asset_dir() -> Path:
@@ -116,6 +224,21 @@ USER_SETTING_KEYS = {
     "book_cache_concurrency",
     "doubao_data_dir",
     "ffmpeg_path",
+    "asr_backend",
+    "qwen_asr_python",
+    "qwen_asr_capswriter_root",
+    "qwen_asr_model_dir",
+    "qwen_asr_device",
+    "alignment_device",
+    "alignment_python",
+    "alignment_capswriter_root",
+    "alignment_aligner_model_dir",
+    "sensevoice_python",
+    "sensevoice_model_dir",
+    "sensevoice_api_host",
+    "sensevoice_api_port",
+    "sensevoice_device",
+    "sensevoice_idle_timeout_seconds",
     "model_instances",
 }
 RESTART_REQUIRED_FIELDS = ["api_host", "api_port"]
@@ -138,9 +261,52 @@ class Settings(BaseModel):
     model_packages_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_MODEL_PACKAGES_FILE", str(WORKSPACE_ROOT / "data" / "config" / "model-packages.json"))))
     tasks_file: Path = Field(default_factory=_default_tasks_file)
     task_log_dir: Path = Field(default_factory=_default_task_log_dir)
+    alignment_jobs_file: Path = Field(default_factory=_default_alignment_jobs_file)
+    alignment_cache_dir: Path = Field(default_factory=_default_alignment_cache_dir)
+    alignment_work_dir: Path = Field(default_factory=_default_alignment_work_dir)
+    # Qwen3-ForcedAligner is run in a separately configured,
+    # local CapsWriter runtime.  Keeping it isolated avoids a second native
+    # ONNX/llama stack inside the lightweight FastAPI desktop runtime.
+    alignment_python: Path = Field(default_factory=_default_alignment_python)
+    alignment_capswriter_root: Path | None = Field(default_factory=_default_alignment_capswriter_root)
+    alignment_aligner_model_dir: Path | None = Field(default_factory=_default_alignment_aligner_model_dir)
+    alignment_device: Literal["auto", "dml", "cpu"] = Field(
+        default_factory=lambda: os.environ.get("OPEN_TTS_ALIGNMENT_DEVICE", "cpu")
+    )
+    alignment_model_version: str = "qwen3-forced-aligner-0.6b"
+    alignment_worker_timeout_seconds: int = Field(
+        default_factory=lambda: int(os.environ.get("OPEN_TTS_ALIGNMENT_TIMEOUT_SECONDS", "900")), ge=30, le=7200
+    )
+    # General local transcription backend. It is intentionally independent
+    # from TTS synthesis and from the final-audio forced-alignment pipeline.
+    asr_backend: Literal["sensevoice", "qwen3"] = Field(
+        default_factory=lambda: os.environ.get("OPEN_TTS_ASR_BACKEND", "sensevoice")
+    )
+    qwen_asr_python: Path = Field(default_factory=_default_qwen_asr_python)
+    qwen_asr_capswriter_root: Path | None = Field(default_factory=_default_qwen_asr_capswriter_root)
+    qwen_asr_model_dir: Path = Field(default_factory=_default_qwen_asr_model_dir)
+    qwen_asr_work_dir: Path = Field(default_factory=_default_qwen_asr_work_dir)
+    qwen_asr_device: Literal["auto", "dml", "cpu"] = Field(
+        default_factory=lambda: os.environ.get("OPEN_TTS_QWEN_ASR_DEVICE", "cpu")
+    )
+    qwen_asr_timeout_seconds: int = Field(
+        default_factory=lambda: int(os.environ.get("OPEN_TTS_QWEN_ASR_TIMEOUT_SECONDS", "900")), ge=30, le=7200
+    )
     indextts2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_INDEXTTS2_ROOT", str(DEFAULT_INDEXTTS2_ROOT))))
     indextts2_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_INDEXTTS2_IDLE_SECONDS", "600")))
     local_api_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_LOCAL_API_IDLE_SECONDS", "600")))
+    # SenseVoice is a standalone local ASR runtime. Its process, model asset,
+    # and configuration are wholly separate from VoxCPM2.
+    sensevoice_python: Path = Field(default_factory=_default_sensevoice_python)
+    sensevoice_model_dir: Path = Field(default_factory=_default_sensevoice_model_dir)
+    sensevoice_api_host: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_SENSEVOICE_API_HOST", "127.0.0.1"))
+    sensevoice_api_port: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_SENSEVOICE_API_PORT", "8004")))
+    sensevoice_device: Literal["auto", "cuda", "cpu"] = Field(
+        default_factory=lambda: os.environ.get("OPEN_TTS_SENSEVOICE_DEVICE", "auto")
+    )
+    sensevoice_idle_timeout_seconds: int = Field(
+        default_factory=lambda: int(os.environ.get("OPEN_TTS_SENSEVOICE_IDLE_SECONDS", "600")), ge=0, le=86400
+    )
     voxcpm2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_VOXCPM2_ROOT", str(DEFAULT_VOXCPM2_ROOT))))
     voxcpm2_api_host: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_VOXCPM2_API_HOST", "127.0.0.1"))
     voxcpm2_api_port: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_VOXCPM2_API_PORT", "8000")))
@@ -215,6 +381,13 @@ def serialize_settings(settings: Settings) -> dict:
         "indextts2_root": str(settings.indextts2_root),
         "indextts2_idle_timeout_seconds": settings.indextts2_idle_timeout_seconds,
         "local_api_idle_timeout_seconds": settings.local_api_idle_timeout_seconds,
+        "sensevoice_python": str(settings.sensevoice_python),
+        "sensevoice_model_dir": str(settings.sensevoice_model_dir),
+        "sensevoice_model_installed": settings.sensevoice_model_dir.is_dir(),
+        "sensevoice_api_host": settings.sensevoice_api_host,
+        "sensevoice_api_port": settings.sensevoice_api_port,
+        "sensevoice_device": settings.sensevoice_device,
+        "sensevoice_idle_timeout_seconds": settings.sensevoice_idle_timeout_seconds,
         "voxcpm2_root": str(settings.voxcpm2_root),
         "voxcpm2_api_host": settings.voxcpm2_api_host,
         "voxcpm2_api_port": settings.voxcpm2_api_port,
@@ -231,6 +404,23 @@ def serialize_settings(settings: Settings) -> dict:
         "doubao_cookie_configured": settings.doubao_cookie_file.exists(),
         "doubao_data_dir": str(settings.doubao_data_dir),
         "ffmpeg_path": settings.ffmpeg_path,
+        "asr_backend": settings.asr_backend,
+        "qwen_asr_python": str(settings.qwen_asr_python),
+        "qwen_asr_capswriter_root": str(settings.qwen_asr_capswriter_root) if settings.qwen_asr_capswriter_root else None,
+        "qwen_asr_model_dir": str(settings.qwen_asr_model_dir),
+        "qwen_asr_model_installed": bool(
+            settings.qwen_asr_capswriter_root
+            and settings.qwen_asr_capswriter_root.is_dir()
+            and settings.qwen_asr_model_dir.is_dir()
+            and settings.qwen_asr_python.is_file()
+        ),
+        "qwen_asr_device": settings.qwen_asr_device,
+        "alignment_model_installed": bool(
+            settings.alignment_aligner_model_dir
+            and settings.alignment_aligner_model_dir.is_dir()
+        ),
+        "alignment_device": settings.alignment_device,
+        "alignment_model_version": settings.alignment_model_version,
         "default_model_id": settings.default_model_id,
         "prewarm_default_model_on_startup": settings.prewarm_default_model_on_startup,
         "model_instances": settings.model_instances,

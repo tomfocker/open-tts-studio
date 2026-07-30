@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from tts_api.adapters.gptsovits import get_gptsovits_service_manager, get_gptsovits_status, release_gptsovits_service
 from tts_api.adapters.indextts2_worker import get_indextts2_worker_client, get_indextts2_worker_status, release_indextts2_worker
+from tts_api.adapters.sensevoice import get_sensevoice_service_manager, get_sensevoice_status, release_sensevoice_service
 from tts_api.adapters.voxcpm2 import get_voxcpm2_service_manager, get_voxcpm2_status, release_voxcpm2_service
 from tts_api.config import Settings, get_settings
 from tts_api.model_health import check_model_instance
@@ -13,6 +14,10 @@ router = APIRouter()
 
 def _model_runtime_settings(model_id: str, require_enabled: bool = True) -> Settings:
     settings = get_settings()
+    # SenseVoice is a shared local post-processing runtime, not a selectable
+    # TTS model instance.  Its paths are explicit ASR settings.
+    if model_id == "sensevoice":
+        return settings
     try:
         instance = get_model_instance(model_id, settings=settings)
     except KeyError:
@@ -31,10 +36,14 @@ def _worker_status(model_id: str, settings: Settings) -> dict:
         return get_voxcpm2_status(settings)
     if model_id == "gptsovits":
         return get_gptsovits_status(settings)
+    if model_id == "sensevoice":
+        return get_sensevoice_status(settings)
     raise HTTPException(status_code=404, detail=f"Runtime controls are not available for: {model_id}")
 
 
 def _assert_startable(model_id: str) -> Settings:
+    if model_id == "sensevoice":
+        return get_settings()
     settings = _model_runtime_settings(model_id)
     instance = get_model_instance(model_id, settings=get_settings())
     health = check_model_instance(instance)
@@ -55,6 +64,9 @@ def start_model_runtime(model_id: str) -> dict:
             manager.ensure_started()
         elif model_id == "gptsovits":
             manager = get_gptsovits_service_manager(settings)
+            manager.ensure_started()
+        elif model_id == "sensevoice":
+            manager = get_sensevoice_service_manager(settings)
             manager.ensure_started()
         else:
             raise HTTPException(status_code=404, detail=f"Runtime controls are not available for: {model_id}")
@@ -88,6 +100,8 @@ def stop_model_runtime(model_id: str) -> dict:
         released = release_voxcpm2_service(settings)
     elif model_id == "gptsovits":
         released = release_gptsovits_service(settings)
+    elif model_id == "sensevoice":
+        released = release_sensevoice_service(settings)
     else:
         raise HTTPException(status_code=404, detail=f"Runtime controls are not available for: {model_id}")
     return {

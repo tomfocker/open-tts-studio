@@ -554,6 +554,9 @@ export type AppSettings = {
   indextts2_root: string;
   indextts2_idle_timeout_seconds: number;
   local_api_idle_timeout_seconds: number;
+  asr_backend: "sensevoice" | "qwen3";
+  sensevoice_model_installed: boolean;
+  qwen_asr_model_installed: boolean;
   voxcpm2_root: string;
   voxcpm2_api_host: string;
   voxcpm2_api_port: number;
@@ -575,6 +578,7 @@ export type AppSettingsUpdate = Partial<
     | "indextts2_root"
     | "indextts2_idle_timeout_seconds"
     | "local_api_idle_timeout_seconds"
+    | "asr_backend"
     | "voxcpm2_root"
     | "voxcpm2_api_host"
     | "voxcpm2_api_port"
@@ -606,6 +610,7 @@ export type SettingsBackup = {
     | "output_dir"
     | "indextts2_idle_timeout_seconds"
     | "local_api_idle_timeout_seconds"
+    | "asr_backend"
     | "default_model_id"
     | "prewarm_default_model_on_startup"
   >;

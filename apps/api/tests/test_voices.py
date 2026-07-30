@@ -360,15 +360,19 @@ def test_voice_reference_recognition_returns_editable_transcript(tmp_path: Path,
     get_settings.cache_clear()
     captured = {"released": None, "reference_audio": None}
 
-    class FakeVoxAdapter:
+    class FakeSenseVoice:
+        model_name = "sensevoice-small"
+        runtime_model_id = "sensevoice"
+
         def __init__(self, settings):
             self.settings = settings
 
-        def recognize_reference_audio(self, reference_audio: str) -> str:
-            captured["reference_audio"] = reference_audio
+        def transcribe_path(self, reference_audio: Path, language: str = "zh") -> str:
+            assert language == "zh"
+            captured["reference_audio"] = str(reference_audio)
             return "自动识别出的参考音频原文。"
 
-    monkeypatch.setattr(voice_routes, "VoxCpm2Adapter", FakeVoxAdapter)
+    monkeypatch.setattr(voice_routes, "get_local_transcriber", lambda _settings: FakeSenseVoice(_settings))
     monkeypatch.setattr(voice_routes, "release_conflicting_runtimes", lambda model_id, _settings: captured.update(released=model_id) or [])
     client = TestClient(app)
     created = client.post(
@@ -380,7 +384,7 @@ def test_voice_reference_recognition_returns_editable_transcript(tmp_path: Path,
 
     assert response.status_code == 200
     assert response.json() == {"voice_id": created["id"], "text": "自动识别出的参考音频原文。"}
-    assert captured["released"] == "voxcpm2"
+    assert captured["released"] == "sensevoice"
     assert captured["reference_audio"] == created["reference_audio"]
 
 

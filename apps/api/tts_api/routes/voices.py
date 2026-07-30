@@ -4,9 +4,9 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
 
-from tts_api.adapters.voxcpm2 import VoxCpm2Adapter
+from tts_api.adapters.asr import get_local_transcriber
 from tts_api.config import get_settings
-from tts_api.runtime_memory import release_conflicting_runtimes, resolve_runtime_settings
+from tts_api.runtime_memory import local_gpu_generation_lock, release_conflicting_runtimes, resolve_runtime_settings
 from tts_api.schemas import (
     CreateVoiceReferenceRequest,
     CreateVoiceRequest,
@@ -384,14 +384,19 @@ def recognize_reference_audio(reference: VoiceReference) -> str:
         raise HTTPException(status_code=422, detail="该参考片段没有可识别的音频。")
     try:
         settings = resolve_runtime_settings(get_settings())
-        release_conflicting_runtimes("voxcpm2", settings)
-        return VoxCpm2Adapter(settings=settings).recognize_reference_audio(reference.reference_audio)
+        # Reference clips use the configured independent ASR backend. Keep
+        # this lifecycle separate from Vox/TTS so changing the TTS package
+        # cannot remove reference transcription.
+        with local_gpu_generation_lock:
+            transcriber = get_local_transcriber(settings)
+            release_conflicting_runtimes(transcriber.runtime_model_id, settings)
+            return transcriber.transcribe_path(Path(reference.reference_audio), language="zh")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=f"参考音频识别失败：{exc}") from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"无法启动 VoxCPM2 参考音频识别：{exc}") from exc
+        raise HTTPException(status_code=502, detail=f"无法启动本地 ASR 参考音频识别：{exc}") from exc
 
 
 @router.post("/v1/tts/voices/{voice_id}/references/{reference_id}/recognize")

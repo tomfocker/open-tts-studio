@@ -4,13 +4,14 @@ import threading
 
 from tts_api.adapters.gptsovits import get_gptsovits_service_manager, get_gptsovits_status, release_gptsovits_service
 from tts_api.adapters.indextts2_worker import get_indextts2_worker_client, get_indextts2_worker_status, release_indextts2_worker
+from tts_api.adapters.sensevoice import get_sensevoice_service_manager, get_sensevoice_status, release_sensevoice_service
 from tts_api.adapters.voxcpm2 import get_voxcpm2_service_manager, get_voxcpm2_status, release_voxcpm2_service
 from tts_api.adapters.whispera_streaming import get_whispera_streaming_status, release_whispera_streaming_service
 from tts_api.config import Settings
 from tts_api.model_instances import apply_model_instance_to_settings, list_model_instances
 
 
-RUNTIME_MODEL_IDS = ("indextts2", "voxcpm2", "voxcpm2_streaming", "gptsovits")
+RUNTIME_MODEL_IDS = ("indextts2", "voxcpm2", "voxcpm2_streaming", "gptsovits", "sensevoice", "qwen3-asr")
 
 # Every local model service ultimately competes for the same GPU.  The regular
 # speech API and the realtime websocket intentionally share this lock so a
@@ -37,11 +38,13 @@ def runtime_workers(settings: Settings, detect_external: bool = False) -> dict[s
             # can be busy or stuck while the desktop still needs CPU/VRAM data.
             "voxcpm2": get_voxcpm2_status(resolved),
             "gptsovits": get_gptsovits_status(resolved),
+            "sensevoice": get_sensevoice_status(resolved),
         }
     return {
         "indextts2": get_indextts2_worker_client(resolved).status(),
         "voxcpm2": get_voxcpm2_service_manager(resolved).status(probe_timeout_seconds=0.25),
         "gptsovits": get_gptsovits_service_manager(resolved).status(probe_timeout_seconds=0.25),
+        "sensevoice": get_sensevoice_service_manager(resolved).status(probe_timeout_seconds=0.25),
     }
 
 
@@ -82,6 +85,49 @@ def release_conflicting_runtimes(target_model_id: str, settings: Settings) -> li
             did_release = release_whispera_streaming_service(resolved)
         elif model_id == "gptsovits":
             did_release = release_gptsovits_service(resolved)
+        elif model_id == "sensevoice":
+            did_release = release_sensevoice_service(resolved)
+        else:
+            did_release = False
+        if did_release:
+            released.append(model_id)
+    return released
+
+
+def release_idle_runtimes_for_alignment(settings: Settings) -> list[str]:
+    """Release managed TTS workers before local post-processing uses the GPU.
+
+    Alignment runs only after final audio is safely written.  Retaining a TTS
+    model at that point trades a small warm-start benefit for a likely OOM when
+    Qwen ForcedAligner is loaded. External/active runtimes are
+    treated exactly like generation preflight: do not kill or silently compete
+    with a process OpenTTS does not own.
+    """
+
+    resolved = resolve_runtime_settings(settings)
+    workers = runtime_workers(resolved, detect_external=True)
+    streaming_worker = get_whispera_streaming_status(resolved)
+    loaded = [(model_id, worker) for model_id, worker in workers.items() if worker.get("loaded", False)]
+    if streaming_worker.get("loaded", False):
+        loaded.append(("voxcpm2_streaming", streaming_worker))
+    for model_id, worker in loaded:
+        if worker.get("active_requests", 0) > 0:
+            raise RuntimeError(f"{model_id} 正在生成，暂不能开始本地强制对齐。")
+        if not worker.get("managed", False):
+            raise RuntimeError(f"检测到外部启动的 {model_id} 服务占用显存；请先关闭后再执行本地强制对齐。")
+
+    released: list[str] = []
+    for model_id, _worker in loaded:
+        if model_id == "indextts2":
+            did_release = release_indextts2_worker(resolved)
+        elif model_id == "voxcpm2":
+            did_release = release_voxcpm2_service(resolved)
+        elif model_id == "voxcpm2_streaming":
+            did_release = release_whispera_streaming_service(resolved)
+        elif model_id == "gptsovits":
+            did_release = release_gptsovits_service(resolved)
+        elif model_id == "sensevoice":
+            did_release = release_sensevoice_service(resolved)
         else:
             did_release = False
         if did_release:
@@ -100,4 +146,6 @@ def force_release_runtime(model_id: str, settings: Settings) -> bool:
         return release_whispera_streaming_service(resolved, force=True)
     if model_id == "gptsovits":
         return release_gptsovits_service(resolved, force=True)
+    if model_id == "sensevoice":
+        return release_sensevoice_service(resolved, force=True)
     return False

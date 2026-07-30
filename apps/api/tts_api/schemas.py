@@ -27,6 +27,106 @@ class ModelInfo(BaseModel):
     internal_only: bool = False
 
 
+class AlignmentGranularity(StrEnum):
+    segment = "segment"
+    token = "token"
+    word = "word"
+
+
+class AlignmentRequest(BaseModel):
+    """Optional post-synthesis alignment request.
+
+    The text is deliberately the TTS input, rather than a caller supplied
+    alternate transcript.  This prevents an alignment request from becoming a
+    second source of truth for the generated narration.
+    """
+
+    enabled: bool = False
+    granularity: AlignmentGranularity = AlignmentGranularity.segment
+    language: str = Field(default="zh", min_length=2, max_length=16)
+    wait_for_result: bool = False
+
+
+class AlignmentStatus(StrEnum):
+    pending = "pending"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class AlignmentJobStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class AlignmentSegment(BaseModel):
+    id: str
+    text: str
+    char_start: int = Field(ge=0)
+    char_end: int = Field(ge=0)
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(ge=0)
+    # Qwen3-ForcedAligner exposes real boundaries but not calibrated token
+    # probabilities.  Null is more truthful than inventing a confidence.
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class AlignmentToken(BaseModel):
+    text: str
+    char_start: int = Field(ge=0)
+    char_end: int = Field(ge=0)
+    start_seconds: float = Field(ge=0)
+    end_seconds: float = Field(ge=0)
+    confidence: float | None = Field(default=None, ge=0, le=1)
+
+
+class AlignmentResult(BaseModel):
+    version: int = 1
+    language: str
+    audio_sha256: str
+    transcript_sha256: str
+    model_version: str
+    duration_seconds: float = Field(ge=0)
+    segments: list[AlignmentSegment] = Field(default_factory=list)
+    tokens: list[AlignmentToken] = Field(default_factory=list)
+    # "words" is included when requested.  Chinese consumers must use tokens
+    # for character animation because semantic word segmentation is not a
+    # reliable timing primitive.
+    words: list[AlignmentToken] | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AlignmentJobInfo(BaseModel):
+    """Public, safe-to-persist status of one post-synthesis alignment task.
+
+    It intentionally contains hashes and output identifiers only.  In
+    particular it never records a voice reference path, reference transcript,
+    API key, or the temporary worker request file.
+    """
+
+    id: str
+    status: AlignmentJobStatus
+    speech_job_id: str | None = None
+    audio_url: str
+    duration_seconds: float = Field(ge=0)
+    language: str
+    granularity: AlignmentGranularity
+    audio_sha256: str
+    transcript_sha256: str
+    model_version: str
+    cache_key: str
+    alignment_url: str
+    alignment: AlignmentResult | None = None
+    error: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    retry_of: str | None = None
+
+
 class SpeechRequest(BaseModel):
     model: str
     input: str = Field(min_length=1)
@@ -50,6 +150,7 @@ class SpeechRequest(BaseModel):
     normalize: bool | None = None
     denoise: bool | None = None
     stream: bool = False
+    alignment: AlignmentRequest | None = None
 
 
 class SpeechResult(BaseModel):
@@ -58,6 +159,17 @@ class SpeechResult(BaseModel):
     model: str
     sample_rate: int
     duration_seconds: float
+    alignment_status: AlignmentStatus | None = None
+    alignment_url: str | None = None
+    alignment: AlignmentResult | None = None
+
+
+class TranscriptionResult(BaseModel):
+    """Text returned by the selected local ASR runtime."""
+
+    text: str
+    language: str
+    model: str
 
 
 def utc_now() -> datetime:

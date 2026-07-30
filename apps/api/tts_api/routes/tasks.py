@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from tts_api.alignment import get_alignment_store
 from tts_api.jobs import get_job_store
 from tts_api.projects import get_project_store
 from tts_api.schemas import TaskEvent, TaskSummary
@@ -78,5 +79,24 @@ def list_tasks() -> dict:
         for project in get_project_store().list()
         if project.status.value != "draft"
     ]
-    tasks = sorted([*speech_tasks, *batch_tasks], key=lambda task: task.updated_at, reverse=True)
+    alignment_tasks = [
+        TaskSummary(
+            id=f"alignment:{job.id}",
+            source="alignment",
+            title="旁白本地 ASR / 强制对齐",
+            status=job.status,
+            stage=job.status,
+            progress_percent=100 if job.status.value == "completed" else 0,
+            created_at=job.created_at,
+            updated_at=job.completed_at or job.started_at or job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            error=job.error,
+            retryable=job.status.value in {"failed", "cancelled"},
+            cancelable=job.status.value in {"queued", "running"},
+            events=[],
+        )
+        for job in get_alignment_store().list()
+    ]
+    tasks = sorted([*speech_tasks, *alignment_tasks, *batch_tasks], key=lambda task: task.updated_at, reverse=True)
     return {"tasks": [task.model_dump(mode="json") for task in tasks]}

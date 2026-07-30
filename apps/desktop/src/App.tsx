@@ -540,6 +540,7 @@ type SettingsDraft = {
   indextts2_root: string;
   indextts2_idle_timeout_seconds: number;
   local_api_idle_timeout_seconds: number;
+  asr_backend: "sensevoice" | "qwen3";
   voxcpm2_root: string;
   voxcpm2_api_host: string;
   voxcpm2_api_port: number;
@@ -834,6 +835,7 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     indextts2_root: settings?.indextts2_root ?? `${modelStoreRoot}\\IndexTTS2`,
     indextts2_idle_timeout_seconds: settings?.indextts2_idle_timeout_seconds ?? 600,
     local_api_idle_timeout_seconds: settings?.local_api_idle_timeout_seconds ?? 600,
+    asr_backend: settings?.asr_backend ?? "sensevoice",
     voxcpm2_root: settings?.voxcpm2_root ?? `${modelStoreRoot}\\VoxCPM2`,
     voxcpm2_api_host: settings?.voxcpm2_api_host ?? "127.0.0.1",
     voxcpm2_api_port: settings?.voxcpm2_api_port ?? 8000,
@@ -3815,6 +3817,7 @@ export function App() {
         output_dir: settingsDraft.output_dir.trim(),
         indextts2_idle_timeout_seconds: Number(settingsDraft.indextts2_idle_timeout_seconds),
         local_api_idle_timeout_seconds: Number(settingsDraft.local_api_idle_timeout_seconds),
+        asr_backend: settingsDraft.asr_backend,
         default_model_id: settingsDraft.default_model_id,
         prewarm_default_model_on_startup: settingsDraft.prewarm_default_model_on_startup
       });
@@ -6728,7 +6731,7 @@ export function App() {
                 />
                 <span>
                   <strong>保存后识别参考文字（ASR）</strong>
-                  <small>会按需启动 VoxCPM2 识别当前选中片段；识别结果仍可在音色库中校对和修改。</small>
+                  <small>会按当前 ASR 设置在本机识别选中片段；识别结果仍可在音色库中校对和修改。</small>
                 </span>
               </label>
 
@@ -7620,6 +7623,30 @@ export function App() {
                       }))
                     }
                   />
+                </label>
+                <label className="settingsField">
+                  <span>本地 ASR 引擎</span>
+                  <select
+                    value={settingsDraft.asr_backend}
+                    onChange={(event) =>
+                      setSettingsDraft((draft) => ({
+                        ...draft,
+                        asr_backend: event.target.value as SettingsDraft["asr_backend"]
+                      }))
+                    }
+                  >
+                    <option value="sensevoice">SenseVoiceSmall（轻量、快速）</option>
+                    <option value="qwen3">Qwen3-ASR 1.7B（更重、适合精度优先）</option>
+                  </select>
+                  <small>
+                    {settingsDraft.asr_backend === "qwen3"
+                      ? appSettings?.qwen_asr_model_installed
+                        ? "使用已配置的本地 Qwen3-ASR；只用于转写和音色库参考音频，不参与旁白强制对齐。"
+                        : "Qwen3-ASR 尚未配置完整本地模型/运行时；保存前请按部署文档配置。"
+                      : appSettings?.sensevoice_model_installed
+                        ? "按需启动独立 SenseVoiceSmall；只用于转写和音色库参考音频，不参与旁白强制对齐。"
+                        : "SenseVoiceSmall 尚未配置本地模型；保存前请按部署文档配置。"}
+                  </small>
                 </label>
               </div>
 

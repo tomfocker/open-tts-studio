@@ -103,11 +103,11 @@ def synthesize_with_registered_adapter(
     return result
 
 
-@router.post("/v1/audio/speech", response_model=SpeechResult)
+@router.post("/v1/audio/speech", response_model=SpeechResult, response_model_exclude_none=True)
 def openai_compatible_speech(request: SpeechRequest) -> SpeechResult:
     return run_tracked_synthesis(request, synthesize_with_registered_adapter)
 
 
-@router.post("/v1/tts/speech", response_model=SpeechResult)
+@router.post("/v1/tts/speech", response_model=SpeechResult, response_model_exclude_none=True)
 def tts_speech(request: SpeechRequest) -> SpeechResult:
     return run_tracked_synthesis(request, synthesize_with_registered_adapter)

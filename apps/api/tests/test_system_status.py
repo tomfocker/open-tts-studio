@@ -66,8 +66,13 @@ def test_system_monitor_skips_optional_model_probes(monkeypatch):
         "get_gptsovits_status",
         lambda _settings: calls.append("gptsovits") or {"model": "gptsovits"},
     )
+    monkeypatch.setattr(
+        runtime_memory,
+        "get_sensevoice_status",
+        lambda _settings: calls.append("sensevoice") or {"model": "sensevoice"},
+    )
 
     workers = runtime_memory.runtime_workers(Settings())
 
-    assert set(workers) == {"indextts2", "voxcpm2", "gptsovits"}
-    assert calls == ["voxcpm2", "gptsovits"]
+    assert set(workers) == {"indextts2", "voxcpm2", "gptsovits", "sensevoice"}
+    assert calls == ["voxcpm2", "gptsovits", "sensevoice"]

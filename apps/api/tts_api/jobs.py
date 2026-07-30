@@ -8,7 +8,7 @@ from typing import Callable
 from uuid import uuid4
 
 from tts_api.config import Settings, get_settings
-from tts_api.schemas import JobInfo, JobStatus, SpeechRequest, SpeechResult, TaskEvent, utc_now
+from tts_api.schemas import AlignmentJobInfo, JobInfo, JobStatus, SpeechRequest, SpeechResult, TaskEvent, utc_now
 
 
 MAX_STORED_JOBS = 200
@@ -113,6 +113,31 @@ class JobStore:
                 ),
                 TaskEvent(stage="completed", message="音频已生成并写入输出目录。"),
             )
+
+    def attach_alignment(self, job_id: str, alignment_job: AlignmentJobInfo) -> JobInfo:
+        """Reflect post-TTS alignment progress in the existing speech job.
+
+        Alignment task records stay separate and safe to persist; this method
+        copies only the public status/result fields that belong in the normal
+        speech response.
+        """
+
+        from tts_api.alignment import with_alignment
+
+        with self._lock:
+            job = self._require(job_id)
+            if job.result is None:
+                return job
+            updated_result = with_alignment(job.result, alignment_job)
+            if alignment_job.status.value == "completed":
+                stage, message, level = "alignment_completed", "旁白本地强制对齐已完成。", "info"
+            elif alignment_job.status.value == "failed":
+                stage, message, level = "alignment_failed", "旁白本地强制对齐失败；音频生成结果仍可用。", "error"
+            elif alignment_job.status.value == "cancelled":
+                stage, message, level = "alignment_cancelled", "旁白本地强制对齐已取消。", "info"
+            else:
+                stage, message, level = "alignment_pending", "旁白音频已生成，正在排队进行本地强制对齐。", "info"
+            return self._update(job.model_copy(update={"result": updated_result}), TaskEvent(stage=stage, message=message, level=level))
 
     def mark_failed(self, job_id: str, error: str) -> JobInfo:
         with self._lock:
@@ -305,7 +330,15 @@ class JobRunner:
                 except Exception as exc:
                     self.store.mark_failed(job_id, str(exc))
                 else:
+                    from tts_api.alignment import schedule_alignment
+
+                    result, _alignment_job = schedule_alignment(job.request, result, job_id, settings=get_settings())
                     self.store.mark_succeeded(job_id, result)
+                    if _alignment_job is not None:
+                        from tts_api.alignment import get_alignment_store
+
+                        latest = get_alignment_store(get_settings()).get(_alignment_job.id) or _alignment_job
+                        self.store.attach_alignment(job_id, latest)
             finally:
                 self._queue.task_done()
 
@@ -346,5 +379,13 @@ def run_tracked_synthesis(request: SpeechRequest, synthesize: Callable[..., Spee
     except Exception as exc:
         store.mark_failed(job.id, str(exc))
         raise
+    from tts_api.alignment import schedule_alignment
+
+    result, _alignment_job = schedule_alignment(request, result, job.id)
     store.mark_succeeded(job.id, result)
+    if _alignment_job is not None:
+        from tts_api.alignment import get_alignment_store
+
+        latest = get_alignment_store().get(_alignment_job.id) or _alignment_job
+        store.attach_alignment(job.id, latest)
     return result

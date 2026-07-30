@@ -197,3 +197,79 @@ Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8765/v1/model-packages/$($
 ```
 
 Archives such as `.zip` and `.7z` can be recorded for traceability but must be extracted and re-registered as a directory before activation.
+# 本地旁白 ASR / 强制对齐
+
+TTS 正式文本与最终音频落盘后，Qwen3-ForcedAligner 直接以正式文本对最终波形强制对齐。未提供 `alignment` 时，`/v1/audio/speech` 的请求和响应与旧版完全相同。不会为此额外调用 ASR。
+
+纯文本转写也可独立调用；设置中可选 SenseVoiceSmall（默认、轻量）或 Qwen3-ASR（精度优先）。上传内容只在本机的选定 ASR 运行时中临时解码，不会送往外部服务：
+
+```powershell
+Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/audio/transcriptions" `
+  -Form @{ file = Get-Item "D:\video\narration.wav"; language = "zh" }
+```
+
+```powershell
+$speech = Invoke-RestMethod -Method POST http://127.0.0.1:8765/v1/audio/speech -ContentType "application/json" -Body (@{
+  model = "indextts2"
+  input = "第一句旁白。第二句旁白。"
+  response_format = "wav"
+  alignment = @{
+    enabled = $true
+    granularity = "token"
+    language = "zh"
+    wait_for_result = $false
+  }
+} | ConvertTo-Json -Depth 5)
+
+$speech.alignment_status # pending
+$speech.alignment_url    # /v1/tts/alignments/{id}
+```
+
+默认异步时先播放/使用 `audio_url`，稍后读取 `alignment_url`：
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8765$($speech.alignment_url)"
+```
+
+完成后响应中的 `alignment` 结构如下。`segments` 是短句/短语，`tokens` 保留每个汉字（或 Qwen 模型 token）的原文索引，适合逐字动效。`words` 仅在请求 `granularity: "word"` 时提供；中文视频系统应始终优先使用 `tokens`，不要把词视为唯一的中文边界。
+
+```json
+{
+  "status": "completed",
+  "alignment": {
+    "version": 1,
+    "language": "zh",
+    "audio_sha256": "...",
+    "transcript_sha256": "...",
+    "model_version": "qwen3-forced-aligner-0.6b",
+    "duration_seconds": 10.52,
+    "segments": [{
+      "id": "seg_001",
+      "text": "第一句旁白。",
+      "char_start": 0,
+      "char_end": 6,
+      "start_seconds": 0.0,
+      "end_seconds": 1.82,
+      "confidence": null
+    }],
+    "tokens": [{
+      "text": "第",
+      "char_start": 0,
+      "char_end": 1,
+      "start_seconds": 0.0,
+      "end_seconds": 0.14,
+      "confidence": null
+    }],
+    "warnings": []
+  }
+}
+```
+
+Qwen3-ForcedAligner 不输出经过校准的逐 token 置信度，因此会明确返回 `token_confidence_unavailable`，而不会捏造分数；无法读取最终音频、模型未配置、正式原文未被完整对齐或时间轴越界时，状态为 `failed` 并返回明确原因。若业务需要独立转写校验，可单独调用 `/v1/audio/transcriptions` 并根据返回文本决定是否复核；该调用不改变或伪造强制对齐时间轴。
+
+短音频可改用 `wait_for_result: true` 一次性等待。对齐任务也出现在 `/v1/tasks`，并可管理：
+
+```powershell
+Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/tts/alignments/{id}/cancel?force=true"
+Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/tts/alignments/{id}/retry"
+```

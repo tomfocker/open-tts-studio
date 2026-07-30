@@ -35,6 +35,7 @@ class SettingsBackupValues(BaseModel):
     output_dir: Path
     indextts2_idle_timeout_seconds: int = Field(ge=30, le=86400)
     local_api_idle_timeout_seconds: int = Field(ge=30, le=86400)
+    asr_backend: Literal["sensevoice", "qwen3"] = "sensevoice"
     default_model_id: Literal["indextts2", "voxcpm2", "gptsovits", "doubao-web"] = "indextts2"
     prewarm_default_model_on_startup: bool = False
 
@@ -72,6 +73,11 @@ class SettingsUpdate(BaseModel):
     indextts2_root: Path | None = None
     indextts2_idle_timeout_seconds: int | None = Field(default=None, ge=30, le=86400)
     local_api_idle_timeout_seconds: int | None = Field(default=None, ge=30, le=86400)
+    asr_backend: Literal["sensevoice", "qwen3"] | None = None
+    qwen_asr_python: Path | None = None
+    qwen_asr_capswriter_root: Path | None = None
+    qwen_asr_model_dir: Path | None = None
+    qwen_asr_device: Literal["auto", "dml", "cpu"] | None = None
     voxcpm2_root: Path | None = None
     voxcpm2_api_host: str | None = None
     voxcpm2_api_port: int | None = Field(default=None, ge=1024, le=65535)
@@ -110,6 +116,7 @@ def build_settings_backup(settings) -> SettingsBackup:
             output_dir=settings.output_dir,
             indextts2_idle_timeout_seconds=settings.indextts2_idle_timeout_seconds,
             local_api_idle_timeout_seconds=settings.local_api_idle_timeout_seconds,
+            asr_backend=settings.asr_backend,
             default_model_id=settings.default_model_id,
             prewarm_default_model_on_startup=settings.prewarm_default_model_on_startup,
         ),
