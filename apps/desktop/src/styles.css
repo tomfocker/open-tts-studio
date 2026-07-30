@@ -1010,9 +1010,9 @@ summary:focus-visible {
   flex: 0 0 auto;
   position: relative;
   isolation: isolate;
-  width: 202px;
+  width: 304px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   padding: 4px;
   border: 0;
@@ -1027,7 +1027,7 @@ summary:focus-visible {
   top: 4px;
   bottom: 4px;
   left: 4px;
-  width: calc(50% - 6px);
+  width: calc((100% - 14px) / 3);
   border: 0;
   border-radius: 8px;
   background: linear-gradient(145deg, #fbfdff, #e6edf2);
@@ -1039,7 +1039,15 @@ summary:focus-visible {
 }
 
 .generationWorkspaceTabs.batch .generationWorkspaceThumb {
-  transform: translateX(calc(100% + 4px));
+  transform: translateX(calc(100% + 3px));
+}
+
+.generationWorkspaceTabs.realtime .generationWorkspaceThumb {
+  transform: translateX(calc(200% + 6px));
+}
+
+.realtimeCanvasPanel {
+  overflow: hidden;
 }
 
 /* The theme reveal is a short state-change cue, not a decorative page transition. */
@@ -1056,6 +1064,7 @@ summary:focus-visible {
 ::view-transition-new(root) {
   z-index: 2;
 }
+
 .generationWorkspaceTabs button {
   position: relative;
   z-index: 1;

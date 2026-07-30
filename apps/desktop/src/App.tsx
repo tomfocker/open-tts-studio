@@ -23,6 +23,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Radio,
   Save,
   Search,
   Server,
@@ -94,6 +95,7 @@ import {
   type GenerateSpeechOptions
 } from "./api";
 import { DoubaoWorkspace } from "./DoubaoWorkspace";
+import { RealtimeWorkspace } from "./RealtimeWorkspace";
 import type {
   AudioAsset,
   AppUpdateState,
@@ -1747,7 +1749,7 @@ export function App() {
   const [samplerName, setSamplerName] = useState("");
   const [samplerReferenceText, setSamplerReferenceText] = useState("");
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
-  const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch">("single");
+  const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch" | "realtime">("single");
   const [doubaoWorkspaceOpen, setDoubaoWorkspaceOpen] = useState(false);
   const [doubaoStatus, setDoubaoStatus] = useState<DoubaoStatus | null>(null);
   const [doubaoVoices, setDoubaoVoices] = useState<DoubaoVoice[]>([]);
@@ -2949,6 +2951,10 @@ export function App() {
 
   function openSingleWorkspace() {
     setGenerationWorkspace("single");
+  }
+
+  function openRealtimeWorkspace() {
+    setGenerationWorkspace("realtime");
   }
 
   function editBatchProject(project: BatchProject) {
@@ -5832,7 +5838,7 @@ export function App() {
         </aside>
 
         <section className="mainStage">
-          <section className={generationWorkspace === "batch" ? "softPanel canvasPanel batchCanvasPanel" : "softPanel canvasPanel"}>
+          <section className={generationWorkspace === "batch" ? "softPanel canvasPanel batchCanvasPanel" : generationWorkspace === "realtime" ? "softPanel canvasPanel realtimeCanvasPanel" : "softPanel canvasPanel"}>
             <div className="engineStrip">
               <div className="engineHeader">
                 <Cpu size={18} strokeWidth={1.9} />
@@ -5897,6 +5903,16 @@ export function App() {
                 >
                   <FileText size={15} strokeWidth={1.9} />
                   <span>批量</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={generationWorkspace === "realtime"}
+                  className={generationWorkspace === "realtime" ? "active" : ""}
+                  onClick={openRealtimeWorkspace}
+                >
+                  <Radio size={15} strokeWidth={1.9} />
+                  <span>实时</span>
                 </button>
               </div>
             </div>
@@ -6087,7 +6103,7 @@ export function App() {
               </div>
             </div>
               </>
-            ) : renderBatchProjectWorkspace()}
+            ) : generationWorkspace === "realtime" ? <RealtimeWorkspace /> : renderBatchProjectWorkspace()}
           </section>
 
           <section className="softPanel playerPanel">

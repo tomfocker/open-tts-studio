@@ -16,6 +16,24 @@ test("desktop package includes the IndexTTS2 worker scripts", async () => {
   assert.deepEqual(workerResource.filter, ["*.py"]);
 });
 
+test("desktop package includes the vendored Whispera streaming runtime", async () => {
+  const desktopRoot = path.resolve(__dirname, "..");
+  const apiRoot = path.resolve(desktopRoot, "..", "api");
+  const packagePath = path.join(desktopRoot, "package.json");
+  const packageJson = JSON.parse(await fs.readFile(packagePath, "utf8"));
+  const apiResource = packageJson.build.extraResources.find((entry) => entry.to === "workspace/apps/api");
+
+  assert.ok(apiResource, "API resource configuration is missing");
+  assert.ok(apiResource.filter.includes("**/*"));
+  assert.equal(
+    apiResource.filter.some((pattern) => pattern.includes("vendor")),
+    false,
+    "vendored Whispera source must not be excluded from the desktop package",
+  );
+  await fs.access(path.join(apiRoot, "vendor", "whispera_voxcpm", "src", "voxcpm", "streaming_service.py"));
+  await fs.access(path.join(apiRoot, "vendor", "whispera_voxcpm", "support", "websockets", "__init__.py"));
+});
+
 async function createReleaseFixture(version = "0.1.2") {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "open-tts-release-assets-"));
   const releaseDirectory = path.join(root, "release");

@@ -1,4 +1,9 @@
-# Model packages are local assets. Keep only this guide in version control.
+# Model packages are local assets. Keep documentation and the small runtime VAD
+# asset required by the self-contained realtime desktop feature in version control.
 *
 !.gitignore
 !README.md
+!realtime/
+realtime/*
+!realtime/README.md
+!realtime/silero_vad.onnx

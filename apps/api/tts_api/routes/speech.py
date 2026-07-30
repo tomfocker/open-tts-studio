@@ -1,4 +1,3 @@
-import threading
 from typing import Callable
 
 from fastapi import APIRouter, HTTPException
@@ -16,15 +15,12 @@ from tts_api.model_instances import get_model_instance, mark_model_instance_succ
 from tts_api.model_capabilities import validate_speech_request_capabilities
 from tts_api.jobs import run_tracked_synthesis
 from tts_api.registry import ModelRegistry
-from tts_api.runtime_memory import release_conflicting_runtimes, resolve_runtime_settings
+from tts_api.runtime_memory import local_gpu_generation_lock, release_conflicting_runtimes, resolve_runtime_settings
 from tts_api.schemas import SpeechRequest, SpeechResult
 
 router = APIRouter()
 
 ProgressReporter = Callable[[str, int, str], None]
-_synthesis_lock = threading.Lock()
-
-
 def _report_progress(reporter: ProgressReporter | None, stage: str, progress: int, message: str) -> None:
     if reporter is None:
         return
@@ -65,7 +61,7 @@ def synthesize_with_registered_adapter(
         raise HTTPException(status_code=400, detail=str(exc))
 
     _report_progress(progress_reporter, "waiting_generation_slot", 18, "正在等待本地串行生成槽位。")
-    with _synthesis_lock:
+    with local_gpu_generation_lock:
         if model.adapter == "doubao_web":
             _report_progress(progress_reporter, "preparing_memory", 26, "正在检查豆包账号、音色与云端请求参数；本地 GPU 模型保持不变。")
         else:

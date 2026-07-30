@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import threading
+
 from tts_api.adapters.gptsovits import get_gptsovits_service_manager, get_gptsovits_status, release_gptsovits_service
 from tts_api.adapters.indextts2_worker import get_indextts2_worker_client, get_indextts2_worker_status, release_indextts2_worker
 from tts_api.adapters.voxcpm2 import get_voxcpm2_service_manager, get_voxcpm2_status, release_voxcpm2_service
+from tts_api.adapters.whispera_streaming import get_whispera_streaming_status, release_whispera_streaming_service
 from tts_api.config import Settings
 from tts_api.model_instances import apply_model_instance_to_settings, list_model_instances
 
 
-RUNTIME_MODEL_IDS = ("indextts2", "voxcpm2", "gptsovits")
+RUNTIME_MODEL_IDS = ("indextts2", "voxcpm2", "voxcpm2_streaming", "gptsovits")
+
+# Every local model service ultimately competes for the same GPU.  The regular
+# speech API and the realtime websocket intentionally share this lock so a
+# microphone turn can never race a batch/single generation for VRAM.
+local_gpu_generation_lock = threading.Lock()
 
 
 def resolve_runtime_settings(settings: Settings) -> Settings:
@@ -48,11 +56,14 @@ def release_conflicting_runtimes(target_model_id: str, settings: Settings) -> li
 
     resolved = resolve_runtime_settings(settings)
     workers = runtime_workers(resolved, detect_external=True)
+    streaming_worker = get_whispera_streaming_status(resolved)
     conflicts = [
         (model_id, worker)
         for model_id, worker in workers.items()
         if model_id != target_model_id and worker.get("loaded", False)
     ]
+    if target_model_id != "voxcpm2_streaming" and streaming_worker.get("loaded", False):
+        conflicts.append(("voxcpm2_streaming", streaming_worker))
     for model_id, worker in conflicts:
         if worker.get("active_requests", 0) > 0:
             raise RuntimeError(f"{model_id} 正在生成，暂不能切换模型。")
@@ -67,6 +78,8 @@ def release_conflicting_runtimes(target_model_id: str, settings: Settings) -> li
             did_release = release_indextts2_worker(resolved)
         elif model_id == "voxcpm2":
             did_release = release_voxcpm2_service(resolved)
+        elif model_id == "voxcpm2_streaming":
+            did_release = release_whispera_streaming_service(resolved)
         elif model_id == "gptsovits":
             did_release = release_gptsovits_service(resolved)
         else:
@@ -83,6 +96,8 @@ def force_release_runtime(model_id: str, settings: Settings) -> bool:
         return release_indextts2_worker(resolved, force=True)
     if model_id == "voxcpm2":
         return release_voxcpm2_service(resolved, force=True)
+    if model_id == "voxcpm2_streaming":
+        return release_whispera_streaming_service(resolved, force=True)
     if model_id == "gptsovits":
         return release_gptsovits_service(resolved, force=True)
     return False

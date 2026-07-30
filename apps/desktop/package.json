@@ -86,6 +86,10 @@
         "to": "workspace/model-registry"
       },
       {
+        "from": "../../models/realtime",
+        "to": "workspace/models/realtime"
+      },
+      {
         "from": "node_modules/ffmpeg-static/ffmpeg.exe",
         "to": "ffmpeg/ffmpeg.exe"
       }

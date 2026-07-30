@@ -16,6 +16,19 @@ OpenTTS Studio 是一个 Windows 桌面端本地 TTS 工作台：统一管理可
 - 阅读集成：连接“阅读”Web 服务、生成实时/预制朗读配置、缓存整本正文、批量预制章节音频，并管理可暂停/恢复/取消/重试的持久任务。
 - 主动模型预热：手动切换模型后立即安全释放冲突显存并等待新模型就绪；IndexTTS2 提供温度、Top-P、Top-K、束搜索、重复惩罚和最大音频 Token 参数。
 - 本地 API：`/v1/audio/speech` 与 `/v1/tts/speech`；根据当前稳定适配器拒绝未实现参数，防止桌面端与外部调用不一致。
+- 实时语音交互：桌面端“实时”工作台通过 `/v1/realtime` WebSocket 串接 Silero VAD、VoxCPM2 ASR、OpenAI 兼容 LLM 和 VoxCPM2 语音回复；支持文字输入、麦克风、逐句播放、上下文清除和开口打断。
+
+## 实时语音交互
+
+在“实时”工作台填入 OpenAI 兼容 LLM 地址和模型名后即可使用；例如本机 Ollama 的地址通常是 `http://127.0.0.1:11434/v1`。API Key 只保留在当前前端会话内存，不写入本地配置。
+
+首次语音交互需在“设置 → 本地模型”确认 VoxCPM2 已启用且健康。实时模块会使用同一 GPU 串行槽位，不会与普通 TTS/批量任务同时抢占显存。Silero VAD 随桌面包一同提供，无需额外下载；LLM 与 VoxCPM2 权重仍由用户在本机准备。
+
+默认的“Whispera 流式（自动回退）”会在不改动用户 VoxCPM2 模型包的前提下，启动 Whispera 原有的 `voxcpm.streaming_service`，直接使用其 `generate_streaming` 输出 PCM 首块。现有 VoxCPM2 HTTP `/tts` 接口保留为兼容回退，用户也可以在实时工作台明确切换到该模式。
+
+流式服务与普通 VoxCPM2 服务共享 OpenTTS 的 GPU 串行槽位：启动流式服务前会释放普通服务，反之亦然。首次启动需要加载 VoxCPM2 权重；同一会话内的后续句子会复用已加载的流式模型。上游 WebSocket 服务、PCM 首块和 `tts.interrupt` 均已在本机 VoxCPM2 运行时实际验证。
+
+当用户开口打断时，OpenTTS 会先发送上游 `tts.interrupt`；为避免正在执行的 CUDA step 与下一轮 ASR 争用显存，受 OpenTTS 管理的流式子进程会被安全停止。下一轮需要流式 TTS 时会重新加载模型。这是当前上游模型推理不可抢占时优先保证稳定性的取舍。
 
 ## 豆包 Web TTS 边界
 

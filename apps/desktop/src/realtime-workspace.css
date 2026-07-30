@@ -1,0 +1,200 @@
+.realtimeWorkspace {
+  min-height: 650px;
+  display: grid;
+  grid-template-columns: minmax(258px, 0.3fr) minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(245, 250, 248, 0.72);
+}
+
+.realtimeSettingsPanel {
+  padding: 22px;
+  border-right: 1px solid rgba(91, 118, 133, 0.16);
+  background: linear-gradient(165deg, rgba(235, 247, 240, 0.92), rgba(241, 246, 249, 0.78));
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+
+.realtimePanelHeading { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
+.realtimeIcon { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; color: #287651; background: rgba(210, 239, 221, 0.96); }
+.realtimePanelHeading > div:last-child { display: grid; gap: 1px; }
+.realtimePanelHeading span { color: #2b7552; font-size: 12px; font-weight: 760; }
+.realtimePanelHeading strong { color: #425767; font-size: 15px; }
+
+.realtimeField { display: grid; gap: 6px; color: #607483; font-size: 12px; font-weight: 720; }
+.realtimeField > span { display: inline-flex; align-items: center; gap: 5px; }
+.realtimeField input, .realtimeField select, .realtimeField textarea {
+  width: 100%; border: 1px solid rgba(106, 132, 146, 0.22); border-radius: 8px; box-sizing: border-box;
+  color: #3c5262; background: rgba(255, 255, 255, 0.78); box-shadow: inset 0 1px 2px rgba(52, 79, 94, 0.05);
+  font: inherit; font-weight: 500; outline: none;
+}
+.realtimeField input, .realtimeField select { min-height: 36px; padding: 0 9px; }
+.realtimeField textarea { padding: 8px 9px; resize: vertical; line-height: 1.45; }
+.realtimeField input:focus, .realtimeField select:focus, .realtimeField textarea:focus { border-color: rgba(54, 145, 93, 0.68); box-shadow: 0 0 0 3px rgba(71, 170, 109, 0.11); }
+.realtimeField small { font-size: 10px; font-weight: 560; line-height: 1.4; color: #81929c; }
+
+.realtimeSwitch { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: #4e6574; font-size: 12px; font-weight: 700; cursor: pointer; }
+.realtimeSwitch input { accent-color: #3b9362; }
+.realtimeSwitch span { display: inline-flex; align-items: center; gap: 6px; }
+
+.realtimeConnection { margin-top: auto; min-height: 35px; padding: 0 10px; border-radius: 8px; display: flex; align-items: center; gap: 7px; color: #6f8190; background: rgba(224, 233, 238, 0.65); font-size: 12px; font-weight: 690; }
+.realtimeConnection.ready { color: #27714e; background: rgba(216, 241, 224, 0.8); }
+.realtimeConnection.connecting { color: #73704a; background: rgba(246, 241, 206, 0.84); }
+.realtimeConnection.error { color: #a5514d; background: rgba(252, 226, 223, 0.86); }
+.realtimeConnectButton { justify-content: center; min-height: 38px; }
+.realtimeDisconnect { border: 0; padding: 2px; color: #7c8b96; background: transparent; cursor: pointer; font: inherit; font-size: 12px; text-decoration: underline; }
+
+.realtimeConversationPanel { min-width: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; background: rgba(250, 253, 252, 0.62); }
+.realtimeConversationHeader { min-height: 74px; padding: 0 24px; border-bottom: 1px solid rgba(91, 118, 133, 0.14); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.realtimeConversationHeader > div:first-child { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; align-items: center; column-gap: 8px; }
+.realtimeConversationHeader strong { color: #3e5362; font-size: 15px; }
+.realtimeConversationHeader small { grid-column: 2; color: #80909a; font-size: 11px; }
+.realtimeLiveDot { width: 8px; height: 8px; border-radius: 99px; background: #b0bec6; }
+.realtimeLiveDot.active { background: #3fa66d; box-shadow: 0 0 0 4px rgba(63, 166, 109, 0.13); animation: realtimePulse 1.5s infinite; }
+.realtimeHeaderActions { display: flex; gap: 7px; }
+.realtimeIconButton { width: 33px; height: 33px; border: 1px solid rgba(104, 128, 141, 0.17); border-radius: 8px; color: #65808c; background: rgba(255,255,255,.72); display: grid; place-items: center; cursor: pointer; }
+.realtimeIconButton:hover { color: #347b57; border-color: rgba(58, 145, 93, .35); }
+.realtimeIconButton.stop { color: #ba5e57; }
+
+.realtimeStatus { min-height: 38px; padding: 0 24px; display: flex; align-items: center; gap: 8px; color: #65807c; background: rgba(225, 243, 233, 0.54); font-size: 12px; }
+.realtimeMessageList { min-height: 0; padding: 22px 24px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+.realtimeEmptyState { max-width: 420px; margin: auto; color: #81929b; text-align: center; }
+.realtimeEmptyState > div { width: 53px; height: 53px; margin: 0 auto 13px; border-radius: 17px; color: #38855d; background: rgba(219, 243, 228, .86); display: grid; place-items: center; }
+.realtimeEmptyState h2 { margin: 0; color: #4a5f6d; font-size: 18px; }
+.realtimeEmptyState p { margin: 9px 0 0; font-size: 13px; line-height: 1.65; }
+
+.realtimeMessage { display: flex; max-width: min(80%, 680px); gap: 9px; }
+.realtimeMessage.user { align-self: flex-end; flex-direction: row-reverse; }
+.realtimeMessageAvatar { width: 29px; height: 29px; flex: 0 0 auto; border-radius: 9px; color: #598093; background: rgba(220, 230, 236, .9); display: grid; place-items: center; }
+.realtimeMessage.assistant .realtimeMessageAvatar { color: #287651; background: rgba(213, 239, 221, .94); }
+.realtimeMessage > div { min-width: 0; padding: 10px 13px; border-radius: 4px 13px 13px; color: #465b69; background: rgba(233, 241, 244, .75); }
+.realtimeMessage.user > div { border-radius: 13px 4px 13px 13px; color: #ffffff; background: linear-gradient(135deg, #4ba46e, #2f8059); }
+.realtimeMessage strong { display: block; margin-bottom: 3px; color: #718892; font-size: 10px; font-weight: 760; }
+.realtimeMessage.user strong { color: rgba(255,255,255,.72); text-align: right; }
+.realtimeMessage p { margin: 0; white-space: pre-wrap; font-size: 13px; line-height: 1.55; }
+
+.realtimeComposer { padding: 15px 19px; border-top: 1px solid rgba(91, 118, 133, 0.14); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; background: rgba(246, 250, 249, .84); }
+.realtimeMicButton { width: 43px; height: 43px; border: 1px solid rgba(96, 131, 148, .2); border-radius: 12px; color: #4c7283; background: rgba(255,255,255,.84); display: grid; place-items: center; cursor: pointer; }
+.realtimeMicButton:hover { color: #2b8257; border-color: rgba(43, 130, 87, .4); }
+.realtimeMicButton.active { color: #ffffff; border-color: transparent; background: #3c9b65; box-shadow: 0 7px 14px rgba(46, 137, 90, .23); }
+.realtimeComposer textarea { min-width: 0; min-height: 43px; max-height: 110px; padding: 10px; border: 1px solid rgba(106,132,146,.2); border-radius: 10px; color: #405664; background: rgba(255,255,255,.78); font: inherit; font-size: 13px; line-height: 1.4; resize: vertical; outline: none; }
+.realtimeComposer textarea:focus { border-color: rgba(54,145,93,.63); box-shadow: 0 0 0 3px rgba(71,170,109,.1); }
+.realtimeSendButton { min-width: 76px; min-height: 41px; padding: 0 12px; justify-content: center; }
+
+@keyframes realtimePulse { 50% { box-shadow: 0 0 0 7px rgba(63, 166, 109, 0.03); } }
+
+@media (max-width: 980px) {
+  .realtimeWorkspace { grid-template-columns: 1fr; overflow: visible; }
+  .realtimeSettingsPanel { border-right: 0; border-bottom: 1px solid rgba(91,118,133,.16); }
+  .realtimeConnection { margin-top: 2px; }
+  .realtimeConversationPanel { min-height: 610px; }
+}
+
+/* The realtime workspace shares OpenTTS Studio's dark material system. */
+:root[data-theme="dark"] .realtimeWorkspace {
+  background: var(--surface-panel);
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .realtimeSettingsPanel {
+  border-color: var(--border-subtle);
+  background: #1c2933;
+}
+
+:root[data-theme="dark"] .realtimeIcon {
+  color: var(--accent-dark);
+  background: #264b39;
+}
+
+:root[data-theme="dark"] .realtimePanelHeading span,
+:root[data-theme="dark"] .realtimeConnection.ready,
+:root[data-theme="dark"] .realtimeMessage.assistant .realtimeMessageAvatar {
+  color: var(--accent-dark);
+}
+
+:root[data-theme="dark"] .realtimePanelHeading strong,
+:root[data-theme="dark"] .realtimeConversationHeader strong,
+:root[data-theme="dark"] .realtimeEmptyState h2 {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .realtimeField,
+:root[data-theme="dark"] .realtimeSwitch,
+:root[data-theme="dark"] .realtimeField small,
+:root[data-theme="dark"] .realtimeConversationHeader small,
+:root[data-theme="dark"] .realtimeEmptyState,
+:root[data-theme="dark"] .realtimeDisconnect {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .realtimeField input,
+:root[data-theme="dark"] .realtimeField select,
+:root[data-theme="dark"] .realtimeField textarea,
+:root[data-theme="dark"] .realtimeComposer textarea {
+  border-color: var(--border-subtle);
+  color: var(--text);
+  background: var(--surface-well);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme="dark"] .realtimeConnection,
+:root[data-theme="dark"] .realtimeConnection.ready,
+:root[data-theme="dark"] .realtimeConnection.connecting,
+:root[data-theme="dark"] .realtimeConnection.error,
+:root[data-theme="dark"] .realtimeStatus {
+  color: var(--muted);
+  background: #202e39;
+}
+
+:root[data-theme="dark"] .realtimeConnection.ready,
+:root[data-theme="dark"] .realtimeStatus {
+  color: #bae8ca;
+  background: #234633;
+}
+
+:root[data-theme="dark"] .realtimeConnection.connecting {
+  color: #e8d9a2;
+  background: #4a432a;
+}
+
+:root[data-theme="dark"] .realtimeConnection.error {
+  color: #f0b7b2;
+  background: #4a302f;
+}
+
+:root[data-theme="dark"] .realtimeConversationPanel,
+:root[data-theme="dark"] .realtimeComposer {
+  background: var(--surface-stage);
+}
+
+:root[data-theme="dark"] .realtimeConversationHeader,
+:root[data-theme="dark"] .realtimeComposer {
+  border-color: var(--border-subtle);
+}
+
+:root[data-theme="dark"] .realtimeIconButton,
+:root[data-theme="dark"] .realtimeMicButton {
+  border-color: var(--border-subtle);
+  color: var(--muted);
+  background: var(--surface-control);
+}
+
+:root[data-theme="dark"] .realtimeMessageAvatar {
+  color: #9db7c8;
+  background: #2a3a46;
+}
+
+:root[data-theme="dark"] .realtimeMessage.assistant .realtimeMessageAvatar,
+:root[data-theme="dark"] .realtimeEmptyState > div {
+  background: #264b39;
+}
+
+:root[data-theme="dark"] .realtimeMessage > div {
+  color: var(--text);
+  background: #24333f;
+}
+
+:root[data-theme="dark"] .realtimeMessage strong {
+  color: var(--muted);
+}
