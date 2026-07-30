@@ -556,7 +556,10 @@ export type AppSettings = {
   local_api_idle_timeout_seconds: number;
   asr_backend: "sensevoice" | "qwen3";
   sensevoice_model_installed: boolean;
+  sensevoice_runtime_installed: boolean;
+  sensevoice_ready: boolean;
   qwen_asr_model_installed: boolean;
+  alignment_ready: boolean;
   voxcpm2_root: string;
   voxcpm2_api_host: string;
   voxcpm2_api_port: number;

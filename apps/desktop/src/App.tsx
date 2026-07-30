@@ -7643,9 +7643,9 @@ export function App() {
                       ? appSettings?.qwen_asr_model_installed
                         ? "使用已配置的本地 Qwen3-ASR；只用于转写和音色库参考音频，不参与旁白强制对齐。"
                         : "Qwen3-ASR 尚未配置完整本地模型/运行时；保存前请按部署文档配置。"
-                      : appSettings?.sensevoice_model_installed
+                      : appSettings?.sensevoice_ready
                         ? "按需启动独立 SenseVoiceSmall；只用于转写和音色库参考音频，不参与旁白强制对齐。"
-                        : "SenseVoiceSmall 尚未配置本地模型；保存前请按部署文档配置。"}
+                        : "SenseVoiceSmall 尚未配置完整本地模型/运行时；保存前请按部署文档配置。"}
                   </small>
                 </label>
               </div>

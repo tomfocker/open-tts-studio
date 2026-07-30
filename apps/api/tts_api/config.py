@@ -384,6 +384,8 @@ def serialize_settings(settings: Settings) -> dict:
         "sensevoice_python": str(settings.sensevoice_python),
         "sensevoice_model_dir": str(settings.sensevoice_model_dir),
         "sensevoice_model_installed": settings.sensevoice_model_dir.is_dir(),
+        "sensevoice_runtime_installed": settings.sensevoice_python.is_file(),
+        "sensevoice_ready": settings.sensevoice_model_dir.is_dir() and settings.sensevoice_python.is_file(),
         "sensevoice_api_host": settings.sensevoice_api_host,
         "sensevoice_api_port": settings.sensevoice_api_port,
         "sensevoice_device": settings.sensevoice_device,
@@ -418,6 +420,13 @@ def serialize_settings(settings: Settings) -> dict:
         "alignment_model_installed": bool(
             settings.alignment_aligner_model_dir
             and settings.alignment_aligner_model_dir.is_dir()
+        ),
+        "alignment_ready": bool(
+            settings.alignment_aligner_model_dir
+            and settings.alignment_aligner_model_dir.is_dir()
+            and settings.alignment_capswriter_root
+            and settings.alignment_capswriter_root.is_dir()
+            and settings.alignment_python.is_file()
         ),
         "alignment_device": settings.alignment_device,
         "alignment_model_version": settings.alignment_model_version,
