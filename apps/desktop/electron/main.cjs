@@ -169,6 +169,24 @@ ipcMain.handle("file:read-selected-audio", async (_event, targetPath) => {
   return fs.readFile(normalizedPath);
 });
 
+ipcMain.handle("file:read-managed-reference-audio", async (_event, targetPath) => {
+  if (typeof targetPath !== "string" || !targetPath.trim()) {
+    throw new Error("Audio path is required");
+  }
+  const managedRoot = await fs.realpath(path.join(paths.dataRoot, "voices"));
+  const normalizedPath = path.resolve(targetPath);
+  const resolvedPath = await fs.realpath(normalizedPath);
+  const relativePath = path.relative(managedRoot, resolvedPath);
+  if (!relativePath || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
+    throw new Error("只能裁切音色库托管的参考音频");
+  }
+  const info = await fs.stat(resolvedPath);
+  if (!info.isFile() || info.size > 200 * 1024 * 1024) {
+    throw new Error("参考音频无效或超过 200 MB");
+  }
+  return fs.readFile(resolvedPath);
+});
+
 ipcMain.handle("file:select-voice-package", () => selectVoicePackage(dialog));
 
 ipcMain.handle("file:save-voice-package", (_event, sourcePath, defaultName) => saveVoicePackage(dialog, fs, sourcePath, defaultName));

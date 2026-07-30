@@ -67,7 +67,7 @@ class IndexTts2Adapter(TtsAdapter):
         return environment
 
     def build_command(self, request: SpeechRequest) -> tuple[list[str], Path]:
-        output_path = create_output_path(self.settings.output_dir, ".wav")
+        output_path = create_output_path(self.settings.output_dir, ".wav", request.input)
         prompt_audio = request.reference_audio or str(self.default_prompt_audio)
         command = [
             self.python_executable,

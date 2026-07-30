@@ -1,12 +1,27 @@
 import math
+import re
 import wave
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
 
-def create_output_path(output_dir: Path, suffix: str = ".wav") -> Path:
+OUTPUT_TEXT_PREVIEW_LENGTH = 18
+_INVALID_WINDOWS_FILE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def output_text_preview(text: str | None, max_length: int = OUTPUT_TEXT_PREVIEW_LENGTH) -> str:
+    """Create a readable, Windows-safe filename prefix from generated text."""
+    normalized = re.sub(r"\s+", "", text or "")
+    normalized = _INVALID_WINDOWS_FILE_CHARS.sub("_", normalized).strip(" ._")
+    return normalized[:max(1, max_length)] or "语音"
+
+
+def create_output_path(output_dir: Path, suffix: str = ".wav", text: str | None = None) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    return output_dir / f"{uuid4().hex}{suffix}"
+    extension = suffix if suffix.startswith(".") else f".{suffix}"
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return output_dir / f"{output_text_preview(text)}_{timestamp}_{uuid4().hex[:8]}{extension}"
 
 
 def read_wav_metadata(path: Path) -> tuple[int, float]:

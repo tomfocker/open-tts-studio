@@ -1,6 +1,6 @@
 {
   "name": "open-tts-desktop",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "A local desktop workstation for managing open-source TTS models.",
   "author": "tomfocker",
   "homepage": "https://github.com/tomfocker/open-tts-studio",

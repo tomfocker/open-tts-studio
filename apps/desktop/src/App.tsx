@@ -41,15 +41,18 @@ import QRCode from "qrcode";
 import { CSSProperties, ChangeEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  activateVoiceReference,
   activateModelPackage,
   cancelBatchProject,
   cancelSpeechJob,
   checkModelInstance,
   clearSpeechJobHistory,
   createSpeechJob,
+  createVoiceReference,
   createVoice,
   createBatchProject,
   deleteVoice,
+  deleteVoiceReference,
   exportVoicePackage,
   fetchAppSettings,
   fetchAudioAssets,
@@ -72,7 +75,7 @@ import {
   registerModelPackage,
   retryBatchProject,
   retrySpeechJob,
-  recognizeVoiceReference,
+  recognizeVoiceReferenceClip,
   repairVoiceAudio,
   runBatchProject,
   resumeBatchProject,
@@ -84,6 +87,7 @@ import {
   updateModelPackage,
   updateModelInstance,
   updateVoice,
+  updateVoiceReference,
   type GenerateSpeechOptions
 } from "./api";
 import { DoubaoWorkspace } from "./DoubaoWorkspace";
@@ -136,6 +140,7 @@ declare global {
       selectModelArchive: () => Promise<string | null>;
       selectReferenceAudio: () => Promise<string | null>;
       readSelectedAudio: (targetPath: string) => Promise<Uint8Array>;
+      readManagedReferenceAudio: (targetPath: string) => Promise<Uint8Array>;
       selectVoicePackage: () => Promise<string | null>;
       saveVoicePackage: (sourcePath: string, defaultName: string) => Promise<string | null>;
       saveSettingsBackup: (content: string) => Promise<string | null>;
@@ -168,6 +173,17 @@ declare global {
   }
 }
 
+type VoiceReferencePreset = {
+  id: string;
+  name: string;
+  referenceAudio?: string;
+  referenceText?: string;
+  sourceType?: string;
+  sourceUrl?: string;
+  referenceAudioManaged?: boolean;
+  originalReferenceAudio?: string;
+};
+
 type VoicePreset = {
   id: string;
   name: string;
@@ -181,6 +197,8 @@ type VoicePreset = {
   sourceUrl?: string;
   referenceAudioManaged?: boolean;
   originalReferenceAudio?: string;
+  references: VoiceReferencePreset[];
+  activeReferenceId?: string;
   modelBinding?: {
     modelId: string;
     weights: Record<string, string>;
@@ -189,12 +207,29 @@ type VoicePreset = {
 
 type VoiceManagerDraft = {
   name: string;
+  referenceName: string;
   referenceText: string;
+};
+
+type ResultVoiceSaveMode = "create" | "append";
+
+type VoiceLibrarySaveSource = {
+  kind: "result" | "asset";
+  filePath: string;
+  referenceText?: string;
+  modelName: string;
+  sourceVoiceName: string;
+  displayName: string;
+  durationSeconds?: number;
+  authorizationStatus: string;
+  sourceType: string;
 };
 
 type ReferenceAudioEditorTarget =
   | { kind: "create" }
-  | { kind: "replace"; voiceId: string };
+  | { kind: "append"; voiceId: string }
+  | { kind: "replace"; voiceId: string; referenceId: string }
+  | { kind: "trim"; voiceId: string; referenceId: string };
 
 type ReferenceAudioEditorState = {
   sourcePath: string;
@@ -513,7 +548,8 @@ const voicePresets: VoicePreset[] = [
     name: "导入音色",
     subtitle: "导入",
     initials: "自",
-    background: "linear-gradient(135deg, #59616c 0%, #c8cfd6 100%)"
+    background: "linear-gradient(135deg, #59616c 0%, #c8cfd6 100%)",
+    references: []
   }
 ];
 
@@ -818,6 +854,33 @@ function createImportedVoicePreset(voice: VoiceInfo): VoicePreset | null {
   const modelBinding = voice.model_binding
     ? { modelId: voice.model_binding.model_id, weights: voice.model_binding.weights }
     : undefined;
+  const serverReferences = Array.isArray(voice.references) && voice.references.length > 0
+    ? voice.references
+    : voice.reference_audio
+      ? [{
+          id: voice.active_reference_id ?? "legacy-main",
+          name: "主参考",
+          reference_audio: voice.reference_audio,
+          reference_text: voice.reference_text ?? null,
+          source_type: voice.source_type,
+          source_url: voice.source_url ?? null,
+          original_reference_audio: voice.original_reference_audio ?? null,
+          reference_audio_sha256: voice.reference_audio_sha256 ?? null,
+          reference_audio_managed: voice.reference_audio_managed,
+          created_at: voice.created_at,
+          updated_at: voice.updated_at
+        }]
+      : [];
+  const references = serverReferences.map((reference) => ({
+    id: reference.id,
+    name: reference.name,
+    referenceAudio: reference.reference_audio ?? undefined,
+    referenceText: reference.reference_text ?? undefined,
+    sourceType: reference.source_type,
+    sourceUrl: reference.source_url ?? undefined,
+    referenceAudioManaged: reference.reference_audio_managed,
+    originalReferenceAudio: reference.original_reference_audio ?? undefined
+  }));
   return {
     id: voice.id,
     name: voice.name,
@@ -833,14 +896,20 @@ function createImportedVoicePreset(voice: VoiceInfo): VoicePreset | null {
     sourceUrl: voice.source_url ?? undefined,
     referenceAudioManaged: voice.reference_audio_managed,
     originalReferenceAudio: voice.original_reference_audio ?? undefined,
+    references,
+    activeReferenceId: voice.active_reference_id ?? references[0]?.id,
     modelBinding
   };
 }
 
-function createVoiceManagerDraft(voice: VoicePreset | null): VoiceManagerDraft {
+function createVoiceManagerDraft(voice: VoicePreset | null, referenceId?: string | null): VoiceManagerDraft {
+  const reference = voice?.references.find((item) => item.id === referenceId)
+    ?? voice?.references.find((item) => item.id === voice?.activeReferenceId)
+    ?? voice?.references[0];
   return {
     name: voice?.name ?? "",
-    referenceText: voice?.referenceText ?? ""
+    referenceName: reference?.name ?? "",
+    referenceText: reference?.referenceText ?? ""
   };
 }
 
@@ -848,6 +917,12 @@ function createGeneratedVoiceName(modelName: string, sourceVoiceName: string) {
   const now = new Date();
   const time = `${now.getHours().toString().padStart(2, "0")}${now.getMinutes().toString().padStart(2, "0")}`;
   return `${modelName}-${sourceVoiceName}-${time}`;
+}
+
+function createGeneratedReferenceName(modelName: string) {
+  const now = new Date();
+  const time = `${now.getHours().toString().padStart(2, "0")}${now.getMinutes().toString().padStart(2, "0")}`;
+  return `${modelName} 生成片段 ${time}`;
 }
 
 function formatDuration(value: number | undefined) {
@@ -1522,6 +1597,7 @@ export function App() {
   const [customVoices, setCustomVoices] = useState<VoicePreset[]>([]);
   const [voiceManagerOpen, setVoiceManagerOpen] = useState(false);
   const [managedVoiceId, setManagedVoiceId] = useState<string | null>(null);
+  const [managedReferenceId, setManagedReferenceId] = useState<string | null>(null);
   const [voiceManagerDraft, setVoiceManagerDraft] = useState<VoiceManagerDraft>(() => createVoiceManagerDraft(null));
   const [voiceManagerAction, setVoiceManagerAction] = useState<string | null>(null);
   const [voiceManagerMessage, setVoiceManagerMessage] = useState<string | null>(null);
@@ -1610,6 +1686,12 @@ export function App() {
   const [referenceAudioWaveformStatus, setReferenceAudioWaveformStatus] = useState<WaveformStatus>("idle");
   const [recognizingVoiceIds, setRecognizingVoiceIds] = useState<string[]>([]);
   const [voiceSaving, setVoiceSaving] = useState(false);
+  const [resultVoiceSaveOpen, setResultVoiceSaveOpen] = useState(false);
+  const [voiceLibrarySaveSource, setVoiceLibrarySaveSource] = useState<VoiceLibrarySaveSource | null>(null);
+  const [resultVoiceSaveMode, setResultVoiceSaveMode] = useState<ResultVoiceSaveMode>("create");
+  const [resultVoiceSaveTargetId, setResultVoiceSaveTargetId] = useState("");
+  const [resultVoiceSaveName, setResultVoiceSaveName] = useState("");
+  const [resultVoiceSaveError, setResultVoiceSaveError] = useState<string | null>(null);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const [voiceQuality, setVoiceQuality] = useState<VoiceQualityReport | null>(null);
   const [voiceQualityById, setVoiceQualityById] = useState<Record<string, VoiceQualityReport>>({});
@@ -1625,7 +1707,7 @@ export function App() {
   const [samplerName, setSamplerName] = useState("");
   const [samplerReferenceText, setSamplerReferenceText] = useState("");
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
-  const [batchProjectOpen, setBatchProjectOpen] = useState(false);
+  const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch">("single");
   const [doubaoWorkspaceOpen, setDoubaoWorkspaceOpen] = useState(false);
   const [doubaoStatus, setDoubaoStatus] = useState<DoubaoStatus | null>(null);
   const [doubaoVoices, setDoubaoVoices] = useState<DoubaoVoice[]>([]);
@@ -1638,6 +1720,7 @@ export function App() {
   const [editingBatchProjectId, setEditingBatchProjectId] = useState<string | null>(null);
   const [batchProjectTitle, setBatchProjectTitle] = useState("未命名配音项目");
   const [batchProjectModel, setBatchProjectModel] = useState(selectedModel);
+  const [batchProjectVoiceId, setBatchProjectVoiceId] = useState(selectedVoice);
   const [batchProjectDoubaoVoiceId, setBatchProjectDoubaoVoiceId] = useState("");
   const [batchProjectDoubaoPitch, setBatchProjectDoubaoPitch] = useState(0);
   const [batchProjectDoubaoFormat, setBatchProjectDoubaoFormat] = useState<"wav" | "mp3">("mp3");
@@ -1694,10 +1777,26 @@ export function App() {
     () => doubaoVoices.find((voice) => voice.style_id === batchProjectDoubaoVoiceId) ?? doubaoVoices[0] ?? null,
     [batchProjectDoubaoVoiceId, doubaoVoices]
   );
+  const batchProjectModelInfo = useMemo(
+    () => models.find((model) => model.id === batchProjectModel),
+    [models, batchProjectModel]
+  );
+  const batchProjectVoices = useMemo(
+    () => customVoices.filter((voice) => !voice.modelBinding || voice.modelBinding.modelId === batchProjectModel),
+    [customVoices, batchProjectModel]
+  );
+  const batchProjectVoiceInfo = useMemo(
+    () => batchProjectVoices.find((voice) => voice.id === batchProjectVoiceId) ?? batchProjectVoices[0] ?? null,
+    [batchProjectVoices, batchProjectVoiceId]
+  );
 
   const visibleManagedVoices = useMemo(
     () => customVoices.filter((voice) => !voice.modelBinding || voice.modelBinding.modelId === selectedModel),
     [customVoices, selectedModel]
+  );
+  const appendableVoiceRoles = useMemo(
+    () => customVoices.filter((voice) => !voice.modelBinding),
+    [customVoices]
   );
   const availableVoices = visibleManagedVoices;
 
@@ -1709,6 +1808,14 @@ export function App() {
     () => visibleManagedVoices.find((voice) => voice.id === managedVoiceId) ?? visibleManagedVoices[0] ?? null,
     [visibleManagedVoices, managedVoiceId]
   );
+  const managedReference = useMemo(
+    () => managedVoice?.references.find((reference) => reference.id === managedReferenceId)
+      ?? managedVoice?.references.find((reference) => reference.id === managedVoice.activeReferenceId)
+      ?? managedVoice?.references[0]
+      ?? null,
+    [managedReferenceId, managedVoice]
+  );
+  const managedReferenceRecognitionKey = managedVoice && managedReference ? `${managedVoice.id}:${managedReference.id}` : "";
   const editingBatchProject = useMemo(
     () => batchProjects.find((project) => project.id === editingBatchProjectId) ?? null,
     [batchProjects, editingBatchProjectId]
@@ -1720,6 +1827,10 @@ export function App() {
   const batchProjectCanStop = editingBatchProject?.status === "queued" || editingBatchProject?.status === "running";
   const batchProjectCanResume = editingBatchProject?.status === "cancelled";
   const batchProjectSegmentCount = batchProjectSegments.filter((segment) => segment.trim()).length;
+  const batchProjectReferenceText = batchProjectVoiceInfo?.referenceText?.trim() ?? "";
+  const batchProjectHasReference = Boolean(batchProjectVoiceInfo?.referenceAudio);
+  const batchProjectShowsControlPrompt = supportsControlPrompt(batchProjectModelInfo, cloneMode);
+  const batchProjectShowsSpeedControl = batchProjectModel === "doubao-web" || hasFeature(batchProjectModelInfo, "duration_control");
 
   const supportedCloneModes = useMemo(() => getSupportedCloneModes(selectedModelInfo), [selectedModelInfo]);
   const startupModelOptions = useMemo(() => {
@@ -2116,10 +2227,16 @@ export function App() {
     if (!preset) {
       return;
     }
+    const previous = customVoices.find((item) => item.id === preset.id);
+    const preferredReferenceId = previous?.references.find((reference) => reference.id === managedReferenceId)?.id
+      ?? preset.activeReferenceId
+      ?? preset.references[0]?.id
+      ?? null;
     setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
     managedVoiceIdRef.current = preset.id;
     setManagedVoiceId(preset.id);
-    setVoiceManagerDraft(createVoiceManagerDraft(preset));
+    setManagedReferenceId(preferredReferenceId);
+    setVoiceManagerDraft(createVoiceManagerDraft(preset, preferredReferenceId));
     if (select) {
       selectedVoiceRef.current = preset.id;
       setSelectedVoice(preset.id);
@@ -2137,46 +2254,55 @@ export function App() {
       setReferenceText(preset.referenceText ?? "");
     }
     if (managedVoiceIdRef.current === preset.id) {
-      setVoiceManagerDraft((draft) => ({ ...draft, referenceText: preset.referenceText ?? "" }));
+      const selectedReference = preset.references.find((reference) => reference.id === managedReferenceId)
+        ?? preset.references.find((reference) => reference.id === preset.activeReferenceId)
+        ?? preset.references[0];
+      setVoiceManagerDraft((draft) => ({
+        ...draft,
+        referenceName: selectedReference?.name ?? "",
+        referenceText: selectedReference?.referenceText ?? ""
+      }));
     }
   }
 
-  function startAutomaticVoiceRecognition(voice: VoiceInfo) {
-    if (!voice.reference_audio || voiceRecognitionRequestsRef.current.has(voice.id)) {
+  function startAutomaticVoiceRecognition(voice: VoiceInfo, referenceId = voice.active_reference_id ?? voice.references[0]?.id) {
+    const reference = voice.references.find((item) => item.id === referenceId);
+    const requestKey = referenceId ? `${voice.id}:${referenceId}` : voice.id;
+    if (!reference?.reference_audio || voiceRecognitionRequestsRef.current.has(requestKey)) {
       return;
     }
 
-    setRecognizingVoiceIds((ids) => [...new Set([...ids, voice.id])]);
-    if (selectedVoiceRef.current === voice.id) {
+    setRecognizingVoiceIds((ids) => [...new Set([...ids, requestKey])]);
+    if (selectedVoiceRef.current === voice.id && voice.active_reference_id === reference.id) {
       setVoiceMessage(`${voice.name} 已导入，正在后台识别参考文本…`);
     }
-    if (managedVoiceIdRef.current === voice.id) {
+    if (managedVoiceIdRef.current === voice.id && managedReferenceId === reference.id) {
       setVoiceManagerError(null);
       setVoiceManagerMessage("新参考音频已保存，正在后台识别对应原文…");
     }
 
     const recognition = (async () => {
       try {
-        const result = await recognizeVoiceReference(voice.id);
-        const updated = await updateVoice(voice.id, { reference_text: result.text });
+        const result = await recognizeVoiceReferenceClip(voice.id, reference.id);
+        const updated = await updateVoiceReference(voice.id, reference.id, { reference_text: result.text });
         applyRecognizedVoice(updated);
-        if (selectedVoiceRef.current === voice.id) {
+        if (selectedVoiceRef.current === voice.id && updated.active_reference_id === reference.id) {
           setVoiceMessage(`${voice.name} 的参考文本已自动识别，请在生成前核对。`);
         }
-        if (managedVoiceIdRef.current === voice.id) {
+        if (managedVoiceIdRef.current === voice.id && managedReferenceId === reference.id) {
           setVoiceManagerMessage("参考文本已自动识别并保存，建议核对后再用于极致克隆。");
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "参考音频识别失败";
-        if (selectedVoiceRef.current === voice.id) {
+        if (selectedVoiceRef.current === voice.id && voice.active_reference_id === reference.id) {
           setVoiceMessage(`自动识别未完成：${message}。可以稍后在音色库中重试。`);
         }
-        if (managedVoiceIdRef.current === voice.id) {
+        if (managedVoiceIdRef.current === voice.id && managedReferenceId === reference.id) {
           setVoiceManagerError(`自动识别未完成：${message}`);
         }
       } finally {
-        voiceRecognitionRequestsRef.current.delete(voice.id);
-        setRecognizingVoiceIds((ids) => ids.filter((id) => id !== voice.id));
+        voiceRecognitionRequestsRef.current.delete(requestKey);
+        setRecognizingVoiceIds((ids) => ids.filter((id) => id !== requestKey));
         if (voiceRecognitionRequestsRef.current.size === 0 && pendingModelWarmupRef.current) {
           const modelId = pendingModelWarmupRef.current;
           void runModelWarmup(modelId);
@@ -2184,14 +2310,16 @@ export function App() {
       }
     })();
 
-    voiceRecognitionRequestsRef.current.set(voice.id, recognition);
+    voiceRecognitionRequestsRef.current.set(requestKey, recognition);
     queueModelWarmup(selectedModelRef.current);
   }
 
   function openVoiceManager() {
     const preferred = visibleManagedVoices.find((voice) => voice.id === selectedVoice) ?? visibleManagedVoices[0] ?? null;
     setManagedVoiceId(preferred?.id ?? null);
-    setVoiceManagerDraft(createVoiceManagerDraft(preferred));
+    const referenceId = preferred?.activeReferenceId ?? preferred?.references[0]?.id ?? null;
+    setManagedReferenceId(referenceId);
+    setVoiceManagerDraft(createVoiceManagerDraft(preferred, referenceId));
     setVoiceManagerError(null);
     setVoiceManagerMessage(null);
     setVoiceManagerOpen(true);
@@ -2200,7 +2328,19 @@ export function App() {
 
   function selectManagedVoice(voice: VoicePreset) {
     setManagedVoiceId(voice.id);
-    setVoiceManagerDraft(createVoiceManagerDraft(voice));
+    const referenceId = voice.activeReferenceId ?? voice.references[0]?.id ?? null;
+    setManagedReferenceId(referenceId);
+    setVoiceManagerDraft(createVoiceManagerDraft(voice, referenceId));
+    setVoiceManagerError(null);
+    setVoiceManagerMessage(null);
+  }
+
+  function selectManagedReference(referenceId: string) {
+    if (!managedVoice) {
+      return;
+    }
+    setManagedReferenceId(referenceId);
+    setVoiceManagerDraft(createVoiceManagerDraft(managedVoice, referenceId));
     setVoiceManagerError(null);
     setVoiceManagerMessage(null);
   }
@@ -2210,18 +2350,25 @@ export function App() {
       return;
     }
     if (!voiceManagerDraft.name.trim()) {
-      setVoiceManagerError("请填写音色名称。");
+      setVoiceManagerError("请填写角色名称。");
+      return;
+    }
+    if (managedReference && !voiceManagerDraft.referenceName.trim()) {
+      setVoiceManagerError("请填写参考片段名称。");
       return;
     }
     setVoiceManagerAction("save");
     setVoiceManagerError(null);
     try {
-      const updated = await updateVoice(managedVoice.id, {
-        name: voiceManagerDraft.name.trim(),
-        reference_text: voiceManagerDraft.referenceText.trim() || null
-      });
+      const renamedRole = await updateVoice(managedVoice.id, { name: voiceManagerDraft.name.trim() });
+      const updated = managedReference
+        ? await updateVoiceReference(renamedRole.id, managedReference.id, {
+            name: voiceManagerDraft.referenceName.trim(),
+            reference_text: voiceManagerDraft.referenceText.trim() || null
+          })
+        : renamedRole;
       mergeManagedVoice(updated, selectedVoice === updated.id);
-      setVoiceManagerMessage("名称和参考文本已保存。");
+      setVoiceManagerMessage(managedReference ? "角色名称和当前参考片段已保存。" : "角色名称已保存。");
     } catch (err) {
       setVoiceManagerError(err instanceof Error ? err.message : "保存音色失败");
     } finally {
@@ -2229,11 +2376,12 @@ export function App() {
     }
   }
 
-  async function openReferenceAudioEditor(sourcePath: string, target: ReferenceAudioEditorTarget) {
-    if (!window.desktopFiles?.readSelectedAudio) {
+  async function openReferenceAudioEditor(sourcePath: string, target: ReferenceAudioEditorTarget, source: "selected" | "managed" = "selected") {
+    const readAudio = source === "managed" ? window.desktopFiles?.readManagedReferenceAudio : window.desktopFiles?.readSelectedAudio;
+    if (!readAudio) {
       throw new Error("此版本暂不支持导入前试听，请更新桌面软件后重试。");
     }
-    const audioBytes = await window.desktopFiles.readSelectedAudio(sourcePath);
+    const audioBytes = await readAudio(sourcePath);
     const previewUrl = URL.createObjectURL(new Blob([audioBytes], { type: getAudioMimeType(sourcePath) }));
     if (referenceAudioPreviewUrlRef.current) {
       URL.revokeObjectURL(referenceAudioPreviewUrlRef.current);
@@ -2379,7 +2527,7 @@ export function App() {
   async function saveReferenceAudioEditor() {
     const editor = referenceAudioEditor;
     if (!editor || !editor.name.trim()) {
-      setReferenceAudioEditorError("请填写音色名称。");
+      setReferenceAudioEditorError(editor?.target.kind === "create" ? "请填写角色名称。" : "请填写参考片段名称。");
       return;
     }
     if (editor.durationSeconds <= 0 || editor.trimEndSeconds <= editor.trimStartSeconds) {
@@ -2402,6 +2550,7 @@ export function App() {
         const createdVoice = await createVoice({
           name: editor.name.trim(),
           reference_audio: editor.sourcePath,
+          reference_name: "主参考",
           authorization_status: "authorized",
           source_type: "local_import",
           ...trimPayload
@@ -2421,24 +2570,45 @@ export function App() {
             startAutomaticVoiceRecognition(createdVoice);
           }
         }
-      } else {
-        const updated = await updateVoice(editor.target.voiceId, {
+      } else if (editor.target.kind === "append") {
+        const updated = await createVoiceReference(editor.target.voiceId, {
+          name: editor.name.trim(),
           reference_audio: editor.sourcePath,
           reference_text: null,
+          source_type: "local_import",
           ...trimPayload
         });
         mergeManagedVoice(updated, selectedVoice === updated.id);
-        setVoiceManagerDraft((draft) => ({ ...draft, referenceText: "" }));
-        if (selectedVoice === updated.id) {
-          setReferenceText("");
+        const newReference = updated.references[updated.references.length - 1];
+        setManagedReferenceId(newReference?.id ?? updated.active_reference_id ?? null);
+        setVoiceManagerDraft(createVoiceManagerDraft(createImportedVoicePreset(updated), newReference?.id));
+        setVoiceManagerMessage(
+          editor.autoRecognize
+            ? "参考片段已添加，正在识别该片段的参考文本。"
+            : "参考片段已添加。可设为当前参考后用于生成。"
+        );
+        if (editor.autoRecognize) {
+          startAutomaticVoiceRecognition(updated, newReference?.id);
+        }
+      } else {
+        const updated = await updateVoiceReference(editor.target.voiceId, editor.target.referenceId, {
+          reference_audio: editor.sourcePath,
+          ...(editor.target.kind === "replace" ? { reference_text: null } : {}),
+          ...trimPayload
+        });
+        mergeManagedVoice(updated, selectedVoice === updated.id);
+        setManagedReferenceId(editor.target.referenceId);
+        setVoiceManagerDraft(createVoiceManagerDraft(createImportedVoicePreset(updated), editor.target.referenceId));
+        if (selectedVoice === updated.id && updated.active_reference_id === editor.target.referenceId) {
+          setReferenceText(editor.target.kind === "replace" ? "" : updated.reference_text ?? "");
         }
         setVoiceManagerMessage(
           editor.autoRecognize
-            ? "参考音频已替换，正在识别选中片段的参考文本。"
-            : "参考音频已替换。需要时可点击“识别参考文本”。"
+            ? editor.target.kind === "trim" ? "参考片段已裁切，正在重新识别当前片段的参考文本。" : "参考片段已替换，正在识别当前片段的参考文本。"
+            : editor.target.kind === "trim" ? "参考片段已裁切，原参考文本已保留，请确认内容仍匹配。" : "参考片段已替换。需要时可点击“识别参考文本”。"
         );
         if (editor.autoRecognize) {
-          startAutomaticVoiceRecognition(updated);
+          startAutomaticVoiceRecognition(updated, editor.target.referenceId);
         }
       }
       closeReferenceAudioEditor();
@@ -2451,7 +2621,7 @@ export function App() {
   }
 
   async function onReplaceVoiceReference() {
-    if (!managedVoice || !window.desktopFiles?.selectReferenceAudio) {
+    if (!managedVoice || !managedReference || !window.desktopFiles?.selectReferenceAudio) {
       setVoiceManagerError("请在桌面软件中选择参考音频。");
       return;
     }
@@ -2462,7 +2632,7 @@ export function App() {
       if (!audioPath) {
         return;
       }
-      await openReferenceAudioEditor(audioPath, { kind: "replace", voiceId: managedVoice.id });
+      await openReferenceAudioEditor(audioPath, { kind: "replace", voiceId: managedVoice.id, referenceId: managedReference.id });
     } catch (err) {
       setVoiceManagerError(err instanceof Error ? err.message : "替换参考音频失败");
     } finally {
@@ -2470,9 +2640,99 @@ export function App() {
     }
   }
 
+  async function onTrimManagedVoiceReference() {
+    if (!managedVoice || !managedReference?.referenceAudio || !managedReference.referenceAudioManaged) {
+      setVoiceManagerError("只有音色库托管的参考片段可以直接裁切；外部路径请先替换或重新导入。");
+      return;
+    }
+    setVoiceManagerAction("trim-reference");
+    setVoiceManagerError(null);
+    try {
+      await openReferenceAudioEditor(
+        managedReference.referenceAudio,
+        { kind: "trim", voiceId: managedVoice.id, referenceId: managedReference.id },
+        "managed"
+      );
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "打开参考片段裁切失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
+  async function onAddVoiceReference() {
+    if (!managedVoice || !window.desktopFiles?.selectReferenceAudio) {
+      setVoiceManagerError("请在桌面软件中选择参考音频。");
+      return;
+    }
+    setVoiceManagerAction("add-reference");
+    setVoiceManagerError(null);
+    try {
+      const audioPath = await window.desktopFiles.selectReferenceAudio();
+      if (!audioPath) {
+        return;
+      }
+      await openReferenceAudioEditor(audioPath, { kind: "append", voiceId: managedVoice.id });
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "添加参考片段失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
+  async function onActivateManagedReference(referenceId: string) {
+    if (!managedVoice || referenceId === managedVoice.activeReferenceId) {
+      return;
+    }
+    setVoiceManagerAction("activate-reference");
+    setVoiceManagerError(null);
+    try {
+      const updated = await activateVoiceReference(managedVoice.id, referenceId);
+      mergeManagedVoice(updated, selectedVoice === updated.id);
+      setManagedReferenceId(referenceId);
+      setVoiceManagerDraft(createVoiceManagerDraft(createImportedVoicePreset(updated), referenceId));
+      if (selectedVoice === updated.id) {
+        setReferenceText(updated.reference_text ?? "");
+      }
+      setVoiceManagerMessage("已设为当前参考。后续生成会使用这条片段。");
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "切换当前参考失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
+  async function onDeleteManagedReference(referenceId: string) {
+    if (!managedVoice || managedVoice.references.length <= 1) {
+      setVoiceManagerError("角色至少保留一条参考片段；如需删除角色，请删除整个档案。");
+      return;
+    }
+    const reference = managedVoice.references.find((item) => item.id === referenceId);
+    if (!reference || !window.confirm(`删除参考片段「${reference.name}」？其托管音频也会从角色目录移除。`)) {
+      return;
+    }
+    setVoiceManagerAction("delete-reference");
+    setVoiceManagerError(null);
+    try {
+      const updated = await deleteVoiceReference(managedVoice.id, referenceId);
+      const nextReferenceId = updated.active_reference_id ?? updated.references[0]?.id ?? null;
+      mergeManagedVoice(updated, selectedVoice === updated.id);
+      setManagedReferenceId(nextReferenceId);
+      setVoiceManagerDraft(createVoiceManagerDraft(createImportedVoicePreset(updated), nextReferenceId));
+      if (selectedVoice === updated.id) {
+        setReferenceText(updated.reference_text ?? "");
+      }
+      setVoiceManagerMessage("参考片段已删除。");
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "删除参考片段失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
   async function onRecognizeManagedVoiceReference() {
-    if (!managedVoice?.referenceAudio) {
-      setVoiceManagerError("该音色没有可识别的参考音频。");
+    if (!managedVoice || !managedReference?.referenceAudio) {
+      setVoiceManagerError("该参考片段没有可识别的音频。");
       return;
     }
     setVoiceManagerAction("recognize");
@@ -2485,12 +2745,12 @@ export function App() {
       message: "正在识别参考音频，完成后会恢复并预热当前模型。"
     });
     try {
-      const result = await recognizeVoiceReference(managedVoice.id);
+      const result = await recognizeVoiceReferenceClip(managedVoice.id, managedReference.id);
       setVoiceManagerDraft((draft) => ({ ...draft, referenceText: result.text }));
-      if (selectedVoice === managedVoice.id) {
+      if (selectedVoice === managedVoice.id && managedVoice.activeReferenceId === managedReference.id) {
         setReferenceText(result.text);
       }
-      setVoiceManagerMessage("参考文本已识别并填入草稿，请核对后点击保存。");
+      setVoiceManagerMessage("该片段的参考文本已识别并填入草稿，请核对后点击保存。");
     } catch (err) {
       setVoiceManagerError(err instanceof Error ? err.message : "参考音频识别失败");
     } finally {
@@ -2500,12 +2760,16 @@ export function App() {
   }
 
   async function onRepairManagedVoiceAudio() {
-    if (!managedVoice?.referenceAudio) {
-      setVoiceManagerError("该音色没有可修复的参考音频。");
+    if (!managedVoice || !managedReference?.referenceAudio) {
+      setVoiceManagerError("该参考片段没有可修复的音频。");
       return;
     }
-    if (!managedVoice.referenceAudioManaged) {
+    if (!managedReference.referenceAudioManaged) {
       setVoiceManagerError("这条音频未由音色库托管，请替换或重新导入后再修复。");
+      return;
+    }
+    if (managedVoice.activeReferenceId !== managedReference.id) {
+      setVoiceManagerError("请先将该片段设为当前参考，再修复其音频格式。");
       return;
     }
     setVoiceManagerAction("repair-audio");
@@ -2615,13 +2879,14 @@ export function App() {
     }
   }
 
-  function openBatchProjectWorkspace() {
-    setBatchProjectOpen(true);
+  function createBatchProjectWorkspace() {
+    setGenerationWorkspace("batch");
     setBatchProjectError(null);
     setBatchProjectMessage(null);
     setEditingBatchProjectId(null);
     setBatchProjectTitle(`配音项目 ${new Date().toLocaleDateString()}`);
     setBatchProjectModel(selectedModel);
+    setBatchProjectVoiceId(selectedVoice);
     setBatchProjectDoubaoVoiceId(selectedDoubaoVoice?.style_id ?? "");
     setBatchProjectDoubaoPitch(doubaoPitch);
     setBatchProjectDoubaoFormat(doubaoFormat);
@@ -2629,11 +2894,35 @@ export function App() {
     void loadBatchProjects();
   }
 
+  function openBatchWorkspace() {
+    const importedSegments = generationWorkspace !== "batch" && !editingBatchProjectId && batchProjectSegments.length === 0
+      ? parseBatchSegments(input)
+      : [];
+    setGenerationWorkspace("batch");
+    setBatchProjectError(null);
+    if (importedSegments.length > 0) {
+      setBatchProjectSegments(importedSegments);
+      setBatchProjectMessage(`已从单次文本带入 ${importedSegments.length} 个片段，可继续编辑或导入文件。`);
+    } else {
+      setBatchProjectMessage(null);
+    }
+    void loadBatchProjects();
+  }
+
+  function openSingleWorkspace() {
+    setGenerationWorkspace("single");
+  }
+
   function editBatchProject(project: BatchProject) {
+    setGenerationWorkspace("batch");
     setEditingBatchProjectId(project.id);
     setBatchProjectTitle(project.title);
     setBatchProjectModel(project.model);
     setBatchProjectSegments(project.segments.map((segment) => segment.text));
+    const matchingVoice = project.model === "gptsovits" && project.voice
+      ? customVoices.find((voice) => voice.id === project.voice)
+      : customVoices.find((voice) => voice.referenceAudio === project.reference_audio);
+    setBatchProjectVoiceId(matchingVoice?.id ?? "");
     if (project.model === "doubao-web") {
       setBatchProjectDoubaoVoiceId(project.voice ?? doubaoVoices[0]?.style_id ?? "");
       setBatchProjectDoubaoPitch(project.pitch ?? 0);
@@ -2703,6 +2992,10 @@ export function App() {
       setBatchProjectError("请选择豆包预设音色");
       return;
     }
+    if (batchProjectModel !== "doubao-web" && !batchProjectHasReference) {
+      setBatchProjectError("请选择带参考音频的本地音色");
+      return;
+    }
     setBatchProjectAction(shouldRun ? "run" : "save");
     setBatchProjectError(null);
     try {
@@ -2713,14 +3006,14 @@ export function App() {
         voice: batchProjectModel === "doubao-web"
           ? batchProjectDoubaoVoice?.style_id
           : batchProjectModel === "gptsovits"
-            ? selectedVoice
+            ? batchProjectVoiceInfo?.id
             : undefined,
         pitch: batchProjectModel === "doubao-web" ? batchProjectDoubaoPitch : undefined,
         response_format: batchProjectModel === "doubao-web" ? batchProjectDoubaoFormat : "wav",
-        reference_audio: batchProjectModel === "doubao-web" ? undefined : selectedVoiceInfo.referenceAudio,
-        reference_text: batchProjectModel === "doubao-web" ? undefined : effectiveReferenceText.trim() || undefined,
-        emotion: batchProjectModel === "doubao-web" ? undefined : showControlPrompt ? controlPrompt.trim() || undefined : undefined,
-        speed: batchProjectModel === "doubao-web" || showSpeedControl ? speed : 1,
+        reference_audio: batchProjectModel === "doubao-web" ? undefined : batchProjectVoiceInfo?.referenceAudio,
+        reference_text: batchProjectModel === "doubao-web" ? undefined : batchProjectReferenceText || undefined,
+        emotion: batchProjectModel === "doubao-web" ? undefined : batchProjectShowsControlPrompt ? controlPrompt.trim() || undefined : undefined,
+        speed: batchProjectShowsSpeedControl ? speed : 1,
         cfg: batchProjectModel === "voxcpm2" ? cfg : undefined,
         inference_steps: batchProjectModel === "voxcpm2" ? steps : undefined,
         temperature: batchProjectModel === "indextts2" ? indexTemperature : undefined,
@@ -2986,35 +3279,18 @@ export function App() {
     }
   }
 
-  async function onAddAudioAssetToVoiceLibrary(asset: AudioAsset) {
-    setAudioLibraryAction(`voice-${asset.file_path}`);
-    setAudioLibraryError(null);
-    try {
-      const voice = await createVoice({
-        name: createGeneratedVoiceName(asset.model ?? "本地音频", getFileBaseName(asset.file_name)),
-        reference_audio: asset.file_path,
-        reference_text: asset.text ?? undefined,
-        authorization_status: asset.source === "untracked" ? "user_managed_output" : "generated_local",
-        source_type: asset.source === "untracked" ? "local_output" : "generated"
-      });
-      const preset = createImportedVoicePreset(voice);
-      if (preset) {
-        setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
-        selectedVoiceRef.current = preset.id;
-        setSelectedVoice(preset.id);
-        if (preset.referenceText) {
-          setReferenceText(preset.referenceText);
-        }
-      }
-      setAudioLibraryMessage(`${asset.file_name} 已加入音色库。`);
-      if (!asset.text) {
-        startAutomaticVoiceRecognition(voice);
-      }
-    } catch (err) {
-      setAudioLibraryError(err instanceof Error ? err.message : "将音频加入音色库失败");
-    } finally {
-      setAudioLibraryAction(null);
-    }
+  function onAddAudioAssetToVoiceLibrary(asset: AudioAsset) {
+    openVoiceLibrarySaveDialog({
+      kind: "asset",
+      filePath: asset.file_path,
+      referenceText: asset.text ?? undefined,
+      modelName: asset.model ?? "本地音频",
+      sourceVoiceName: getFileBaseName(asset.file_name),
+      displayName: asset.file_name,
+      durationSeconds: asset.duration_seconds ?? undefined,
+      authorizationStatus: asset.source === "untracked" ? "user_managed_output" : "generated_local",
+      sourceType: asset.source === "untracked" ? "local_output" : "generated"
+    });
   }
 
   function setSamplerFailure(message: string) {
@@ -3333,33 +3609,135 @@ export function App() {
     }
   }
 
-  async function onAddResultToVoiceLibrary() {
+  function generatedVoiceLibraryRoleName(source: VoiceLibrarySaveSource | null) {
+    if (!source) {
+      return "本地生成音色";
+    }
+    return createGeneratedVoiceName(source.modelName, source.sourceVoiceName);
+  }
+
+  function generatedVoiceLibraryReferenceName(source: VoiceLibrarySaveSource | null) {
+    if (!source) {
+      return "生成参考片段";
+    }
+    return createGeneratedReferenceName(source.modelName);
+  }
+
+  function openVoiceLibrarySaveDialog(source: VoiceLibrarySaveSource) {
+    const selectedRole = appendableVoiceRoles.find((voice) => voice.id === selectedVoice);
+    const defaultRole = selectedRole ?? appendableVoiceRoles[0];
+    const mode: ResultVoiceSaveMode = defaultRole ? "append" : "create";
+    setVoiceLibrarySaveSource(source);
+    setResultVoiceSaveMode(mode);
+    setResultVoiceSaveTargetId(defaultRole?.id ?? "");
+    setResultVoiceSaveName(mode === "append" ? generatedVoiceLibraryReferenceName(source) : generatedVoiceLibraryRoleName(source));
+    setResultVoiceSaveError(null);
+    setResultVoiceSaveOpen(true);
+  }
+
+  function openResultVoiceSaveDialog() {
     if (!result || resultSavedToVoiceLibrary) {
+      return;
+    }
+    openVoiceLibrarySaveDialog({
+      kind: "result",
+      filePath: result.file_path,
+      referenceText: resultReferenceText || input.trim() || undefined,
+      modelName: resultModelName || selectedModelInfo?.display_name || result.model,
+      sourceVoiceName: resultVoiceName || selectedVoiceInfo.name,
+      displayName: getFileBaseName(result.file_path),
+      durationSeconds: result.duration_seconds,
+      authorizationStatus: "generated_local",
+      sourceType: "generated"
+    });
+  }
+
+  function closeVoiceLibrarySaveDialog() {
+    if (voiceSaving) {
+      return;
+    }
+    setResultVoiceSaveOpen(false);
+    setVoiceLibrarySaveSource(null);
+    setResultVoiceSaveError(null);
+  }
+
+  function selectResultVoiceSaveMode(mode: ResultVoiceSaveMode) {
+    setResultVoiceSaveMode(mode);
+    setResultVoiceSaveName(mode === "append" ? generatedVoiceLibraryReferenceName(voiceLibrarySaveSource) : generatedVoiceLibraryRoleName(voiceLibrarySaveSource));
+    setResultVoiceSaveError(null);
+  }
+
+  async function onSaveResultToVoiceLibrary() {
+    const source = voiceLibrarySaveSource;
+    if (!source || (source.kind === "result" && resultSavedToVoiceLibrary)) {
+      return;
+    }
+    if (!resultVoiceSaveName.trim()) {
+      setResultVoiceSaveError(resultVoiceSaveMode === "append" ? "请填写参考片段名称。" : "请填写角色名称。");
+      return;
+    }
+    const targetRole = appendableVoiceRoles.find((voice) => voice.id === resultVoiceSaveTargetId);
+    if (resultVoiceSaveMode === "append" && !targetRole) {
+      setResultVoiceSaveError("请选择要加入的已有角色。");
       return;
     }
     setVoiceSaving(true);
     setVoiceMessage(null);
     setError(null);
+    setResultVoiceSaveError(null);
     try {
-      const voice = await createVoice({
-        name: createGeneratedVoiceName(resultModelName || selectedModelInfo?.display_name || result.model, resultVoiceName || selectedVoiceInfo.name),
-        reference_audio: result.file_path,
-        reference_text: resultReferenceText || input.trim() || undefined,
-        authorization_status: "generated_local",
-        source_type: "generated"
-      });
-      const preset = createImportedVoicePreset(voice);
-      if (preset) {
-        setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
-        setSelectedVoice(preset.id);
-        if (preset.referenceText) {
-          setReferenceText(preset.referenceText);
+      const referenceText = source.referenceText;
+      if (resultVoiceSaveMode === "append" && targetRole) {
+        const voice = await createVoiceReference(targetRole.id, {
+          name: resultVoiceSaveName.trim(),
+          reference_audio: source.filePath,
+          reference_text: referenceText,
+          source_type: source.sourceType
+        });
+        const preset = createImportedVoicePreset(voice);
+        if (preset) {
+          setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
         }
-        setSavedVoicePath(result.file_path);
-        setVoiceMessage(`已加入音色库：${preset.name}`);
+        const appendedReference = voice.references[voice.references.length - 1];
+        if (source.kind === "result") {
+          setSavedVoicePath(source.filePath);
+        } else {
+          setAudioLibraryMessage(`${source.displayName} 已作为参考片段加入角色「${targetRole.name}」。`);
+        }
+        setVoiceMessage(`已作为参考片段加入角色「${targetRole.name}」，当前参考未改变。`);
+        if (!referenceText && appendedReference) {
+          startAutomaticVoiceRecognition(voice, appendedReference.id);
+        }
+      } else {
+        const voice = await createVoice({
+          name: resultVoiceSaveName.trim(),
+          reference_audio: source.filePath,
+          reference_text: referenceText,
+          authorization_status: source.authorizationStatus,
+          source_type: source.sourceType
+        });
+        const preset = createImportedVoicePreset(voice);
+        if (preset) {
+          setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+          setSelectedVoice(preset.id);
+          if (preset.referenceText) {
+            setReferenceText(preset.referenceText);
+          }
+          if (source.kind === "result") {
+            setSavedVoicePath(source.filePath);
+          } else {
+            setAudioLibraryMessage(`${source.displayName} 已创建为角色「${preset.name}」。`);
+          }
+          setVoiceMessage(`已创建角色：${preset.name}`);
+          if (!referenceText) {
+            startAutomaticVoiceRecognition(voice);
+          }
+        }
       }
+      setResultVoiceSaveOpen(false);
+      setVoiceLibrarySaveSource(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "加入音色库失败");
+      setResultVoiceSaveError(err instanceof Error ? err.message : "加入音色库失败");
     } finally {
       setVoiceSaving(false);
     }
@@ -4452,7 +4830,7 @@ export function App() {
   }, [activeSpeechJob, batchProjects, samplerBusy, taskCenterOpen]);
 
   useEffect(() => {
-    if (!batchProjectOpen) {
+    if (generationWorkspace !== "batch") {
       return undefined;
     }
     const hasActiveProject = batchProjects.some(
@@ -4465,7 +4843,7 @@ export function App() {
       void loadBatchProjects();
     }, 1600);
     return () => window.clearInterval(timer);
-  }, [batchProjectOpen, batchProjects]);
+  }, [generationWorkspace, batchProjects]);
 
   useEffect(() => {
     setIsPlaying(false);
@@ -4596,6 +4974,263 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [generationStartedAt, loading]);
 
+  function renderBatchProjectWorkspace() {
+    const projectLocked = batchProjectLocked || Boolean(batchProjectAction);
+    const projectProgress = editingBatchProject ? batchProjectProgress(editingBatchProject) : null;
+    return (
+      <section className="batchWorkspacePanel" aria-label="批量任务工作区">
+        <header className="batchWorkspaceHeader">
+          <div className="batchWorkspaceIdentity">
+            <span className="batchWorkspaceEyebrow"><FileText size={15} strokeWidth={1.9} /> 批量任务</span>
+            <strong>{editingBatchProject?.title ?? "新建配音项目"}</strong>
+            <small>
+              {projectProgress
+                ? `${batchProjectStatusLabel(editingBatchProject?.status ?? "draft")} · ${projectProgress.completed}/${projectProgress.total} 完成${projectProgress.failed ? ` · ${projectProgress.failed} 失败` : ""}`
+                : "导入文本后按片段串行生成，确保显存和音色保持稳定。"}
+            </small>
+          </div>
+          <div className="batchWorkspaceHeaderActions">
+            <button className="pathPickButton" onClick={createBatchProjectWorkspace} disabled={Boolean(batchProjectAction)}>
+              <Plus size={15} strokeWidth={1.9} />
+              <span>新建项目</span>
+            </button>
+            <button className="pathPickButton" onClick={() => void openBatchOutputDirectory()}>
+              <FolderOpen size={15} strokeWidth={1.9} />
+              <span>打开输出</span>
+            </button>
+          </div>
+        </header>
+
+        <div className="batchWorkspaceLayout">
+          <section className="batchWorkspaceComposer">
+            <div className="batchWorkspaceSection batchProjectSetup">
+              <div className="batchWorkspaceSectionTitle">
+                <SlidersHorizontal size={16} strokeWidth={1.9} />
+                <span>项目设置</span>
+                <small>参数会随项目快照保存</small>
+              </div>
+              <div className="batchProjectConfigGrid">
+                <label className="settingsField">
+                  <span>项目名称</span>
+                  <input value={batchProjectTitle} disabled={projectLocked} onChange={(event) => setBatchProjectTitle(event.target.value)} />
+                </label>
+                <label className="settingsField">
+                  <span>生成模型</span>
+                  <select
+                    value={batchProjectModel}
+                    disabled={projectLocked}
+                    onChange={(event) => {
+                      const modelId = event.target.value;
+                      const compatibleVoice = customVoices.find((voice) =>
+                        voice.id === batchProjectVoiceId && (!voice.modelBinding || voice.modelBinding.modelId === modelId)
+                      ) ?? customVoices.find((voice) => !voice.modelBinding || voice.modelBinding.modelId === modelId);
+                      setBatchProjectModel(modelId);
+                      setBatchProjectVoiceId(compatibleVoice?.id ?? "");
+                      if (modelId === "doubao-web" && !batchProjectDoubaoVoiceId) {
+                        setBatchProjectDoubaoVoiceId(selectedDoubaoVoice?.style_id ?? doubaoVoices[0]?.style_id ?? "");
+                      }
+                    }}
+                  >
+                    {models.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              {batchProjectModel === "doubao-web" ? (
+                <div className="batchDoubaoConfig">
+                  <label className="settingsField">
+                    <span>豆包预设音色</span>
+                    <select value={batchProjectDoubaoVoice?.style_id ?? ""} disabled={projectLocked} onChange={(event) => setBatchProjectDoubaoVoiceId(event.target.value)}>
+                      {doubaoVoices.map((voice) => <option key={voice.id} value={voice.style_id}>{voice.name} · {[voice.gender, voice.age].filter(Boolean).join(" ")}</option>)}
+                    </select>
+                  </label>
+                  <label className="settingsField">
+                    <span>音调</span>
+                    <input type="number" min={-12} max={12} value={batchProjectDoubaoPitch} disabled={projectLocked} onChange={(event) => setBatchProjectDoubaoPitch(Number(event.target.value))} />
+                  </label>
+                  <label className="settingsField">
+                    <span>语速倍率</span>
+                    <input type="number" min={0.5} max={2} step={0.05} value={speed} disabled={projectLocked} onChange={(event) => setSpeed(Number(event.target.value))} />
+                  </label>
+                  <label className="settingsField">
+                    <span>输出格式</span>
+                    <select value={batchProjectDoubaoFormat} disabled={projectLocked} onChange={(event) => setBatchProjectDoubaoFormat(event.target.value === "wav" ? "wav" : "mp3")}>
+                      <option value="mp3">MP3 · 体积小</option>
+                      <option value="wav">WAV · 无损 PCM</option>
+                    </select>
+                  </label>
+                </div>
+              ) : (
+                <>
+                  <label className="settingsField batchVoiceField">
+                    <span>项目音色</span>
+                    <select
+                      value={batchProjectVoiceInfo?.id ?? ""}
+                      disabled={projectLocked || batchProjectVoices.length === 0}
+                      onChange={(event) => setBatchProjectVoiceId(event.target.value)}
+                    >
+                      {batchProjectVoices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}{voice.referenceText ? " · 已有提示词" : ""}</option>)}
+                    </select>
+                  </label>
+                  <div className={batchProjectHasReference ? "batchProjectReference" : "batchProjectReference batchProjectReferenceWarning"}>
+                    <span>参考音频</span>
+                    <strong>{batchProjectVoiceInfo?.name ?? "未选择音色"}</strong>
+                    <em>{batchProjectHasReference ? (batchProjectReferenceText ? "参考提示词会随项目保存" : "未填写参考提示词，建议先在音色库识别或补充") : "请选择带参考音频的音色后再生成"}</em>
+                  </div>
+                </>
+              )}
+
+              {batchProjectModel === "doubao-web" && (
+                <div className={doubaoUsable ? "batchProjectReference doubaoReady" : "batchProjectReference doubaoWarning"}>
+                  <span>云端账号</span>
+                  <strong>{doubaoUsable ? `${doubaoStatus?.cookies.valid ?? 0} 个有效 Cookie` : "尚不可用"}</strong>
+                  <em>{doubaoUsable ? "批量片段会进入现有串行任务队列" : "草稿可保存，开始生成前需要登录"}</em>
+                </div>
+              )}
+            </div>
+
+            <div className="batchWorkspaceSection batchSegmentsSection">
+              <div className="batchWorkspaceSectionTitle">
+                <FileText size={16} strokeWidth={1.9} />
+                <span>文本片段</span>
+                <small>每段单独生成，可安全停止并从断点继续</small>
+              </div>
+              <div className="batchProjectImportRow">
+                <button className="pathPickButton" disabled={projectLocked} onClick={() => batchFileInputRef.current?.click()}>
+                  <Upload size={15} strokeWidth={1.9} />
+                  <span>导入 TXT / SRT</span>
+                </button>
+                <button className="pathPickButton" disabled={projectLocked} onClick={() => setBatchProjectSegments((segments) => [...segments, ""])}>
+                  <Plus size={15} strokeWidth={1.9} />
+                  <span>新增片段</span>
+                </button>
+                <input ref={batchFileInputRef} className="hiddenFile" type="file" accept=".txt,.srt,.vtt,text/plain" onChange={onImportBatchSource} />
+                <span>{batchProjectSegmentCount} 个有效片段</span>
+              </div>
+              {batchProjectSegments.length === 0 ? (
+                <div className="batchProjectEmpty">
+                  <FileText size={20} strokeWidth={1.8} />
+                  <strong>导入文本或字幕开始项目</strong>
+                  <span>TXT 按行/段落分段，SRT/VTT 会自动去除时间轴。</span>
+                </div>
+              ) : (
+                <div className="batchSegmentList batchWorkspaceSegmentList">
+                  {batchProjectSegments.map((segment, index) => {
+                    const segmentState = editingBatchProject?.segments[index];
+                    return (
+                      <div key={`${editingBatchProjectId ?? "new"}-${index}`} className="batchSegmentItem">
+                        <span>{index + 1}</span>
+                        <textarea
+                          value={segment}
+                          rows={2}
+                          disabled={projectLocked}
+                          placeholder="输入本段文本"
+                          onChange={(event) => updateBatchSegment(index, event.target.value)}
+                        />
+                        {segmentState && <em className={`batchSegmentState ${segmentState.status}`}>{batchSegmentStatusLabel(segmentState.status)}</em>}
+                        <button className="pathPickButton batchSegmentRemove" disabled={projectLocked || batchProjectSegments.length === 1} onClick={() => removeBatchSegment(index)} title="移除片段">
+                          <Trash2 size={15} strokeWidth={1.9} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
+
+          <aside className="batchWorkspaceQueue" aria-label="批量项目队列">
+            <div className="batchWorkspaceSectionTitle">
+              <Library size={16} strokeWidth={1.9} />
+              <span>项目队列</span>
+              <button className="iconTextButton" title="刷新项目队列" onClick={() => void loadBatchProjects()}><RefreshCw size={15} strokeWidth={1.9} /></button>
+            </div>
+            {batchProjects.length === 0 ? (
+              <div className="batchProjectEmpty compact">
+                <Library size={19} strokeWidth={1.8} />
+                <strong>尚无已保存的批量项目</strong>
+                <span>保存草稿后，可在此追踪进度并从断点继续。</span>
+              </div>
+            ) : (
+              <div className="batchProjectList batchWorkspaceProjectList">
+                {batchProjects.map((project) => {
+                  const progress = batchProjectProgress(project);
+                  return (
+                    <div key={project.id} className={project.id === editingBatchProjectId ? "batchProjectRow active" : "batchProjectRow"}>
+                      <button className="batchProjectSelect" onClick={() => editBatchProject(project)}>
+                        <div>
+                          <strong>{project.title}</strong>
+                          <span>{models.find((model) => model.id === project.model)?.display_name ?? project.model} · {progress.completed}/{progress.total} 完成{progress.failed ? ` · ${progress.failed} 失败` : ""}</span>
+                        </div>
+                        <em className={project.status}>{batchProjectStatusLabel(project.status)}</em>
+                      </button>
+                      <div className="batchProjectRowActions">
+                        {project.status === "failed" ? (
+                          <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project, true)}>
+                            {batchProjectAction === "retry" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
+                            <span>重试</span>
+                          </button>
+                        ) : project.status === "cancelled" ? (
+                          <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(project)}>
+                            {batchProjectAction === "resume" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
+                            <span>继续</span>
+                          </button>
+                        ) : project.status === "cancelling" ? (
+                          <button className="pathPickButton runtimeStopButton" disabled><Loader2 className="spin" size={15} /><span>停止中</span></button>
+                        ) : project.status === "queued" || project.status === "running" ? (
+                          <button className="pathPickButton runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(project)}>
+                            {batchProjectAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}
+                            <span>{project.status === "running" ? "安全停止" : "取消队列"}</span>
+                          </button>
+                        ) : (
+                          <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project)}>
+                            {batchProjectAction === "run" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
+                            <span>运行</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </aside>
+        </div>
+
+        {(batchProjectError || batchProjectMessage) && (
+          <div className={batchProjectError ? "settingsFeedback error" : "settingsFeedback"}>
+            {batchProjectError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
+            <span>{batchProjectError ?? batchProjectMessage}</span>
+          </div>
+        )}
+
+        <footer className="batchWorkspaceFooter">
+          {batchProjectCanStop && editingBatchProject && (
+            <button className="secondaryAction settingsAction runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(editingBatchProject)}>
+              {batchProjectAction === "cancel" ? <Loader2 className="spin" size={16} /> : <Pause size={16} strokeWidth={1.9} />}
+              <span>{editingBatchProject.status === "running" ? "当前段后停止" : "取消队列"}</span>
+            </button>
+          )}
+          {batchProjectCanResume && editingBatchProject && (
+            <button className="secondaryAction settingsAction" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(editingBatchProject)}>
+              {batchProjectAction === "resume" ? <Loader2 className="spin" size={16} /> : <Play size={16} strokeWidth={1.9} />}
+              <span>继续生成</span>
+            </button>
+          )}
+          <span className="batchWorkspaceFooterSpacer" />
+          <button className="secondaryAction settingsAction" disabled={projectLocked} onClick={() => void saveBatchProject(false)}>
+            {batchProjectAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
+            <span>保存草稿</span>
+          </button>
+          <button className="primaryAction settingsAction" disabled={projectLocked} onClick={() => void saveBatchProject(true)}>
+            {batchProjectAction === "run" ? <Loader2 className="spin" size={16} /> : <Play size={16} strokeWidth={1.9} />}
+            <span>保存并生成</span>
+          </button>
+        </footer>
+      </section>
+    );
+  }
+
   return (
     <main className="studioShell">
       <header className="desktopTopbar">
@@ -4635,9 +5270,6 @@ export function App() {
               setTaskCenterOpen(true);
             }}>
               <Gauge size={17} strokeWidth={1.9} />
-            </button>
-            <button className="toolButton" title="批量项目" onClick={openBatchProjectWorkspace}>
-              <FileText size={17} strokeWidth={1.9} />
             </button>
             <button className="toolButton" title="豆包账号、阅读与缓存管理" onClick={() => setDoubaoWorkspaceOpen(true)}>
               <Cloud size={17} strokeWidth={1.9} />
@@ -5047,7 +5679,7 @@ export function App() {
         </aside>
 
         <section className="mainStage">
-          <section className="softPanel canvasPanel">
+          <section className={generationWorkspace === "batch" ? "softPanel canvasPanel batchCanvasPanel" : "softPanel canvasPanel"}>
             <div className="engineStrip">
               <div className="engineHeader">
                 <Cpu size={18} strokeWidth={1.9} />
@@ -5091,8 +5723,33 @@ export function App() {
                   </button>
                 ))}
               </div>
+              <div className={`generationWorkspaceTabs ${generationWorkspace}`} role="tablist" aria-label="生成工作模式">
+                <span className="generationWorkspaceThumb" aria-hidden="true" />
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={generationWorkspace === "single"}
+                  className={generationWorkspace === "single" ? "active" : ""}
+                  onClick={openSingleWorkspace}
+                >
+                  <Wand2 size={15} strokeWidth={1.9} />
+                  <span>单次</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={generationWorkspace === "batch"}
+                  className={generationWorkspace === "batch" ? "active" : ""}
+                  onClick={openBatchWorkspace}
+                >
+                  <FileText size={15} strokeWidth={1.9} />
+                  <span>批量</span>
+                </button>
+              </div>
             </div>
 
+            {generationWorkspace === "single" ? (
+              <>
             <div className="taskCanvas">
               {loading ? (
                 <div className="generatingState">
@@ -5210,9 +5867,6 @@ export function App() {
                   <Trash2 size={17} strokeWidth={1.9} />
                   <span>清空文本</span>
                 </button>
-                <button className="roundAdd" title="创建批量任务" onClick={openBatchProjectWorkspace}>
-                  <Plus size={18} strokeWidth={2} />
-                </button>
                 <div className="drawControl" role="group" aria-label="抽卡生成条数" title="同一参数串行生成多条候选；不会并行占用显存。">
                   <span>抽卡</span>
                   {([2, 3, 4] as const).map((count) => (
@@ -5250,6 +5904,8 @@ export function App() {
                 {showDenoiseToggle && <span>{denoise ? "降噪开" : "降噪关"}</span>}
               </div>
             </div>
+              </>
+            ) : renderBatchProjectWorkspace()}
           </section>
 
           <section className="softPanel playerPanel">
@@ -5285,7 +5941,7 @@ export function App() {
             <button
               className={resultSavedToVoiceLibrary ? "voiceSaveButton saved" : "voiceSaveButton"}
               disabled={!result || voiceSaving || resultSavedToVoiceLibrary}
-              onClick={() => void onAddResultToVoiceLibrary()}
+              onClick={openResultVoiceSaveDialog}
             >
               {voiceSaving ? <Loader2 className="spin" size={16} /> : resultSavedToVoiceLibrary ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <Save size={16} strokeWidth={1.9} />}
               <span>{voiceSaving ? "加入中" : resultSavedToVoiceLibrary ? "已加入" : "加入音色库"}</span>
@@ -5334,13 +5990,141 @@ export function App() {
         </div>
       )}
 
+      {resultVoiceSaveOpen && voiceLibrarySaveSource && (
+        <div
+          className="settingsOverlay"
+          role="dialog"
+          aria-modal="true"
+          aria-label="保存音频到角色音色库"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !voiceSaving) {
+              closeVoiceLibrarySaveDialog();
+            }
+          }}
+        >
+          <section className="settingsDialog resultVoiceSaveDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>保存到角色音色库</strong>
+                <span>选择新建角色，或作为参考片段加入已有角色</span>
+              </div>
+              <button className="modalClose" title="取消保存" disabled={voiceSaving} onClick={closeVoiceLibrarySaveDialog}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+
+            <div className="settingsBody resultVoiceSaveBody">
+              <section className="resultVoiceSaveSource">
+                <span className="resultVoiceSaveSourceIcon"><Waves size={18} strokeWidth={1.9} /></span>
+                <div>
+                  <strong>{voiceLibrarySaveSource.modelName}</strong>
+                  <span title={voiceLibrarySaveSource.filePath}>{voiceLibrarySaveSource.displayName}</span>
+                </div>
+                <small>{voiceLibrarySaveSource.durationSeconds ? formatDuration(voiceLibrarySaveSource.durationSeconds) : "参考音频"}</small>
+              </section>
+
+              <section className="settingsGroup resultVoiceSaveModeGroup">
+                <div>
+                  <strong>保存方式</strong>
+                  <span>加入已有角色只会新增片段，不会替换或切换当前参考。</span>
+                </div>
+                <div className="segmented" style={{ "--segment-count": 2 } as CSSProperties}>
+                  <button
+                    type="button"
+                    className={resultVoiceSaveMode === "append" ? "segment active" : "segment"}
+                    disabled={voiceSaving || appendableVoiceRoles.length === 0}
+                    aria-pressed={resultVoiceSaveMode === "append"}
+                    onClick={() => selectResultVoiceSaveMode("append")}
+                  >
+                    加入已有角色
+                  </button>
+                  <button
+                    type="button"
+                    className={resultVoiceSaveMode === "create" ? "segment active" : "segment"}
+                    disabled={voiceSaving}
+                    aria-pressed={resultVoiceSaveMode === "create"}
+                    onClick={() => selectResultVoiceSaveMode("create")}
+                  >
+                    新建角色
+                  </button>
+                </div>
+              </section>
+
+              {resultVoiceSaveMode === "append" ? (
+                <section className="settingsGroup resultVoiceSaveFields">
+                  <label className="settingsField">
+                    <span>加入到角色</span>
+                    <select
+                      value={resultVoiceSaveTargetId}
+                      disabled={voiceSaving}
+                      onChange={(event) => {
+                        setResultVoiceSaveTargetId(event.target.value);
+                        setResultVoiceSaveError(null);
+                      }}
+                    >
+                      <option value="" disabled>选择一个角色</option>
+                      {appendableVoiceRoles.map((voice) => (
+                        <option key={voice.id} value={voice.id}>{voice.name} · {voice.references.length} 条片段</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="settingsField">
+                    <span>新参考片段名称</span>
+                    <input
+                      value={resultVoiceSaveName}
+                      disabled={voiceSaving}
+                      onChange={(event) => setResultVoiceSaveName(event.target.value)}
+                    />
+                  </label>
+                </section>
+              ) : (
+                <section className="settingsGroup resultVoiceSaveFields">
+                  <label className="settingsField">
+                    <span>新角色名称</span>
+                    <input
+                      value={resultVoiceSaveName}
+                      disabled={voiceSaving}
+                      onChange={(event) => setResultVoiceSaveName(event.target.value)}
+                    />
+                  </label>
+                  <p className="resultVoiceSaveNotice">将以这条生成音频创建一个新的角色，之后仍可继续添加更多参考片段。</p>
+                </section>
+              )}
+
+              {resultVoiceSaveError && (
+                <div className="settingsFeedback error">
+                  <AlertCircle size={16} strokeWidth={1.9} />
+                  <span>{resultVoiceSaveError}</span>
+                </div>
+              )}
+            </div>
+
+            <footer className="settingsFooter">
+              <button className="secondaryAction settingsAction" type="button" disabled={voiceSaving} onClick={closeVoiceLibrarySaveDialog}>
+                <span>取消</span>
+              </button>
+              <span className="settingsFooterSpacer" />
+              <button
+                className="primaryAction settingsAction"
+                type="button"
+                disabled={voiceSaving || (resultVoiceSaveMode === "append" && !resultVoiceSaveTargetId)}
+                onClick={() => void onSaveResultToVoiceLibrary()}
+              >
+                {voiceSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
+                <span>{voiceSaving ? "正在保存" : resultVoiceSaveMode === "append" ? "加入角色" : "创建角色"}</span>
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
+
       {voiceManagerOpen && (
-        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音色库管理">
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="角色音色库">
           <section className="settingsDialog voiceManagerDialog">
             <header className="settingsHeader">
               <div>
-                <strong>音色库管理</strong>
-                <span>每个音色只保留一条参考音频及对应提示词，可直接打包到其他生产环境。</span>
+                <strong>角色音色库</strong>
+                <span>一个角色可保存多条可裁切的参考片段；生成时只使用标记为“当前参考”的一条，保证稳定性。</span>
               </div>
               <button className="modalClose" title="关闭" onClick={() => setVoiceManagerOpen(false)}>
                 <X size={18} strokeWidth={2} />
@@ -5351,12 +6135,12 @@ export function App() {
               {visibleManagedVoices.length === 0 ? (
                 <div className="voiceManagerEmpty">
                   <Library size={24} strokeWidth={1.7} />
-                  <strong>还没有已保存的音色</strong>
+                  <strong>还没有已保存的角色</strong>
                   <span>可以从左侧导入参考音频、B 站取样，或把生成结果加入音色库。</span>
                 </div>
               ) : (
                 <div className="voiceManagerLayout">
-                  <aside className="voiceManagerList" aria-label="音色列表">
+                  <aside className="voiceManagerList" aria-label="角色列表">
                     {visibleManagedVoices.map((voice) => (
                       <button
                         key={voice.id}
@@ -5367,7 +6151,7 @@ export function App() {
                         <span className="voiceAvatar" style={{ "--avatar-bg": voice.background } as CSSProperties} aria-hidden="true">{voice.initials}</span>
                         <span>
                           <strong>{voice.name}</strong>
-                          <small>{voice.modelBinding ? "GPT-SoVITS 专属权重" : voice.referenceAudioManaged ? "参考音频已托管" : "外部参考路径"}</small>
+                          <small>{voice.modelBinding ? "GPT-SoVITS 专属权重" : `${voice.references.length} 条参考片段`}</small>
                         </span>
                       </button>
                     ))}
@@ -5375,53 +6159,163 @@ export function App() {
 
                   {managedVoice && (
                     <section className="voiceManagerDetail">
-                      <div className="voiceManagerSummary">
+                      <div className="voiceManagerRoleHeading">
                         <div>
-                          <strong>{managedVoice.referenceAudioManaged ? "文件已托管" : "外部路径"}</strong>
-                          <span>{getFileBaseName(managedVoice.referenceAudio ?? "本地音色")}</span>
+                          <strong>{managedVoice.name}</strong>
+                          <span>{managedVoice.modelBinding ? "模型专属权重角色" : `${managedVoice.references.length} 条参考片段 · 可随时选择一条用于生成`}</span>
                         </div>
-                        <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null || recognizingVoiceIds.includes(managedVoice.id)} onClick={() => void onReplaceVoiceReference()}>
-                          {voiceManagerAction === "replace-audio" ? <Loader2 className="spin" size={15} /> : <Upload size={15} strokeWidth={1.9} />}
-                          <span>替换音频</span>
-                        </button>
+                        {!managedVoice.modelBinding && (
+                          <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null} onClick={() => void onAddVoiceReference()}>
+                            {voiceManagerAction === "add-reference" ? <Loader2 className="spin" size={15} /> : <Plus size={15} strokeWidth={1.9} />}
+                            <span>添加参考片段</span>
+                          </button>
+                        )}
                       </div>
-                      <p className="voiceManagerHint">
-                        替换时可先试听和裁切，再保存到音色目录；是否识别参考文字由你在保存前决定。极致克隆和 GPT-SoVITS 使用前仍建议核对文本。
-                      </p>
-                      <button
-                        className="pathPickButton voiceRepairButton"
-                        type="button"
-                        title="将托管参考音频转换为单声道 PCM 16-bit WAV，不会改动原始生成文件"
-                        disabled={voiceManagerAction !== null || !managedVoice.referenceAudioManaged || !managedVoice.referenceAudio}
-                        onClick={() => void onRepairManagedVoiceAudio()}
-                      >
-                        {voiceManagerAction === "repair-audio" ? <Loader2 className="spin" size={15} /> : <Gauge size={15} strokeWidth={1.9} />}
-                        <span>{voiceManagerAction === "repair-audio" ? "正在修复" : "修复音频格式"}</span>
-                      </button>
+
+                      {managedVoice.references.length > 0 ? (
+                        <section className="voiceReferenceSection" aria-label="参考片段">
+                          <div className="voiceReferenceHeading">
+                            <div>
+                              <strong>参考片段</strong>
+                              <span>点击卡片编辑；“当前参考”会同步给现有单参考模型与外部 API。</span>
+                            </div>
+                            <small>{managedVoice.references.length} / 24</small>
+                          </div>
+                          <div className="voiceReferenceGrid">
+                            {managedVoice.references.map((reference) => {
+                              const isSelected = reference.id === managedReference?.id;
+                              const isActive = reference.id === managedVoice.activeReferenceId;
+                              return (
+                                <article
+                                  key={reference.id}
+                                  className={isSelected ? "voiceReferenceCard selected" : "voiceReferenceCard"}
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-pressed={isSelected}
+                                  onClick={() => selectManagedReference(reference.id)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" || event.key === " ") {
+                                      event.preventDefault();
+                                      selectManagedReference(reference.id);
+                                    }
+                                  }}
+                                >
+                                  <div className="voiceReferenceCardTopline">
+                                    <strong>{reference.name}</strong>
+                                    {isActive && <span className="voiceReferenceBadge">当前参考</span>}
+                                  </div>
+                                  <span className="voiceReferenceFile" title={reference.referenceAudio}>{getFileBaseName(reference.referenceAudio ?? "未指定音频")}</span>
+                                  <span className="voiceReferenceState">{reference.referenceAudioManaged ? "音频已托管" : "外部参考路径"}</span>
+                                  <div className="voiceReferenceCardActions">
+                                    {!isActive && (
+                                      <button
+                                        className="secondaryAction voiceReferenceCardAction"
+                                        type="button"
+                                        disabled={voiceManagerAction !== null}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void onActivateManagedReference(reference.id);
+                                        }}
+                                      >
+                                        <span>设为当前参考</span>
+                                      </button>
+                                    )}
+                                    {managedVoice.references.length > 1 && (
+                                      <button
+                                        className="voiceReferenceDelete"
+                                        type="button"
+                                        title={`删除参考片段 ${reference.name}`}
+                                        disabled={voiceManagerAction !== null}
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          void onDeleteManagedReference(reference.id);
+                                        }}
+                                      >
+                                        <Trash2 size={14} strokeWidth={1.9} />
+                                      </button>
+                                    )}
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        </section>
+                      ) : (
+                        <p className="voiceManagerHint">此角色只关联 GPT-SoVITS 的训练权重，不会混入普通参考片段。</p>
+                      )}
+
+                      {managedReference && (
+                        <>
+                          <div className="voiceManagerSummary">
+                            <div>
+                              <strong>{managedReference.referenceAudioManaged ? "当前片段 · 文件已托管" : "当前片段 · 外部路径"}</strong>
+                              <span>{getFileBaseName(managedReference.referenceAudio ?? "本地音色")}</span>
+                            </div>
+                            <div className="voiceReferenceEditorActions">
+                              <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null || recognizingVoiceIds.includes(managedReferenceRecognitionKey)} onClick={() => void onReplaceVoiceReference()}>
+                                {voiceManagerAction === "replace-audio" ? <Loader2 className="spin" size={15} /> : <Upload size={15} strokeWidth={1.9} />}
+                                <span>替换此片段</span>
+                              </button>
+                              <button
+                                className="secondaryAction voiceReferenceTrimButton"
+                                type="button"
+                                title={managedReference.referenceAudioManaged ? "在应用内试听并重新裁切此片段" : "外部路径请先替换或重新导入后再裁切"}
+                                disabled={voiceManagerAction !== null || !managedReference.referenceAudioManaged || recognizingVoiceIds.includes(managedReferenceRecognitionKey)}
+                                onClick={() => void onTrimManagedVoiceReference()}
+                              >
+                                {voiceManagerAction === "trim-reference" ? <Loader2 className="spin" size={15} /> : <Waves size={15} strokeWidth={1.9} />}
+                                <span>裁切此片段</span>
+                              </button>
+                            </div>
+                          </div>
+                          <p className="voiceManagerHint">
+                            替换时可先试听和裁切；每条片段分别保存原文。极致克隆和 GPT-SoVITS 使用前仍建议核对当前片段的文本。
+                          </p>
+                          <button
+                            className="pathPickButton voiceRepairButton"
+                            type="button"
+                            title={managedVoice.activeReferenceId === managedReference.id ? "将当前托管参考音频转换为单声道 PCM 16-bit WAV，不会改动原始生成文件" : "请先设为当前参考，再修复音频格式"}
+                            disabled={voiceManagerAction !== null || !managedReference.referenceAudioManaged || !managedReference.referenceAudio || managedVoice.activeReferenceId !== managedReference.id}
+                            onClick={() => void onRepairManagedVoiceAudio()}
+                          >
+                            {voiceManagerAction === "repair-audio" ? <Loader2 className="spin" size={15} /> : <Gauge size={15} strokeWidth={1.9} />}
+                            <span>{voiceManagerAction === "repair-audio" ? "正在修复" : "修复音频格式"}</span>
+                          </button>
+                        </>
+                      )}
                       <label className="settingsField">
-                        <span>音色名称（可重命名）</span>
-                        <input value={voiceManagerDraft.name} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, name: event.target.value }))} />
+                        <span>角色名称（可重命名）</span>
+                        <input disabled={voiceManagerAction !== null} value={voiceManagerDraft.name} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, name: event.target.value }))} />
                       </label>
-                      <label className="settingsField voiceManagerPromptField">
-                        <span>参考音频原文</span>
-                        <textarea
-                          value={voiceManagerDraft.referenceText}
-                          placeholder="填写这条参考音频实际说的内容"
-                          disabled={recognizingVoiceIds.includes(managedVoice.id)}
-                          onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceText: event.target.value }))}
-                        />
-                      </label>
-                      <button
-                        className="pathPickButton"
-                        type="button"
-                        disabled={voiceManagerAction !== null || !managedVoice.referenceAudio || recognizingVoiceIds.includes(managedVoice.id)}
-                        onClick={() => void onRecognizeManagedVoiceReference()}
-                      >
-                        {voiceManagerAction === "recognize" || recognizingVoiceIds.includes(managedVoice.id) ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} strokeWidth={1.9} />}
-                        <span>{recognizingVoiceIds.includes(managedVoice.id) ? "正在自动识别" : "识别参考文本"}</span>
-                      </button>
+                      {managedReference && (
+                        <>
+                          <label className="settingsField">
+                            <span>参考片段名称</span>
+                            <input disabled={voiceManagerAction !== null} value={voiceManagerDraft.referenceName} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceName: event.target.value }))} />
+                          </label>
+                          <label className="settingsField voiceManagerPromptField">
+                            <span>参考音频原文</span>
+                            <textarea
+                              value={voiceManagerDraft.referenceText}
+                              placeholder="填写这条参考音频实际说的内容"
+                              disabled={voiceManagerAction !== null || recognizingVoiceIds.includes(managedReferenceRecognitionKey)}
+                              onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceText: event.target.value }))}
+                            />
+                          </label>
+                          <button
+                            className="pathPickButton"
+                            type="button"
+                            disabled={voiceManagerAction !== null || !managedReference.referenceAudio || recognizingVoiceIds.includes(managedReferenceRecognitionKey)}
+                            onClick={() => void onRecognizeManagedVoiceReference()}
+                          >
+                            {voiceManagerAction === "recognize" || recognizingVoiceIds.includes(managedReferenceRecognitionKey) ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} strokeWidth={1.9} />}
+                            <span>{recognizingVoiceIds.includes(managedReferenceRecognitionKey) ? "正在自动识别" : "识别此片段文本"}</span>
+                          </button>
+                        </>
+                      )}
                       <div className="voiceManagerMetadata">
-                        <span>来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
+                        <span>角色来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
+                        {managedReference && <span>片段来源：{voiceSourceLabel(managedReference.sourceType)}</span>}
                         {managedVoice.modelBinding && <span>限定模型：GPT-SoVITS</span>}
                         <span>授权：{managedVoice.authorizationStatus ?? "未标注"}</span>
                       </div>
@@ -5458,7 +6352,7 @@ export function App() {
               )}
               <button className="primaryAction settingsAction" type="button" disabled={!managedVoice || voiceManagerAction !== null} onClick={() => void onSaveVoiceManagerDetails()}>
                 {voiceManagerAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
-                <span>保存名称和原文</span>
+                <span>保存角色和片段</span>
               </button>
             </footer>
           </section>
@@ -5617,7 +6511,7 @@ export function App() {
               </section>
 
               <label className="settingsField referenceAudioNameField">
-                <span>音色名称</span>
+                <span>{referenceAudioEditor.target.kind === "create" ? "角色名称" : "参考片段名称"}</span>
                 <input
                   value={referenceAudioEditor.name}
                   disabled={referenceAudioEditorSaving}
@@ -5658,7 +6552,7 @@ export function App() {
                 onClick={() => void saveReferenceAudioEditor()}
               >
                 {referenceAudioEditorSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
-                <span>{referenceAudioEditorSaving ? "正在保存" : "保存到音色库"}</span>
+                <span>{referenceAudioEditorSaving ? "正在保存" : referenceAudioEditor.target.kind === "create" ? "创建角色" : referenceAudioEditor.target.kind === "append" ? "添加参考片段" : referenceAudioEditor.target.kind === "trim" ? "保存裁切" : "保存替换"}</span>
               </button>
             </footer>
           </section>
@@ -6006,375 +6900,6 @@ export function App() {
               <button className="primaryAction settingsAction" onClick={confirmModelSwitch}>
                 <Cpu size={16} strokeWidth={1.9} />
                 <span>确认切换</span>
-              </button>
-            </footer>
-          </section>
-        </div>
-      )}
-
-      {batchProjectOpen && (
-        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="批量项目">
-          <section className="settingsDialog batchProjectDialog">
-            <header className="settingsHeader">
-              <div>
-                <strong>批量项目</strong>
-                <span>TXT / SRT · 串行队列 · 安全停止与断点继续</span>
-              </div>
-              <button className="modalClose" title="关闭" onClick={() => setBatchProjectOpen(false)}>
-                <X size={18} strokeWidth={2} />
-              </button>
-            </header>
-
-            <div className="settingsBody batchProjectBody">
-              <div className="settingsGroup batchProjectSetup">
-                <div className="settingsGroupTitle">
-                  <FileText size={16} strokeWidth={1.9} />
-                  <span>项目配置</span>
-                </div>
-                <div className="batchProjectConfigGrid">
-                  <label className="settingsField">
-                    <span>项目名称</span>
-                    <input value={batchProjectTitle} disabled={batchProjectLocked} onChange={(event) => setBatchProjectTitle(event.target.value)} />
-                  </label>
-                  <label className="settingsField">
-                    <span>模型</span>
-                    <select value={batchProjectModel} disabled={batchProjectLocked} onChange={(event) => {
-                      const modelId = event.target.value;
-                      setBatchProjectModel(modelId);
-                      if (modelId === "doubao-web" && !batchProjectDoubaoVoiceId) {
-                        setBatchProjectDoubaoVoiceId(selectedDoubaoVoice?.style_id ?? doubaoVoices[0]?.style_id ?? "");
-                      }
-                    }}>
-                      {models.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}
-                    </select>
-                  </label>
-                </div>
-                {batchProjectModel === "doubao-web" ? (
-                  <div className="batchDoubaoConfig">
-                    <label className="settingsField">
-                      <span>豆包预设音色</span>
-                      <select value={batchProjectDoubaoVoice?.style_id ?? ""} disabled={batchProjectLocked} onChange={(event) => setBatchProjectDoubaoVoiceId(event.target.value)}>
-                        {doubaoVoices.map((voice) => <option key={voice.id} value={voice.style_id}>{voice.name} · {[voice.gender, voice.age].filter(Boolean).join(" ")}</option>)}
-                      </select>
-                    </label>
-                    <label className="settingsField">
-                      <span>音调（-12 至 12）</span>
-                      <input type="number" min={-12} max={12} value={batchProjectDoubaoPitch} disabled={batchProjectLocked} onChange={(event) => setBatchProjectDoubaoPitch(Number(event.target.value))} />
-                    </label>
-                    <label className="settingsField">
-                      <span>语速倍率</span>
-                      <input type="number" min={0.5} max={2} step={0.05} value={speed} disabled={batchProjectLocked} onChange={(event) => setSpeed(Number(event.target.value))} />
-                    </label>
-                    <label className="settingsField">
-                      <span>输出格式</span>
-                      <select value={batchProjectDoubaoFormat} disabled={batchProjectLocked} onChange={(event) => setBatchProjectDoubaoFormat(event.target.value === "wav" ? "wav" : "mp3")}>
-                        <option value="mp3">MP3 · 体积小</option>
-                        <option value="wav">WAV · 无损 PCM</option>
-                      </select>
-                    </label>
-                  </div>
-                ) : (
-                  <div className="batchProjectReference">
-                    <span>当前音色</span>
-                    <strong>{selectedVoiceInfo.name}</strong>
-                    <em>{selectedVoiceInfo.referenceAudio ? "会随项目保存参考音频" : "未配置参考音频"}</em>
-                  </div>
-                )}
-                {batchProjectModel === "doubao-web" && (
-                  <div className={doubaoUsable ? "batchProjectReference doubaoReady" : "batchProjectReference doubaoWarning"}>
-                    <span>云端账号</span>
-                    <strong>{doubaoUsable ? `${doubaoStatus?.cookies.valid ?? 0} 个有效 Cookie` : "尚不可用"}</strong>
-                    <em>{doubaoUsable ? "批量片段会进入现有串行任务队列" : "草稿可保存，开始生成前需要登录"}</em>
-                  </div>
-                )}
-              </div>
-
-              <div className="settingsGroup modelPackageGroup">
-                <div className="settingsGroupTitle">
-                  <Library size={16} strokeWidth={1.9} />
-                  <span>模型包资产</span>
-                  <em>{modelPackages.length} 个已登记</em>
-                </div>
-                <p className="modelPackageIntro">
-                  登记目录或压缩包并保留版本档案。检查仅读取路径、文件大小和适配器所需标记，不加载权重、不占用显存；压缩包不会自动解压。
-                </p>
-                <div className="modelPackageComposer">
-                  <label className="settingsField">
-                    <span>目标模型</span>
-                    <select value={modelPackageModelId} onChange={(event) => setModelPackageModelId(event.target.value)}>
-                      {modelInstances.map((instance) => (
-                        <option key={instance.model_id} value={instance.model_id}>{instance.display_name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="settingsField">
-                    <span>版本标记</span>
-                    <input
-                      value={modelPackageLabel}
-                      maxLength={120}
-                      placeholder="例如 v2pro 20250604"
-                      onChange={(event) => setModelPackageLabel(event.target.value)}
-                    />
-                  </label>
-                  <label className="settingsField modelPackageNoteField">
-                    <span>登记备注</span>
-                    <input
-                      value={modelPackageNote}
-                      maxLength={500}
-                      placeholder="可选，例如来源、版本或待验证事项"
-                      onChange={(event) => setModelPackageNote(event.target.value)}
-                    />
-                  </label>
-                </div>
-                <div className="modelPackageRegisterActions">
-                  <button
-                    className="secondaryAction settingsAction"
-                    disabled={modelPackageAction !== null || modelInstances.length === 0}
-                    onClick={() => void onRegisterModelPackage("directory")}
-                  >
-                    {modelPackageAction === "register-directory" ? <Loader2 className="spin" size={16} /> : <FolderOpen size={16} strokeWidth={1.9} />}
-                    <span>{modelPackageAction === "register-directory" ? "登记中" : "登记目录包"}</span>
-                  </button>
-                  <button
-                    className="secondaryAction settingsAction"
-                    disabled={modelPackageAction !== null || modelInstances.length === 0}
-                    onClick={() => void onRegisterModelPackage("archive")}
-                  >
-                    {modelPackageAction === "register-archive" ? <Loader2 className="spin" size={16} /> : <Upload size={16} strokeWidth={1.9} />}
-                    <span>{modelPackageAction === "register-archive" ? "登记中" : "登记压缩包"}</span>
-                  </button>
-                </div>
-                <div className="modelPackageList">
-                  {modelPackages.length === 0 ? (
-                    <div className="modelPackageEmpty">
-                      <strong>尚未发现可管理的模型包</strong>
-                      <span>先登记现有目录或本地压缩包；当前已配置目录会在后端可用时自动入库。</span>
-                    </div>
-                  ) : (
-                    modelPackages.map((modelPackage) => {
-                      const packageModel = modelInstances.find((instance) => instance.model_id === modelPackage.model_id);
-                      const inspectionPending = modelPackageAction === `inspect-${modelPackage.id}`;
-                      const activationPending = modelPackageAction === `activate-${modelPackage.id}`;
-                      const archivePending = modelPackageAction === `archive-${modelPackage.id}`;
-                      const actionPending = inspectionPending || activationPending || archivePending;
-                      const canActivate = modelPackage.source_kind === "directory"
-                        && modelPackage.inspection.ready_for_activation
-                        && modelPackage.state !== "stable";
-                      return (
-                        <div key={modelPackage.id} className={`modelPackageCard ${modelPackage.state}`}>
-                          <div className="modelPackageHeader">
-                            <div>
-                              <strong>{packageModel?.display_name ?? modelPackage.model_id}</strong>
-                              <span>{modelPackage.package_label || "未标记版本"}</span>
-                            </div>
-                            <span className={`modelPackageState ${modelPackage.state}`}>{modelPackageStateLabel(modelPackage.state)}</span>
-                          </div>
-                          <div className="modelPackagePath"><span>{modelPackage.path}</span></div>
-                          <div className="modelPackageMeta">
-                            <span>{modelPackageSourceLabel(modelPackage.source_kind)}</span>
-                            <span>{formatPackageSize(modelPackage.inspection.size_bytes, modelPackage.inspection.scan_complete)}</span>
-                            {modelPackage.inspection.file_count !== null && modelPackage.inspection.file_count !== undefined && (
-                              <span>{modelPackage.inspection.scan_complete ? "文件" : "已扫"} {modelPackage.inspection.file_count}</span>
-                            )}
-                            <span className={`modelPackageAdapter ${modelPackage.inspection.adapter_status}`}>{modelPackageAdapterLabel(modelPackage.inspection.adapter_status)}</span>
-                          </div>
-                          <p className="modelPackageSummary">{modelPackage.inspection.summary}</p>
-                          {modelPackage.user_note && <p className="modelPackageNote">{modelPackage.user_note}</p>}
-                          {modelPackage.inspection.checks.length > 0 && (
-                            <div className="modelPackageChecks">
-                              {modelPackage.inspection.checks.map((check) => (
-                                <span key={check.id} className={check.passed ? "checkItem passed" : "checkItem failed"}>{check.label}</span>
-                              ))}
-                            </div>
-                          )}
-                          <div className="modelPackageActions">
-                            <button
-                              className="pathPickButton"
-                              disabled={modelPackageAction !== null}
-                              onClick={() => void onInspectModelPackage(modelPackage)}
-                            >
-                              {inspectionPending ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
-                              <span>预检</span>
-                            </button>
-                            <button
-                              className="pathPickButton"
-                              disabled={!modelPackage.inspection.exists || modelPackageAction !== null}
-                              onClick={() =>
-                                void openModelDirectory({
-                                  id: modelPackage.id,
-                                  display_name: modelPackage.package_label || packageModel?.display_name || modelPackage.model_id,
-                                  path: modelPackage.path,
-                                  exists: modelPackage.inspection.exists,
-                                  kind: "model_package"
-                                })
-                              }
-                            >
-                              <FolderOpen size={15} strokeWidth={1.9} />
-                              <span>打开</span>
-                            </button>
-                            <button
-                              className="pathPickButton modelPackageActivateButton"
-                              title="切换会更新当前模型目录和稳定包标记，不会启动模型。"
-                              disabled={!canActivate || modelPackageAction !== null}
-                              onClick={() => void onActivateModelPackage(modelPackage)}
-                            >
-                              {activationPending ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} strokeWidth={1.9} />}
-                              <span>启用稳定包</span>
-                            </button>
-                            <button
-                              className="pathPickButton"
-                              disabled={modelPackage.state === "stable" || modelPackageAction !== null || actionPending}
-                              onClick={() => void onArchiveModelPackage(modelPackage)}
-                            >
-                              {archivePending ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
-                              <span>归档</span>
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              <div className="settingsGroup">
-                <div className="settingsGroupTitle">
-                  <Upload size={16} strokeWidth={1.9} />
-                  <span>导入与分段</span>
-                </div>
-                <div className="batchProjectImportRow">
-                  <button className="pathPickButton" disabled={batchProjectLocked} onClick={() => batchFileInputRef.current?.click()}>
-                    <FileText size={15} strokeWidth={1.9} />
-                    <span>导入 TXT / SRT</span>
-                  </button>
-                  <button className="pathPickButton" disabled={batchProjectLocked} onClick={() => setBatchProjectSegments((segments) => [...segments, ""])}>
-                    <Plus size={15} strokeWidth={1.9} />
-                    <span>新增片段</span>
-                  </button>
-                  <input ref={batchFileInputRef} className="hiddenFile" type="file" accept=".txt,.srt,.vtt,text/plain" onChange={onImportBatchSource} />
-                  <span>{batchProjectSegmentCount} 个有效片段</span>
-                </div>
-                {batchProjectSegments.length === 0 ? (
-                  <div className="batchProjectEmpty">
-                    <FileText size={20} strokeWidth={1.8} />
-                    <strong>导入文本或字幕开始项目</strong>
-                    <span>TXT 按行/段落分段，SRT/VTT 会自动去除时间轴。</span>
-                  </div>
-                ) : (
-                  <div className="batchSegmentList">
-                    {batchProjectSegments.map((segment, index) => {
-                      const segmentState = editingBatchProject?.segments[index];
-                      return (
-                        <div key={`${editingBatchProjectId ?? "new"}-${index}`} className="batchSegmentItem">
-                          <span>{index + 1}</span>
-                          <textarea
-                            value={segment}
-                            rows={2}
-                            disabled={batchProjectLocked}
-                            placeholder="输入本段文本"
-                            onChange={(event) => updateBatchSegment(index, event.target.value)}
-                          />
-                          {segmentState && <em className={`batchSegmentState ${segmentState.status}`}>{batchSegmentStatusLabel(segmentState.status)}</em>}
-                          <button className="pathPickButton batchSegmentRemove" disabled={batchProjectLocked || batchProjectSegments.length === 1} onClick={() => removeBatchSegment(index)} title="移除片段">
-                            <Trash2 size={15} strokeWidth={1.9} />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="settingsGroup">
-                <div className="settingsGroupTitle">
-                  <Library size={16} strokeWidth={1.9} />
-                  <span>项目队列</span>
-                </div>
-                {batchProjects.length === 0 ? (
-                  <div className="batchProjectEmpty compact">
-                    <Library size={19} strokeWidth={1.8} />
-                    <span>尚无已保存的批量项目</span>
-                  </div>
-                ) : (
-                  <div className="batchProjectList">
-                    {batchProjects.slice(0, 8).map((project) => {
-                      const progress = batchProjectProgress(project);
-                      return (
-                        <div key={project.id} className={project.id === editingBatchProjectId ? "batchProjectRow active" : "batchProjectRow"}>
-                          <button className="batchProjectSelect" onClick={() => editBatchProject(project)}>
-                            <div>
-                              <strong>{project.title}</strong>
-                              <span>{project.model} · {progress.completed}/{progress.total} 完成{progress.failed ? ` · ${progress.failed} 失败` : ""}</span>
-                            </div>
-                            <em className={project.status}>{batchProjectStatusLabel(project.status)}</em>
-                          </button>
-                          <div className="batchProjectRowActions">
-                            {project.status === "failed" ? (
-                              <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project, true)}>
-                                {batchProjectAction === "retry" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
-                                <span>重试</span>
-                              </button>
-                            ) : project.status === "cancelled" ? (
-                              <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(project)}>
-                                {batchProjectAction === "resume" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
-                                <span>继续</span>
-                              </button>
-                            ) : project.status === "cancelling" ? (
-                              <button className="pathPickButton runtimeStopButton" disabled>
-                                <Loader2 className="spin" size={15} />
-                                <span>停止中</span>
-                              </button>
-                            ) : project.status === "queued" || project.status === "running" ? (
-                              <button className="pathPickButton runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(project)}>
-                                {batchProjectAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}
-                                <span>{project.status === "running" ? "安全停止" : "取消队列"}</span>
-                              </button>
-                            ) : (
-                              <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project)}>
-                                {batchProjectAction === "run" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
-                                <span>运行</span>
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {(batchProjectError || batchProjectMessage) && (
-              <div className={batchProjectError ? "settingsFeedback error" : "settingsFeedback"}>
-                {batchProjectError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
-                <span>{batchProjectError ?? batchProjectMessage}</span>
-              </div>
-            )}
-
-            <footer className="settingsFooter batchProjectFooter">
-              <button className="secondaryAction settingsAction" onClick={() => void openBatchOutputDirectory()}>
-                <FolderOpen size={16} strokeWidth={1.9} />
-                <span>打开输出</span>
-              </button>
-              {batchProjectCanStop && editingBatchProject && (
-                <button className="secondaryAction settingsAction runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(editingBatchProject)}>
-                  {batchProjectAction === "cancel" ? <Loader2 className="spin" size={16} /> : <Pause size={16} strokeWidth={1.9} />}
-                  <span>{editingBatchProject.status === "running" ? "当前段后停止" : "取消队列"}</span>
-                </button>
-              )}
-              {batchProjectCanResume && editingBatchProject && (
-                <button className="secondaryAction settingsAction" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(editingBatchProject)}>
-                  {batchProjectAction === "resume" ? <Loader2 className="spin" size={16} /> : <Play size={16} strokeWidth={1.9} />}
-                  <span>继续生成</span>
-                </button>
-              )}
-              <button className="secondaryAction settingsAction" disabled={batchProjectLocked || Boolean(batchProjectAction)} onClick={() => void saveBatchProject(false)}>
-                {batchProjectAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
-                <span>保存草稿</span>
-              </button>
-              <button className="primaryAction settingsAction" disabled={batchProjectLocked || Boolean(batchProjectAction)} onClick={() => void saveBatchProject(true)}>
-                {batchProjectAction === "run" ? <Loader2 className="spin" size={16} /> : <Play size={16} strokeWidth={1.9} />}
-                <span>保存并生成</span>
               </button>
             </footer>
           </section>
@@ -6896,6 +7421,81 @@ export function App() {
                     }
                   />
                 </label>
+              </div>
+
+              <div className="settingsGroup modelPackageGroup">
+                <div className="settingsGroupTitle">
+                  <Library size={16} strokeWidth={1.9} />
+                  <span>模型包资产</span>
+                  <em>{modelPackages.length} 个已登记</em>
+                </div>
+                <p className="modelPackageIntro">
+                  登记模型目录或压缩包，先进行只读预检，再将验证通过的目录切换为稳定包；此处不会加载权重或占用显存。
+                </p>
+                <div className="modelPackageComposer">
+                  <label className="settingsField">
+                    <span>目标模型</span>
+                    <select value={modelPackageModelId} onChange={(event) => setModelPackageModelId(event.target.value)}>
+                      {modelInstances.map((instance) => <option key={instance.model_id} value={instance.model_id}>{instance.display_name}</option>)}
+                    </select>
+                  </label>
+                  <label className="settingsField">
+                    <span>版本标记</span>
+                    <input value={modelPackageLabel} maxLength={120} placeholder="例如 v2pro 20250604" onChange={(event) => setModelPackageLabel(event.target.value)} />
+                  </label>
+                  <label className="settingsField modelPackageNoteField">
+                    <span>维护备注</span>
+                    <input value={modelPackageNote} maxLength={500} placeholder="可选：来源、版本或待验证事项" onChange={(event) => setModelPackageNote(event.target.value)} />
+                  </label>
+                </div>
+                <div className="modelPackageRegisterActions">
+                  <button className="secondaryAction settingsAction" disabled={modelPackageAction !== null || modelInstances.length === 0} onClick={() => void onRegisterModelPackage("directory")}>
+                    {modelPackageAction === "register-directory" ? <Loader2 className="spin" size={16} /> : <FolderOpen size={16} strokeWidth={1.9} />}
+                    <span>{modelPackageAction === "register-directory" ? "登记中" : "登记目录包"}</span>
+                  </button>
+                  <button className="secondaryAction settingsAction" disabled={modelPackageAction !== null || modelInstances.length === 0} onClick={() => void onRegisterModelPackage("archive")}>
+                    {modelPackageAction === "register-archive" ? <Loader2 className="spin" size={16} /> : <Upload size={16} strokeWidth={1.9} />}
+                    <span>{modelPackageAction === "register-archive" ? "登记中" : "登记压缩包"}</span>
+                  </button>
+                </div>
+                {modelPackages.length > 0 && (
+                  <div className="modelPackageList">
+                    {modelPackages.map((modelPackage) => {
+                      const packageModel = modelInstances.find((instance) => instance.model_id === modelPackage.model_id);
+                      const actionPending = modelPackageAction?.endsWith(`-${modelPackage.id}`) ?? false;
+                      const canActivate = modelPackage.source_kind === "directory" && modelPackage.inspection.ready_for_activation && modelPackage.state !== "stable";
+                      return (
+                        <div key={modelPackage.id} className={`modelPackageCard ${modelPackage.state}`}>
+                          <div className="modelPackageHeader">
+                            <div><strong>{packageModel?.display_name ?? modelPackage.model_id}</strong><span>{modelPackage.package_label || "未标记版本"}</span></div>
+                            <span className={`modelPackageState ${modelPackage.state}`}>{modelPackageStateLabel(modelPackage.state)}</span>
+                          </div>
+                          <div className="modelPackagePath"><span>{modelPackage.path}</span></div>
+                          <p className="modelPackageSummary">{modelPackage.inspection.summary}</p>
+                          {modelPackage.user_note && <p className="modelPackageNote">{modelPackage.user_note}</p>}
+                          <div className="modelPackageActions">
+                            <button className="pathPickButton" disabled={modelPackageAction !== null} onClick={() => void onInspectModelPackage(modelPackage)}>
+                              {modelPackageAction === `inspect-${modelPackage.id}` ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
+                              <span>预检</span>
+                            </button>
+                            <button className="pathPickButton" disabled={!modelPackage.inspection.exists || modelPackageAction !== null} onClick={() => void openModelDirectory({ id: modelPackage.id, display_name: modelPackage.package_label || packageModel?.display_name || modelPackage.model_id, path: modelPackage.path, exists: modelPackage.inspection.exists, kind: "model_package" })}>
+                              <FolderOpen size={15} strokeWidth={1.9} />
+                              <span>打开</span>
+                            </button>
+                            <button className="pathPickButton modelPackageActivateButton" disabled={!canActivate || modelPackageAction !== null} onClick={() => void onActivateModelPackage(modelPackage)}>
+                              {modelPackageAction === `activate-${modelPackage.id}` ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} strokeWidth={1.9} />}
+                              <span>启用稳定包</span>
+                            </button>
+                            <button className="pathPickButton" disabled={modelPackage.state === "stable" || modelPackageAction !== null || actionPending} onClick={() => void onArchiveModelPackage(modelPackage)}>
+                              {modelPackageAction === `archive-${modelPackage.id}` ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
+                              <span>归档</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="settingsGroup">

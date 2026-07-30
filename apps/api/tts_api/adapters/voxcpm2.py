@@ -331,7 +331,7 @@ class VoxCpm2Adapter(TtsAdapter):
         return f"http://{self.settings.voxcpm2_api_host}:{self.settings.voxcpm2_api_port}"
 
     def build_command(self, request: SpeechRequest) -> tuple[list[str], Path]:
-        output_path = create_output_path(self.settings.output_dir, ".wav")
+        output_path = create_output_path(self.settings.output_dir, ".wav", request.input)
         command = [
             self.python_executable,
             "tools/run_voxcpm2.py",
@@ -353,7 +353,7 @@ class VoxCpm2Adapter(TtsAdapter):
             self.service_manager.ensure_started()
             self.service_manager.begin_request()
 
-        output_path = create_output_path(self.settings.output_dir, ".wav")
+        output_path = create_output_path(self.settings.output_dir, ".wav", request.input)
         is_ultimate_clone = bool(request.reference_audio and (request.reference_text or "").strip())
         data = {
             "text": request.input,

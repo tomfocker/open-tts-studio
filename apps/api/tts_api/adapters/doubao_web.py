@@ -216,7 +216,7 @@ class DoubaoWebAdapter(TtsAdapter):
         voice_id = request.voice or DEFAULT_DOUBAO_VOICE
 
         output_format = request.response_format.lower()
-        output_path = create_output_path(self.settings.output_dir, f".{output_format}")
+        output_path = create_output_path(self.settings.output_dir, f".{output_format}", request.input)
         self.synthesize_to_path(
             text=request.input,
             voice_id=voice_id,

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class CommercialUse(StrEnum):
@@ -135,6 +135,22 @@ class ModelVoiceBinding(BaseModel):
     weights: dict[str, str] = Field(default_factory=dict)
 
 
+class VoiceReference(BaseModel):
+    """One independently editable reference clip belonging to a voice role."""
+
+    id: str
+    name: str = Field(min_length=1, max_length=120)
+    reference_audio: str | None = None
+    reference_text: str | None = None
+    source_type: str = "local_import"
+    source_url: str | None = None
+    original_reference_audio: str | None = None
+    reference_audio_sha256: str | None = None
+    reference_audio_managed: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class VoiceInfo(BaseModel):
     id: str
     name: str
@@ -146,9 +162,54 @@ class VoiceInfo(BaseModel):
     original_reference_audio: str | None = None
     reference_audio_sha256: str | None = None
     reference_audio_managed: bool = False
+    references: list[VoiceReference] = Field(default_factory=list)
+    active_reference_id: str | None = None
     model_binding: ModelVoiceBinding | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def normalize_references(self) -> "VoiceInfo":
+        """Keep old clients working while persisting roles as reference clips.
+
+        Before role support, a voice stored exactly one reference on the root
+        object. Old libraries are promoted lazily into a stable main clip; the
+        root fields remain a compatibility projection of the active clip for
+        existing generation, batch-project and third-party API callers.
+        """
+        if not self.references and self.reference_audio:
+            self.references = [
+                VoiceReference(
+                    id="legacy-main",
+                    name="主参考",
+                    reference_audio=self.reference_audio,
+                    reference_text=self.reference_text,
+                    source_type=self.source_type,
+                    source_url=self.source_url,
+                    original_reference_audio=self.original_reference_audio,
+                    reference_audio_sha256=self.reference_audio_sha256,
+                    reference_audio_managed=self.reference_audio_managed,
+                    created_at=self.created_at,
+                    updated_at=self.updated_at,
+                )
+            ]
+            self.active_reference_id = "legacy-main"
+
+        if not self.references:
+            self.active_reference_id = None
+            return self
+
+        active = next((item for item in self.references if item.id == self.active_reference_id), None)
+        if active is None:
+            active = self.references[0]
+            self.active_reference_id = active.id
+
+        self.reference_audio = active.reference_audio
+        self.reference_text = active.reference_text
+        self.original_reference_audio = active.original_reference_audio
+        self.reference_audio_sha256 = active.reference_audio_sha256
+        self.reference_audio_managed = active.reference_audio_managed
+        return self
 
 
 class CreateVoiceRequest(BaseModel):
@@ -157,6 +218,7 @@ class CreateVoiceRequest(BaseModel):
     trim_start_seconds: float | None = Field(default=None, ge=0)
     trim_end_seconds: float | None = Field(default=None, gt=0)
     reference_text: str | None = None
+    reference_name: str | None = Field(default=None, max_length=120)
     authorization_status: str
     source_type: str = Field(default="local_import", max_length=80)
     source_url: str | None = Field(default=None, max_length=2000)
@@ -170,6 +232,26 @@ class UpdateVoiceRequest(BaseModel):
     trim_end_seconds: float | None = Field(default=None, gt=0)
     reference_text: str | None = None
     authorization_status: str | None = None
+    source_type: str | None = Field(default=None, max_length=80)
+    source_url: str | None = Field(default=None, max_length=2000)
+
+
+class CreateVoiceReferenceRequest(BaseModel):
+    name: str = Field(default="参考片段", min_length=1, max_length=120)
+    reference_audio: str = Field(min_length=1)
+    trim_start_seconds: float | None = Field(default=None, ge=0)
+    trim_end_seconds: float | None = Field(default=None, gt=0)
+    reference_text: str | None = None
+    source_type: str = Field(default="local_import", max_length=80)
+    source_url: str | None = Field(default=None, max_length=2000)
+
+
+class UpdateVoiceReferenceRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    reference_audio: str | None = Field(default=None, min_length=1)
+    trim_start_seconds: float | None = Field(default=None, ge=0)
+    trim_end_seconds: float | None = Field(default=None, gt=0)
+    reference_text: str | None = None
     source_type: str | None = Field(default=None, max_length=80)
     source_url: str | None = Field(default=None, max_length=2000)
 

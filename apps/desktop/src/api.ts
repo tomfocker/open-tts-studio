@@ -6,6 +6,7 @@ import type {
   BatchProjectCreate,
   BatchProjectExport,
   BatchProjectUpdate,
+  CreateVoiceReferenceRequest,
   CreateVoiceRequest,
   DoubaoApiEnvelope,
   DoubaoCacheStats,
@@ -42,6 +43,7 @@ import type {
   SystemStatus,
   TaskSummary,
   UpdateVoiceRequest,
+  UpdateVoiceReferenceRequest,
   VoiceAudioRepair,
   VoicePackageExport,
   VoiceQualityReport,
@@ -186,6 +188,54 @@ export async function updateVoice(voiceId: string, request: UpdateVoiceRequest):
   return response.json();
 }
 
+export async function createVoiceReference(voiceId: string, request: CreateVoiceReferenceRequest): Promise<VoiceInfo> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}/references`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to add voice reference: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function updateVoiceReference(voiceId: string, referenceId: string, request: UpdateVoiceReferenceRequest): Promise<VoiceInfo> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}/references/${referenceId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to update voice reference: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function activateVoiceReference(voiceId: string, referenceId: string): Promise<VoiceInfo> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}/references/${referenceId}/activate`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to activate voice reference: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function deleteVoiceReference(voiceId: string, referenceId: string): Promise<VoiceInfo> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}/references/${referenceId}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to delete voice reference: ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function exportVoicePackage(voiceId: string): Promise<VoicePackageExport> {
   const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}/export`, {
     method: "POST",
@@ -233,6 +283,19 @@ export async function repairVoiceAudio(voiceId: string): Promise<VoiceAudioRepai
 export async function recognizeVoiceReference(voiceId: string): Promise<{ voice_id: string; text: string }> {
   const response = await fetchWithTimeout(
     `${getApiBase()}/v1/tts/voices/${voiceId}/recognize`,
+    { method: "POST" },
+    360_000
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to recognize voice reference: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function recognizeVoiceReferenceClip(voiceId: string, referenceId: string): Promise<{ voice_id: string; reference_id: string; text: string }> {
+  const response = await fetchWithTimeout(
+    `${getApiBase()}/v1/tts/voices/${voiceId}/references/${referenceId}/recognize`,
     { method: "POST" },
     360_000
   );

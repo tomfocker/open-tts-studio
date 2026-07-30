@@ -86,6 +86,98 @@ def test_update_voice_replaces_audio_and_reference_text(tmp_path: Path, monkeypa
     assert Path(updated["reference_audio"]).is_file()
 
 
+def test_role_references_switch_active_clip_and_delete_nonfinal_clip(tmp_path: Path, monkeypatch):
+    voice_library_file = tmp_path / "voices.json"
+    main_audio = tmp_path / "main.wav"
+    alternate_audio = tmp_path / "alternate.wav"
+    write_sine_wav(main_audio, duration_seconds=5)
+    write_sine_wav(alternate_audio, duration_seconds=6)
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(voice_library_file))
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    created = client.post(
+        "/v1/tts/voices",
+        json={
+            "name": "Narrator",
+            "reference_audio": str(main_audio),
+            "reference_text": "第一条参考。",
+            "authorization_status": "authorized",
+        },
+    ).json()
+    first_reference = created["references"][0]
+    first_managed_path = Path(first_reference["reference_audio"])
+    appended_response = client.post(
+        f"/v1/tts/voices/{created['id']}/references",
+        json={
+            "name": "高情绪片段",
+            "reference_audio": str(alternate_audio),
+            "reference_text": "第二条参考。",
+        },
+    )
+
+    assert appended_response.status_code == 200
+    appended = appended_response.json()
+    assert len(appended["references"]) == 2
+    alternate_reference = next(item for item in appended["references"] if item["id"] != first_reference["id"])
+
+    activated_response = client.post(
+        f"/v1/tts/voices/{created['id']}/references/{alternate_reference['id']}/activate"
+    )
+
+    assert activated_response.status_code == 200
+    activated = activated_response.json()
+    assert activated["active_reference_id"] == alternate_reference["id"]
+    assert activated["reference_audio"] == alternate_reference["reference_audio"]
+    assert activated["reference_text"] == "第二条参考。"
+
+    deleted_response = client.delete(
+        f"/v1/tts/voices/{created['id']}/references/{first_reference['id']}"
+    )
+
+    assert deleted_response.status_code == 200
+    remaining = deleted_response.json()
+    assert [item["id"] for item in remaining["references"]] == [alternate_reference["id"]]
+    assert remaining["reference_audio"] == alternate_reference["reference_audio"]
+    assert not first_managed_path.exists()
+
+
+def test_legacy_voice_library_migrates_root_reference_to_main_clip(tmp_path: Path, monkeypatch):
+    voice_library_file = tmp_path / "voices.json"
+    source_audio = tmp_path / "legacy.wav"
+    write_sine_wav(source_audio, duration_seconds=5)
+    voice_library_file.write_text(
+        json.dumps(
+            {
+                "voices": [
+                    {
+                        "id": "legacy-narrator",
+                        "name": "Legacy Narrator",
+                        "reference_audio": str(source_audio),
+                        "reference_text": "旧格式的参考文本。",
+                        "authorization_status": "authorized",
+                        "source_type": "local_import",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(voice_library_file))
+    get_settings.cache_clear()
+    client = TestClient(app)
+
+    response = client.get("/v1/tts/voices")
+
+    assert response.status_code == 200
+    migrated = next(item for item in response.json() if item["id"] == "legacy-narrator")
+    assert migrated["active_reference_id"] == "legacy-main"
+    assert migrated["references"][0]["name"] == "主参考"
+    assert migrated["references"][0]["reference_audio"] == str(source_audio)
+    stored = json.loads(voice_library_file.read_text(encoding="utf-8"))
+    assert stored["voices"][0]["references"][0]["id"] == "legacy-main"
+
+
 def test_create_voice_trims_reference_audio_before_storing(tmp_path: Path, monkeypatch):
     voice_library_file = tmp_path / "voices.json"
     source_audio = tmp_path / "source.wav"
@@ -295,7 +387,9 @@ def test_voice_reference_recognition_returns_editable_transcript(tmp_path: Path,
 def test_voice_package_exports_and_imports_portably(tmp_path: Path, monkeypatch):
     voice_library_file = tmp_path / "voices.json"
     source_audio = tmp_path / "source.wav"
+    alternate_audio = tmp_path / "alternate.wav"
     write_sine_wav(source_audio, duration_seconds=5)
+    write_sine_wav(alternate_audio, duration_seconds=6)
     monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(voice_library_file))
     get_settings.cache_clear()
     client = TestClient(app)
@@ -309,6 +403,22 @@ def test_voice_package_exports_and_imports_portably(tmp_path: Path, monkeypatch)
             "source_type": "local_import",
         },
     ).json()
+    appended_response = client.post(
+        f"/v1/tts/voices/{created['id']}/references",
+        json={
+            "name": "补充参考",
+            "reference_audio": str(alternate_audio),
+            "reference_text": "第二条可以带走的参考文本。",
+        },
+    )
+    assert appended_response.status_code == 200
+    appended = appended_response.json()
+    second_reference = next(item for item in appended["references"] if item["name"] == "补充参考")
+    activated_response = client.post(
+        f"/v1/tts/voices/{created['id']}/references/{second_reference['id']}/activate"
+    )
+    assert activated_response.status_code == 200
+    created = activated_response.json()
 
     export_response = client.post(f"/v1/tts/voices/{created['id']}/export")
 
@@ -316,9 +426,16 @@ def test_voice_package_exports_and_imports_portably(tmp_path: Path, monkeypatch)
     package_path = Path(export_response.json()["export_path"])
     assert package_path.is_file()
     with ZipFile(package_path) as package:
-        assert set(package.namelist()) == {"voice.json", "audio/reference.wav"}
+        package_references = created["references"]
+        expected_audio = {
+            f"audio/{reference['id']}.wav"
+            for reference in package_references
+        }
+        assert set(package.namelist()) == {"voice.json", *expected_audio}
         manifest = json.loads(package.read("voice.json"))
-        assert manifest["voice"]["reference_audio"] == "audio/reference.wav"
+        assert manifest["version"] == 2
+        assert manifest["voice"]["active_reference_id"] == second_reference["id"]
+        assert {reference["reference_audio"] for reference in manifest["voice"]["references"]} == expected_audio
         assert str(source_audio) not in package.read("voice.json").decode("utf-8")
 
     import_response = client.post("/v1/tts/voices/import", json={"package_path": str(package_path)})
@@ -327,7 +444,10 @@ def test_voice_package_exports_and_imports_portably(tmp_path: Path, monkeypatch)
     imported = import_response.json()
     assert imported["id"] != created["id"]
     assert imported["name"] == "Portable Narrator"
-    assert imported["reference_text"] == "这是一条可以带走的参考文本。"
+    assert len(imported["references"]) == 2
+    active_reference = next(item for item in imported["references"] if item["id"] == imported["active_reference_id"])
+    assert active_reference["name"] == "补充参考"
+    assert imported["reference_text"] == "第二条可以带走的参考文本。"
     assert imported["reference_audio_managed"] is True
     assert Path(imported["reference_audio"]).is_file()
 
@@ -363,6 +483,7 @@ def test_voice_package_import_normalizes_float_wav(tmp_path: Path, monkeypatch):
     response = client.post("/v1/tts/voices/import", json={"package_path": str(package_path)})
 
     assert response.status_code == 200
+    assert response.json()["references"][0]["id"] == response.json()["active_reference_id"]
     with wave.open(response.json()["reference_audio"], "rb") as wav_file:
         assert wav_file.getsampwidth() == 2
         assert wav_file.getnchannels() == 1

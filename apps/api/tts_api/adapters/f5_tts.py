@@ -13,7 +13,7 @@ class F5TtsAdapter(TtsAdapter):
         self.python_executable = python_executable
 
     def build_command(self, request: SpeechRequest) -> tuple[list[str], Path]:
-        output_path = create_output_path(self.settings.output_dir, ".wav")
+        output_path = create_output_path(self.settings.output_dir, ".wav", request.input)
         command = [
             self.python_executable,
             "-m",

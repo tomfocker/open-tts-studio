@@ -200,6 +200,20 @@ export type BatchProjectExport = {
   }>;
 };
 
+export type VoiceReference = {
+  id: string;
+  name: string;
+  reference_audio?: string | null;
+  reference_text?: string | null;
+  source_type: string;
+  source_url?: string | null;
+  original_reference_audio?: string | null;
+  reference_audio_sha256?: string | null;
+  reference_audio_managed: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type VoiceInfo = {
   id: string;
   name: string;
@@ -211,6 +225,8 @@ export type VoiceInfo = {
   original_reference_audio?: string | null;
   reference_audio_sha256?: string | null;
   reference_audio_managed: boolean;
+  references: VoiceReference[];
+  active_reference_id?: string | null;
   model_binding?: {
     model_id: string;
     weights: Record<string, string>;
@@ -225,6 +241,7 @@ export type CreateVoiceRequest = {
   trim_start_seconds?: number | null;
   trim_end_seconds?: number | null;
   reference_text?: string | null;
+  reference_name?: string | null;
   authorization_status: string;
   source_type?: string;
   source_url?: string | null;
@@ -235,6 +252,21 @@ export type CreateVoiceRequest = {
 };
 
 export type UpdateVoiceRequest = Partial<Pick<VoiceInfo, "name" | "reference_audio" | "reference_text" | "authorization_status" | "source_type" | "source_url">> & {
+  trim_start_seconds?: number | null;
+  trim_end_seconds?: number | null;
+};
+
+export type CreateVoiceReferenceRequest = {
+  name: string;
+  reference_audio: string;
+  trim_start_seconds?: number | null;
+  trim_end_seconds?: number | null;
+  reference_text?: string | null;
+  source_type?: string;
+  source_url?: string | null;
+};
+
+export type UpdateVoiceReferenceRequest = Partial<Pick<VoiceReference, "name" | "reference_audio" | "reference_text" | "source_type" | "source_url">> & {
   trim_start_seconds?: number | null;
   trim_end_seconds?: number | null;
 };
