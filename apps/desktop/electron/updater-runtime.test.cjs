@@ -17,8 +17,8 @@ test("update service reports a download-ready update before installation", async
     updater.emit("download-progress", { percent: 45 });
     updater.emit("update-downloaded", { version: "0.2.0", releaseNotes: "新增音色包" });
   };
-  let installed = false;
-  updater.quitAndInstall = () => { installed = true; };
+  let installArguments = null;
+  updater.quitAndInstall = (...args) => { installArguments = args; };
   const service = createUpdateService({ app: { getVersion: () => "0.1.0" }, autoUpdater: updater, enabled: true });
 
   await service.check();
@@ -30,7 +30,22 @@ test("update service reports a download-ready update before installation", async
   assert.equal(service.getState().progressPercent, 100);
 
   service.install();
-  assert.equal(installed, true);
+  assert.deepEqual(installArguments, [false, true]);
+  assert.equal(service.getState().status, "installing");
+  assert.match(service.getState().message, /自动重新启动/);
+});
+
+test("update service exposes an installer hand-off failure", async () => {
+  const updater = new EventEmitter();
+  updater.downloadUpdate = async () => updater.emit("update-downloaded", { version: "0.2.0" });
+  updater.quitAndInstall = () => { throw new Error("installer launch failed"); };
+  const service = createUpdateService({ app: { getVersion: () => "0.1.0" }, autoUpdater: updater, enabled: true });
+
+  await service.download();
+  service.install();
+
+  assert.equal(service.getState().status, "error");
+  assert.equal(service.getState().message, "installer launch failed");
 });
 
 test("update service remains unavailable for local development", async () => {

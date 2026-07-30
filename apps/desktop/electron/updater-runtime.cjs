@@ -100,8 +100,20 @@ function createUpdateService({ app, autoUpdater, enabled }) {
     },
     install() {
       if (enabled && state.status === "downloaded") {
-        publish({ status: "installing", message: "正在重启并安装更新。" });
-        autoUpdater.quitAndInstall();
+        publish({ status: "installing", message: "正在关闭应用并安装更新；完成后会自动重新启动。" });
+        try {
+          // Explicitly force a relaunch after NSIS completes.  Without the
+          // second flag a successful silent hand-off can look like a stalled
+          // update because the old window has already entered its shutdown
+          // path but the new application is not launched.
+          autoUpdater.quitAndInstall(false, true);
+        } catch (error) {
+          publish({
+            status: "error",
+            message: error?.message || "无法启动更新安装程序，请下载完整安装包后重试。",
+            progressPercent: null
+          });
+        }
       }
       return state;
     }
