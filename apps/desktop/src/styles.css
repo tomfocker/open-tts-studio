@@ -738,6 +738,7 @@ summary:focus-visible {
 }
 
 .statusDot {
+  position: relative;
   width: 9px;
   height: 9px;
   border-radius: 999px;
@@ -748,6 +749,17 @@ summary:focus-visible {
 .statusDot.online {
   background: var(--accent);
   box-shadow: 0 0 0 3px rgba(79, 186, 111, 0.16);
+}
+
+.statusDot.online::after {
+  position: absolute;
+  inset: -5px;
+  border: 1px solid rgba(79, 186, 111, 0.46);
+  border-radius: inherit;
+  content: "";
+  opacity: 0;
+  transform: scale(0.56);
+  animation: statusSignal 2.8s ease-out infinite;
 }
 
 .windowTools {
@@ -792,6 +804,8 @@ summary:focus-visible {
 }
 
 .toolButton {
+  position: relative;
+  isolation: isolate;
   width: 42px;
   height: 42px;
   border-radius: 8px;
@@ -800,6 +814,35 @@ summary:focus-visible {
   display: grid;
   place-items: center;
   box-shadow: 0 10px 20px rgba(79, 95, 113, 0.18), var(--inner);
+  overflow: hidden;
+}
+
+.toolButton::after {
+  position: absolute;
+  z-index: 0;
+  inset: -55% 42% -55% -75%;
+  background: linear-gradient(102deg, transparent 38%, rgba(255, 255, 255, 0.28) 50%, transparent 62%);
+  content: "";
+  opacity: 0;
+  transform: translateX(-32%) skewX(-18deg);
+  transition: transform 360ms cubic-bezier(0.16, 1, 0.3, 1), opacity 180ms ease;
+}
+
+.toolButton > svg,
+.toolButton > .themeToggleIcon {
+  position: relative;
+  z-index: 1;
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), color 180ms ease;
+}
+
+.toolButton:hover:not(:disabled)::after,
+.toolButton:focus-visible::after {
+  opacity: 1;
+  transform: translateX(250%) skewX(-18deg);
+}
+
+.toolButton:hover:not(:disabled) > svg {
+  transform: translateY(-1px) scale(1.055);
 }
 
 .monitorToolButton {
@@ -847,6 +890,87 @@ summary:focus-visible {
 
 .toolButton.close:hover {
   color: #b54444;
+}
+
+.themeToggleButton {
+  color: #4c6375;
+}
+
+.themeToggleIcon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+}
+
+.themeToggleIcon svg {
+  position: absolute;
+  transition: opacity 220ms ease, transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.themeToggleButton.isLight .themeToggleMoon,
+.themeToggleButton.isDark .themeToggleSun {
+  opacity: 1;
+  transform: rotate(0deg) scale(1);
+}
+
+.themeToggleButton.isLight .themeToggleSun {
+  opacity: 0;
+  transform: rotate(-75deg) scale(0.56);
+}
+
+.themeToggleButton.isDark .themeToggleMoon {
+  opacity: 0;
+  transform: rotate(75deg) scale(0.56);
+}
+
+.themeToggleButton.isTransitioning .themeToggleIcon {
+  animation: themeToggleSettle 540ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes statusSignal {
+  0%,
+  64% {
+    opacity: 0;
+    transform: scale(0.56);
+  }
+
+  72% {
+    opacity: 0.7;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+@keyframes themeToggleSettle {
+  0% {
+    transform: rotate(-18deg) scale(0.88);
+  }
+
+  58% {
+    transform: rotate(10deg) scale(1.1);
+  }
+
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statusDot.online::after,
+  .themeToggleButton.isTransitioning .themeToggleIcon {
+    animation: none;
+  }
+
+  .toolButton::after,
+  .toolButton > svg,
+  .toolButton > .themeToggleIcon,
+  .themeToggleIcon svg {
+    transition-duration: 1ms;
+  }
 }
 
 .workbench {
@@ -918,6 +1042,20 @@ summary:focus-visible {
   transform: translateX(calc(100% + 4px));
 }
 
+/* The theme reveal is a short state-change cue, not a decorative page transition. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 2;
+}
 .generationWorkspaceTabs button {
   position: relative;
   z-index: 1;
@@ -1630,6 +1768,26 @@ summary:focus-visible {
   padding: 12px;
   display: grid;
   gap: 10px;
+}
+
+.cloneModeSummary {
+  min-height: 34px;
+  padding: 0 3px 2px;
+  border-bottom: 1px solid rgba(102, 125, 142, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cloneModeSummary span {
+  color: #758696;
+  font-size: 12px;
+}
+
+.cloneModeSummary strong {
+  color: #3b7d58;
+  font-size: 13px;
 }
 
 .segmented {
@@ -2560,52 +2718,107 @@ input[type="range"]::-webkit-slider-thumb {
   min-width: 142px;
   height: 42px;
   padding: 0 18px;
-  margin-left: 2px;
+  margin: 0;
+  border-radius: 8px 0 0 8px;
   box-shadow: 0 10px 20px rgba(50, 127, 85, 0.2), var(--inner);
 }
 
-.drawGenerateButton {
-  height: 42px;
-  padding: 0 13px;
-  color: #3b7656;
-  background: rgba(239, 249, 243, 0.86);
-}
-
-.drawControl {
-  height: 40px;
-  border-radius: 8px;
-  padding: 4px;
-  color: #6b7e8e;
-  background: rgba(216, 227, 236, 0.58);
-  box-shadow: var(--inner);
+.generateSplitAction {
+  position: relative;
   display: inline-flex;
+  align-items: stretch;
+  margin-left: 2px;
+}
+
+.generateMenuTrigger {
+  width: 40px;
+  min-width: 40px;
+  height: 42px;
+  padding: 0;
+  border-radius: 0 8px 8px 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.26);
+  display: grid;
+  place-items: center;
+}
+
+.generateMenuTrigger:hover:not(:disabled),
+.generateMenuTrigger[aria-expanded="true"] {
+  background: linear-gradient(145deg, #57b973, #247a51);
+}
+
+.drawGenerateMenu {
+  position: absolute;
+  z-index: 12;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 244px;
+  padding: 8px;
+  border: 1px solid rgba(92, 121, 106, 0.2);
+  border-radius: 10px;
+  color: #405465;
+  background: rgba(250, 253, 251, 0.98);
+  box-shadow: 0 18px 34px rgba(65, 97, 80, 0.2), var(--inner);
+}
+
+.drawGenerateMenuHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 5px 6px 8px;
+  color: #3c8059;
+}
+
+.drawGenerateMenuHeader > div {
+  display: grid;
+  gap: 2px;
+}
+
+.drawGenerateMenuHeader strong {
+  color: #365166;
+  font-size: 13px;
+}
+
+.drawGenerateMenuHeader span {
+  color: #718392;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.drawGenerateMenu > button {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  color: #415768;
+  display: flex;
   align-items: center;
-  gap: 3px;
-}
-
-.drawControl > span {
-  padding: 0 5px;
-  color: #577082;
-  font-size: 12px;
-  font-weight: 760;
-}
-
-.drawControl button {
-  width: 27px;
-  height: 30px;
-  border-radius: 6px;
-  color: #708191;
+  justify-content: space-between;
+  gap: 10px;
   background: transparent;
-  font-family: "JetBrains Mono", Consolas, monospace;
-  font-size: 12px;
+  text-align: left;
+}
+
+.drawGenerateMenu > button:hover:not(:disabled),
+.drawGenerateMenu > button:focus-visible {
+  color: #286e4b;
+  background: rgba(231, 246, 236, 0.88);
+}
+
+.drawGenerateMenu > button span {
+  font-size: 13px;
   font-weight: 760;
 }
 
-.drawControl button:hover,
-.drawControl button.active {
-  color: #2d7954;
-  background: rgba(249, 253, 250, 0.92);
-  box-shadow: 0 5px 10px rgba(82, 101, 119, 0.1), var(--inner);
+.drawGenerateMenu > button small {
+  color: #7a8b98;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+}
+
+.drawGenerateMenu > button:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
 }
 
 .dockButton {
@@ -2620,6 +2833,16 @@ input[type="range"]::-webkit-slider-thumb {
   box-shadow: 0 8px 18px rgba(83, 102, 121, 0.13), var(--inner);
   font-size: 13px;
   font-weight: 720;
+}
+
+.compactDockButton {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
+.compactDockButton span {
+  display: none;
 }
 
 .roundAdd {
@@ -5902,4 +6125,532 @@ audio {
   .monitorDrawer {
     animation-duration: 1ms;
   }
+}
+
+/* Dark mode keeps the workstation's layered material feel instead of inverting the light palette. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #151c24;
+  --panel: #222c36;
+  --panel-strong: #2b3743;
+  --text: #e5edf4;
+  --muted: #a6b5c4;
+  --line: rgba(177, 197, 214, 0.18);
+  --shadow: 0 18px 42px rgba(3, 8, 14, 0.48);
+  --shadow-soft: 0 9px 24px rgba(3, 8, 14, 0.38);
+  --inner: inset 1px 1px 0 rgba(255, 255, 255, 0.075), inset -1px -1px 0 rgba(0, 0, 0, 0.28);
+  --accent: #62c786;
+  --accent-dark: #92dfae;
+}
+
+:root[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 14% -16%, rgba(74, 113, 141, 0.22), transparent 42%),
+    linear-gradient(135deg, rgba(35, 47, 59, 0.52), rgba(13, 19, 26, 0.28)),
+    var(--app-bg);
+}
+
+:root[data-theme="dark"] .desktopTopbar,
+:root[data-theme="dark"] .softPanel,
+:root[data-theme="dark"] .monitorDrawer,
+:root[data-theme="dark"] .settingsDialog,
+:root[data-theme="dark"] .taskCenterDialog,
+:root[data-theme="dark"] .audioLibraryDialog,
+:root[data-theme="dark"] .modelSwitchDialog,
+:root[data-theme="dark"] .voiceManagerDialog,
+:root[data-theme="dark"] .referenceAudioEditorDialog,
+:root[data-theme="dark"] .resultVoiceSaveDialog,
+:root[data-theme="dark"] .samplerDialog,
+:root[data-theme="dark"] .batchProjectDialog {
+  border-color: var(--line);
+  background: rgba(32, 42, 52, 0.96);
+}
+
+:root[data-theme="dark"] .brandGlyph,
+:root[data-theme="dark"] .toolButton,
+:root[data-theme="dark"] .dockButton,
+:root[data-theme="dark"] .roundAdd,
+:root[data-theme="dark"] .voiceImportButton,
+:root[data-theme="dark"] .voiceSaveButton,
+:root[data-theme="dark"] .voiceManageButton,
+:root[data-theme="dark"] .pathPickButton,
+:root[data-theme="dark"] .batchProjectSelect,
+:root[data-theme="dark"] .modalClose,
+:root[data-theme="dark"] .generationWorkspaceTabs,
+:root[data-theme="dark"] .topStatus,
+:root[data-theme="dark"] .modelPill,
+:root[data-theme="dark"] .segment,
+:root[data-theme="dark"] .toggle,
+:root[data-theme="dark"] .voiceCard,
+:root[data-theme="dark"] .doubaoVoiceCard,
+:root[data-theme="dark"] .audioAssetRow,
+:root[data-theme="dark"] .batchProjectRow,
+:root[data-theme="dark"] .batchSegmentItem,
+:root[data-theme="dark"] .drawCandidateCard,
+:root[data-theme="dark"] .taskCenterItem,
+:root[data-theme="dark"] .voiceReferenceCard,
+:root[data-theme="dark"] .audioAssetPreview,
+:root[data-theme="dark"] .voiceManagerListItem,
+:root[data-theme="dark"] .referenceAudioFileCard,
+:root[data-theme="dark"] .referenceAudioTrimCard {
+  color: var(--text);
+  background: linear-gradient(145deg, rgba(55, 68, 80, 0.94), rgba(28, 38, 48, 0.94));
+  box-shadow: var(--shadow-soft), var(--inner);
+}
+
+:root[data-theme="dark"] .toolButton:hover,
+:root[data-theme="dark"] .voiceManagerListItem:hover,
+:root[data-theme="dark"] .voiceManagerListItem.active,
+:root[data-theme="dark"] .doubaoVoiceCard:hover,
+:root[data-theme="dark"] .audioAssetRow:hover,
+:root[data-theme="dark"] .batchProjectRow:hover {
+  color: var(--text);
+  background: rgba(67, 83, 96, 0.96);
+}
+
+:root[data-theme="dark"] .themeToggleButton {
+  color: #dce8f0;
+  background: linear-gradient(145deg, #3b4b5a, #25313d);
+}
+
+:root[data-theme="dark"] .topStatus,
+:root[data-theme="dark"] .topStatus code,
+:root[data-theme="dark"] .panelTitle,
+:root[data-theme="dark"] .generationWorkspaceTabs button span,
+:root[data-theme="dark"] .voiceName,
+:root[data-theme="dark"] .audioLibraryEmpty strong,
+:root[data-theme="dark"] .referenceAudioTrimHeading strong,
+:root[data-theme="dark"] .voiceManagerRoleHeading strong,
+:root[data-theme="dark"] .voiceReferenceHeading strong {
+  color: var(--text);
+}
+
+/* Workspace hierarchy: one material surface per column, with controls carrying the tactile detail. */
+.leftRail,
+.rightRail,
+.mainStage {
+  border: 1px solid rgba(83, 103, 122, 0.18);
+  border-radius: 12px;
+  background: rgba(237, 243, 247, 0.5);
+  box-shadow: 0 12px 28px rgba(88, 108, 127, 0.11), var(--inner);
+}
+
+.leftRail,
+.rightRail {
+  gap: 0;
+  padding: 5px;
+}
+
+.leftRail > .softPanel,
+.rightRail > .softPanel,
+.mainStage > .softPanel {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.leftRail > .softPanel + .softPanel,
+.rightRail > .softPanel + .softPanel {
+  margin-top: 5px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line);
+}
+
+.voicePanel,
+.controlPanel,
+.paramsPanel,
+.inspectorPanel,
+.resourcePanel,
+.meterPanel {
+  padding-inline: 11px;
+}
+
+.mainStage {
+  gap: 0;
+}
+
+.canvasPanel {
+  padding: 16px 18px 0;
+  gap: 12px;
+}
+
+.editorDock {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 13px 0 0;
+}
+
+.playerPanel {
+  margin: 0 18px;
+  padding: 15px 2px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.emptyCanvas {
+  padding: 20px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.leftRail .capabilityNote,
+.leftRail .promptPresetSection,
+.leftRail .indexAdvancedParameters {
+  border-radius: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: transparent;
+  box-shadow: none;
+}
+
+.leftRail .capabilityNote {
+  min-height: 0;
+  padding: 11px 1px 0;
+}
+
+.leftRail .promptPresetSection {
+  padding: 11px 1px 0;
+}
+
+.leftRail .indexAdvancedParameters {
+  padding-top: 2px;
+}
+
+.rightRail .workerSummary {
+  padding: 0 0 12px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .leftRail,
+:root[data-theme="dark"] .rightRail,
+:root[data-theme="dark"] .mainStage {
+  border-color: rgba(177, 197, 214, 0.16);
+  background: rgba(29, 39, 49, 0.76);
+  box-shadow: 0 14px 30px rgba(2, 7, 12, 0.28), var(--inner);
+}
+
+:root[data-theme="dark"] .editorDock,
+:root[data-theme="dark"] .emptyCanvas,
+:root[data-theme="dark"] .leftRail .capabilityNote,
+:root[data-theme="dark"] .leftRail .promptPresetSection,
+:root[data-theme="dark"] .leftRail .indexAdvancedParameters,
+:root[data-theme="dark"] .rightRail .workerSummary {
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .brandMark span,
+:root[data-theme="dark"] .topStatus code,
+:root[data-theme="dark"] .voiceManagerMetadata,
+:root[data-theme="dark"] .voiceManagerHint,
+:root[data-theme="dark"] .voiceReferenceFile,
+:root[data-theme="dark"] .audioLibraryCount,
+:root[data-theme="dark"] .audioLibraryCount span:last-child,
+:root[data-theme="dark"] .modelHistoryItem em {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] input:not([type="range"]),
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] .voiceManagerLayout,
+:root[data-theme="dark"] .voiceManagerList,
+:root[data-theme="dark"] .voiceImportDropdown,
+:root[data-theme="dark"] .audioLibraryEmpty,
+:root[data-theme="dark"] .taskCenterEmpty,
+:root[data-theme="dark"] .modelPackageEmpty,
+:root[data-theme="dark"] .emptyCanvas,
+:root[data-theme="dark"] .progressConsole,
+:root[data-theme="dark"] .resourcePanel,
+:root[data-theme="dark"] .meterPanel,
+:root[data-theme="dark"] .referenceAudioWaveform,
+:root[data-theme="dark"] .audioWaveform,
+:root[data-theme="dark"] .playerWaveform {
+  border-color: var(--line);
+  color: var(--text);
+  background: rgba(17, 25, 33, 0.68);
+  box-shadow: var(--inner);
+}
+
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] textarea::placeholder {
+  color: #7f91a1;
+}
+
+:root[data-theme="dark"] input[type="range"] {
+  background: linear-gradient(90deg, rgba(98, 199, 134, 0.78), rgba(63, 78, 92, 0.92));
+  box-shadow: inset 4px 4px 8px rgba(0, 0, 0, 0.3), inset -3px -3px 7px rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme="dark"] input[type="range"]::-webkit-slider-thumb {
+  background: linear-gradient(145deg, #526575, #2a3743);
+  box-shadow: 0 7px 16px rgba(0, 0, 0, 0.42), var(--inner);
+}
+
+:root[data-theme="dark"] .voiceCard.active,
+:root[data-theme="dark"] .doubaoVoiceCard.active,
+:root[data-theme="dark"] .voiceReferenceCard.selected,
+:root[data-theme="dark"] .toggle.active,
+:root[data-theme="dark"] .segment.active,
+:root[data-theme="dark"] .modelPill.active,
+:root[data-theme="dark"] .generationWorkspaceTabs button.active {
+  color: #b7f0ca;
+  border-color: rgba(111, 211, 145, 0.48);
+  background: rgba(40, 85, 61, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(124, 224, 158, 0.12), var(--inner);
+}
+
+:root[data-theme="dark"] .taskCanvas,
+:root[data-theme="dark"] .editorDock,
+:root[data-theme="dark"] .batchWorkspaceComposer,
+:root[data-theme="dark"] .batchWorkspaceQueue,
+:root[data-theme="dark"] .batchWorkspaceProjectList {
+  background: linear-gradient(145deg, rgba(38, 50, 61, 0.9), rgba(22, 31, 40, 0.94));
+  box-shadow: inset 8px 8px 20px rgba(0, 0, 0, 0.24), inset -6px -6px 16px rgba(255, 255, 255, 0.045);
+}
+
+:root[data-theme="dark"] .emptyCanvas,
+:root[data-theme="dark"] .resultCard {
+  background: linear-gradient(145deg, rgba(47, 61, 73, 0.98), rgba(27, 38, 48, 0.98));
+}
+
+:root[data-theme="dark"] .emptyCanvas h2,
+:root[data-theme="dark"] .resultCard h2,
+:root[data-theme="dark"] .parameterName,
+:root[data-theme="dark"] .timeReadout,
+:root[data-theme="dark"] .playerInfo strong,
+:root[data-theme="dark"] .batchWorkspaceHeader h2,
+:root[data-theme="dark"] .batchWorkspaceSectionTitle,
+:root[data-theme="dark"] .modelPillTitle,
+:root[data-theme="dark"] .engineHeader {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .editorFoot,
+:root[data-theme="dark"] .parameterHint,
+:root[data-theme="dark"] .parameterHint::after,
+:root[data-theme="dark"] .playerInfo span,
+:root[data-theme="dark"] .emptyCanvas p,
+:root[data-theme="dark"] .resultCard p,
+:root[data-theme="dark"] .audioLibraryField > span,
+:root[data-theme="dark"] .referenceAudioDuration,
+:root[data-theme="dark"] .voiceReferenceHeading span,
+:root[data-theme="dark"] .modelCenterMeta,
+:root[data-theme="dark"] .taskCenterProgressMeta {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .editorFoot span,
+:root[data-theme="dark"] .voiceLibraryCount,
+:root[data-theme="dark"] .featureTag,
+:root[data-theme="dark"] .workerBadge,
+:root[data-theme="dark"] .updateVersionBadge {
+  color: #bfd0dd;
+  background: rgba(68, 84, 98, 0.68);
+}
+
+:root[data-theme="dark"] .primaryAction,
+:root[data-theme="dark"] .editorGenerateButton,
+:root[data-theme="dark"] .generateMenuTrigger {
+  color: #102519;
+  background: linear-gradient(145deg, #83dfa2, #51af72);
+  box-shadow: 0 10px 22px rgba(5, 16, 9, 0.38), inset 1px 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+:root[data-theme="dark"] .secondaryAction,
+:root[data-theme="dark"] .drawGenerateMenu,
+:root[data-theme="dark"] .voiceImportDropdown,
+:root[data-theme="dark"] .taskHistoryClearConfirm,
+:root[data-theme="dark"] .settingsMigrationNotice {
+  color: var(--text);
+  border-color: var(--line);
+  background: #293541;
+}
+
+:root[data-theme="dark"] .generationProgressBar,
+:root[data-theme="dark"] .metricTrack,
+:root[data-theme="dark"] .taskCenterProgress,
+:root[data-theme="dark"] .sideProgress {
+  background: rgba(12, 19, 26, 0.74);
+}
+
+:root[data-theme="dark"] .toolStatusDot {
+  border-color: #273440;
+}
+
+:root[data-theme="dark"] .statusDot {
+  background: #8495a4;
+  box-shadow: 0 0 0 3px rgba(132, 149, 164, 0.16);
+}
+
+:root[data-theme="dark"] .desktopTopbar,
+:root[data-theme="dark"] .softPanel,
+:root[data-theme="dark"] .taskCenterDialog,
+:root[data-theme="dark"] .settingsDialog,
+:root[data-theme="dark"] .audioLibraryDialog,
+:root[data-theme="dark"] .modelSwitchDialog,
+:root[data-theme="dark"] .voiceManagerDialog,
+:root[data-theme="dark"] .referenceAudioEditorDialog,
+:root[data-theme="dark"] .resultVoiceSaveDialog,
+:root[data-theme="dark"] .samplerDialog,
+:root[data-theme="dark"] .batchProjectDialog {
+  color: var(--text);
+}
+
+/* Dark-mode exceptions are kept flat here so the later dark material rules do not reintroduce nested cards. */
+:root[data-theme="dark"] .mainStage > .canvasPanel,
+:root[data-theme="dark"] .mainStage > .playerPanel,
+:root[data-theme="dark"] .rightRail > .resourcePanel,
+:root[data-theme="dark"] .rightRail > .meterPanel,
+:root[data-theme="dark"] .editorDock,
+:root[data-theme="dark"] .emptyCanvas {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Dark mode 2.0: one slate material system, with green reserved for actionable state. */
+:root[data-theme="dark"] {
+  --app-bg: #111a22;
+  --surface-panel: #1a2630;
+  --surface-control: #24323e;
+  --surface-control-hover: #2b3c49;
+  --surface-well: #101923;
+  --surface-stage: #15212b;
+  --border-subtle: rgba(167, 190, 208, 0.16);
+  --border-strong: rgba(175, 206, 194, 0.38);
+  --text: #e7eef4;
+  --muted: #a9bac7;
+  --text-muted: #7e93a4;
+  --accent: #68cf8d;
+  --accent-dark: #9be5b6;
+}
+
+:root[data-theme="dark"] body {
+  background: linear-gradient(135deg, #17232d 0%, #111a22 46%, #0e171f 100%);
+}
+
+:root[data-theme="dark"] .desktopTopbar,
+:root[data-theme="dark"] .leftRail,
+:root[data-theme="dark"] .rightRail,
+:root[data-theme="dark"] .mainStage {
+  border-color: var(--border-subtle);
+  background: var(--surface-panel);
+  box-shadow: 0 10px 24px rgba(1, 7, 12, 0.24), var(--inner);
+}
+
+:root[data-theme="dark"] .taskCanvas {
+  background: linear-gradient(180deg, #17242e 0%, var(--surface-stage) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045), inset 0 -12px 24px rgba(3, 10, 16, 0.18);
+}
+
+:root[data-theme="dark"] .toolButton,
+:root[data-theme="dark"] .dockButton,
+:root[data-theme="dark"] .roundAdd,
+:root[data-theme="dark"] .playButton,
+:root[data-theme="dark"] .secondaryAction,
+:root[data-theme="dark"] .voiceImportButton,
+:root[data-theme="dark"] .voiceManageButton,
+:root[data-theme="dark"] .pathPickButton,
+:root[data-theme="dark"] .batchProjectSelect,
+:root[data-theme="dark"] .modalClose,
+:root[data-theme="dark"] .modelPill,
+:root[data-theme="dark"] .segment,
+:root[data-theme="dark"] .toggle,
+:root[data-theme="dark"] .voiceCard,
+:root[data-theme="dark"] .doubaoVoiceCard,
+:root[data-theme="dark"] .audioAssetRow,
+:root[data-theme="dark"] .voiceReferenceCard {
+  color: var(--muted);
+  background: var(--surface-control);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.065), 0 2px 6px rgba(2, 8, 13, 0.16);
+}
+
+:root[data-theme="dark"] .toolButton:hover,
+:root[data-theme="dark"] .dockButton:hover,
+:root[data-theme="dark"] .secondaryAction:hover,
+:root[data-theme="dark"] .modelPill:hover:not(:disabled),
+:root[data-theme="dark"] .voiceCard:hover,
+:root[data-theme="dark"] .doubaoVoiceCard:hover {
+  color: var(--text);
+  background: var(--surface-control-hover);
+}
+
+:root[data-theme="dark"] input:not([type="range"]),
+:root[data-theme="dark"] textarea,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] .audioWaveform,
+:root[data-theme="dark"] .referenceAudioWaveform,
+:root[data-theme="dark"] .playerWaveform {
+  border-color: var(--border-subtle);
+  color: var(--text);
+  background: var(--surface-well);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), inset 0 -1px 0 rgba(0, 0, 0, 0.26);
+}
+
+:root[data-theme="dark"] .generationWorkspaceTabs {
+  background: var(--surface-well);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035), inset 0 -1px 0 rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="dark"] .generationWorkspaceThumb {
+  background: linear-gradient(145deg, #3f765a, #2f5b46);
+  box-shadow: inset 0 1px 0 rgba(223, 255, 233, 0.22), 0 2px 7px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="dark"] .generationWorkspaceTabs button,
+:root[data-theme="dark"] .generationWorkspaceTabs button span {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .generationWorkspaceTabs button.active,
+:root[data-theme="dark"] .generationWorkspaceTabs button.active span {
+  color: #effbf3;
+}
+
+:root[data-theme="dark"] .modelPill.active,
+:root[data-theme="dark"] .voiceCard.active,
+:root[data-theme="dark"] .doubaoVoiceCard.active,
+:root[data-theme="dark"] .toggle.active,
+:root[data-theme="dark"] .segment.active {
+  color: #e1f8e8;
+  border-color: var(--border-strong);
+  background: #27513d;
+  box-shadow: inset 0 1px 0 rgba(227, 255, 237, 0.12);
+}
+
+:root[data-theme="dark"] .panelTitle,
+:root[data-theme="dark"] .engineHeader,
+:root[data-theme="dark"] .modelPill span,
+:root[data-theme="dark"] .inspectorRows strong,
+:root[data-theme="dark"] .metricHeader strong,
+:root[data-theme="dark"] .playerInfo strong,
+:root[data-theme="dark"] .timeReadout {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .cloneModeSummary span,
+:root[data-theme="dark"] .parameterHint,
+:root[data-theme="dark"] .capabilityNote,
+:root[data-theme="dark"] .workerDetail,
+:root[data-theme="dark"] .monitorNote,
+:root[data-theme="dark"] .inspectorRows span,
+:root[data-theme="dark"] .metricHeader,
+:root[data-theme="dark"] .playerInfo span,
+:root[data-theme="dark"] .editorFoot,
+:root[data-theme="dark"] .modelPill small {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .playButton:disabled,
+:root[data-theme="dark"] .voiceSaveButton:disabled,
+:root[data-theme="dark"] .primaryAction:disabled,
+:root[data-theme="dark"] .secondaryAction:disabled {
+  color: #718292;
+  background: #202d38;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  opacity: 1;
 }

@@ -30,6 +30,8 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Moon,
+  Sun,
   Trash2,
   Upload,
   Volume2,
@@ -38,7 +40,8 @@ import {
   X
 } from "lucide-react";
 import QRCode from "qrcode";
-import { CSSProperties, ChangeEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ChangeEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 import {
   activateVoiceReference,
@@ -244,9 +247,26 @@ type ReferenceAudioEditorState = {
 
 type WaveformStatus = "idle" | "loading" | "ready" | "unavailable";
 
+type AppTheme = "light" | "dark";
+
+type ThemeTransitionDocument = Document & {
+  startViewTransition?: (updateCallback: () => void) => { ready: Promise<void> };
+};
+
+const APP_THEME_STORAGE_KEY = "open-tts-studio.theme";
+
+function readAppTheme(): AppTheme {
+  try {
+    return window.localStorage.getItem(APP_THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
+}
+
 type AudioWaveformProps = {
   peaks: number[];
   status: WaveformStatus;
+  theme: AppTheme;
   progressRatio?: number;
   selectionStartRatio?: number;
   selectionEndRatio?: number;
@@ -334,6 +354,7 @@ async function decodeWaveformPeaks(audioData: ArrayBuffer) {
 function AudioWaveform({
   peaks,
   status,
+  theme,
   progressRatio = 0,
   selectionStartRatio = 0,
   selectionEndRatio = 1,
@@ -369,7 +390,24 @@ function AudioWaveform({
       canvas.height = Math.max(1, Math.floor(height * pixelRatio));
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       context.clearRect(0, 0, width, height);
-      context.fillStyle = "rgba(222, 231, 239, 0.68)";
+      const palette = theme === "dark"
+        ? {
+            background: "#101923",
+            waveform: "rgba(132, 157, 174, 0.44)",
+            selectedWaveform: "rgba(99, 201, 139, 0.84)",
+            selectionMask: "rgba(2, 8, 13, 0.42)",
+            selectionHandle: "rgba(116, 222, 157, 0.94)",
+            progress: "rgba(148, 193, 221, 0.9)"
+          }
+        : {
+            background: "rgba(222, 231, 239, 0.68)",
+            waveform: "rgba(115, 137, 157, 0.44)",
+            selectedWaveform: "rgba(69, 157, 101, 0.82)",
+            selectionMask: "rgba(54, 68, 82, 0.15)",
+            selectionHandle: "rgba(44, 127, 77, 0.9)",
+            progress: "rgba(39, 76, 104, 0.92)"
+          };
+      context.fillStyle = palette.background;
       context.fillRect(0, 0, width, height);
 
       const selectedStart = startRatio * width;
@@ -382,26 +420,26 @@ function AudioWaveform({
           const amplitude = Math.max(0, Math.min(1, peaks[index] ?? 0));
           const barHeight = Math.max(1, amplitude * Math.max(4, height - 12));
           const insideSelection = x >= selectedStart && x <= selectedEnd;
-          context.fillStyle = insideSelection ? "rgba(69, 157, 101, 0.82)" : "rgba(115, 137, 157, 0.44)";
+          context.fillStyle = insideSelection ? palette.selectedWaveform : palette.waveform;
           context.fillRect(x, (height - barHeight) / 2, barWidth, barHeight);
         }
       } else {
-        context.fillStyle = "rgba(115, 137, 157, 0.36)";
+        context.fillStyle = palette.waveform;
         context.fillRect(0, Math.floor(height / 2), width, 1);
       }
 
       if (editableSelection) {
-        context.fillStyle = "rgba(54, 68, 82, 0.15)";
+        context.fillStyle = palette.selectionMask;
         context.fillRect(0, 0, selectedStart, height);
         context.fillRect(selectedEnd, 0, Math.max(0, width - selectedEnd), height);
-        context.fillStyle = "rgba(44, 127, 77, 0.9)";
+        context.fillStyle = palette.selectionHandle;
         context.fillRect(selectedStart - 1, 0, 2, height);
         context.fillRect(selectedEnd - 1, 0, 2, height);
       }
 
       if (currentRatio > 0) {
         const currentX = currentRatio * width;
-        context.fillStyle = "rgba(39, 76, 104, 0.92)";
+        context.fillStyle = palette.progress;
         context.fillRect(currentX - 1, 0, 2, height);
       }
     };
@@ -416,7 +454,7 @@ function AudioWaveform({
       cancelAnimationFrame(frameId);
       resizeObserver.disconnect();
     };
-  }, [currentRatio, editableSelection, endRatio, peaks, startRatio]);
+  }, [currentRatio, editableSelection, endRatio, peaks, startRatio, theme]);
 
   const getPointerRatio = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
@@ -1590,6 +1628,8 @@ function getGenerationProgress(modelId: string, elapsedSeconds: number): Generat
 }
 
 export function App() {
+  const [theme, setTheme] = useState<AppTheme>(readAppTheme);
+  const [themeTransitioning, setThemeTransitioning] = useState(false);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState("indextts2");
   const [pendingModelSwitch, setPendingModelSwitch] = useState<PendingModelSwitch | null>(null);
@@ -1628,7 +1668,7 @@ export function App() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [activeSpeechJob, setActiveSpeechJob] = useState<SpeechJob | null>(null);
   const [activeSpeechContext, setActiveSpeechContext] = useState<{ modelName: string; voiceName: string } | null>(null);
-  const [drawCount, setDrawCount] = useState<2 | 3 | 4>(3);
+  const [drawMenuOpen, setDrawMenuOpen] = useState(false);
   const [drawSession, setDrawSession] = useState<DrawSession | null>(null);
   const [drawCandidates, setDrawCandidates] = useState<DrawCandidate[]>([]);
   const [selectedDrawCandidateId, setSelectedDrawCandidateId] = useState<string | null>(null);
@@ -1735,6 +1775,8 @@ export function App() {
   const [resultWaveformPeaks, setResultWaveformPeaks] = useState<number[]>([]);
   const [resultWaveformStatus, setResultWaveformStatus] = useState<WaveformStatus>("idle");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const drawMenuRef = useRef<HTMLDivElement | null>(null);
+  const themeTransitionTimerRef = useRef<number | null>(null);
   const audioAssetRef = useRef<HTMLAudioElement | null>(null);
   const referenceAudioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const referenceAudioPreviewUrlRef = useRef<string | null>(null);
@@ -2103,36 +2145,32 @@ export function App() {
           </p>
         </section>
 
-        <section className="softPanel meterPanel">
-          <div className="panelTitle">
-            <Gauge size={17} strokeWidth={1.9} />
-            <span>任务监控</span>
-          </div>
-          <div className="taskStatusCard">
-            <div className="taskState">
-              <span className={loading ? "taskStateIcon active" : "taskStateIcon"}>
-                {loading ? <Loader2 className="spin" size={18} /> : <Gauge size={18} strokeWidth={1.9} />}
-              </span>
-              <div>
-                <strong>{loading ? generationProgress.phaseTitle : result ? "生成完成" : "等待任务"}</strong>
-                <span>
-                  {loading
-                    ? generationProgress.detail
-                    : result
-                      ? "音频已写入本地输出目录。"
-                      : "输入文本后点击开始生成。"}
+        {(loading || result) && (
+          <section className="softPanel meterPanel">
+            <div className="panelTitle">
+              <Gauge size={17} strokeWidth={1.9} />
+              <span>任务监控</span>
+            </div>
+            <div className="taskStatusCard">
+              <div className="taskState">
+                <span className={loading ? "taskStateIcon active" : "taskStateIcon"}>
+                  {loading ? <Loader2 className="spin" size={18} /> : <Gauge size={18} strokeWidth={1.9} />}
                 </span>
+                <div>
+                  <strong>{loading ? generationProgress.phaseTitle : "生成完成"}</strong>
+                  <span>{loading ? generationProgress.detail : "音频已写入本地输出目录。"}</span>
+                </div>
+              </div>
+              <div className="sideProgress">
+                <span style={{ width: `${loading ? generationProgress.percent : 100}%` }} />
               </div>
             </div>
-            <div className="sideProgress">
-              <span style={{ width: `${loading ? generationProgress.percent : result ? 100 : 0}%` }} />
+            <div className="meterMeta">
+              <span>{loading ? "推理中" : "已完成"}</span>
+              <strong>{loading ? formatDuration(elapsedSeconds) : formatDuration(result?.duration_seconds)}</strong>
             </div>
-          </div>
-          <div className="meterMeta">
-            <span>{loading ? "推理中" : "空闲"}</span>
-            <strong>{loading ? formatDuration(elapsedSeconds) : result ? formatDuration(result.duration_seconds) : "0:00"}</strong>
-          </div>
-        </section>
+          </section>
+        )}
 
         {visibleError && (
           <section className="errorPanel">
@@ -4318,14 +4356,14 @@ export function App() {
     return true;
   }
 
-  async function onDrawGenerate() {
+  async function onDrawGenerate(count: 2 | 3 | 4) {
     if (!canGenerate) {
       return;
     }
     const requestText = input.trim();
     const session: DrawSession = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      total: drawCount,
+      total: count,
       currentIndex: 1,
       successful: 0,
       failed: 0,
@@ -4640,6 +4678,42 @@ export function App() {
     return () => {
       if (referenceAudioPreviewUrlRef.current) {
         URL.revokeObjectURL(referenceAudioPreviewUrlRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!drawMenuOpen) {
+      return undefined;
+    }
+    const closeOnOutsidePointer = (event: MouseEvent) => {
+      if (event.target instanceof Node && !drawMenuRef.current?.contains(event.target)) {
+        setDrawMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", closeOnOutsidePointer);
+    return () => document.removeEventListener("mousedown", closeOnOutsidePointer);
+  }, [drawMenuOpen]);
+
+  useEffect(() => {
+    if (loading) {
+      setDrawMenuOpen(false);
+    }
+  }, [loading]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      window.localStorage.setItem(APP_THEME_STORAGE_KEY, theme);
+    } catch {
+      // Theme persistence is optional when the host blocks local storage.
+    }
+  }, [theme]);
+
+  useEffect(() => {
+    return () => {
+      if (themeTransitionTimerRef.current !== null) {
+        window.clearTimeout(themeTransitionTimerRef.current);
       }
     };
   }, []);
@@ -5231,8 +5305,68 @@ export function App() {
     );
   }
 
+  function toggleTheme(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (themeTransitioning) {
+      return;
+    }
+
+    const nextTheme: AppTheme = theme === "dark" ? "light" : "dark";
+    const root = document.documentElement;
+    const buttonBounds = event.currentTarget.getBoundingClientRect();
+    const originX = buttonBounds.left + buttonBounds.width / 2;
+    const originY = buttonBounds.top + buttonBounds.height / 2;
+    const revealRadius = Math.hypot(
+      Math.max(originX, window.innerWidth - originX),
+      Math.max(originY, window.innerHeight - originY)
+    );
+    const applyTheme = () => {
+      flushSync(() => {
+        setTheme(nextTheme);
+        setThemeTransitioning(true);
+      });
+      root.dataset.theme = nextTheme;
+      if (themeTransitionTimerRef.current !== null) {
+        window.clearTimeout(themeTransitionTimerRef.current);
+      }
+      themeTransitionTimerRef.current = window.setTimeout(() => {
+        setThemeTransitioning(false);
+        themeTransitionTimerRef.current = null;
+      }, 560);
+    };
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const transitionDocument = document as ThemeTransitionDocument;
+    if (!prefersReducedMotion && transitionDocument.startViewTransition) {
+      try {
+        const transition = transitionDocument.startViewTransition(applyTheme);
+        void transition.ready.then(() => {
+          root.animate(
+            {
+              clipPath: [
+                `circle(0px at ${originX}px ${originY}px)`,
+                `circle(${revealRadius}px at ${originX}px ${originY}px)`
+              ]
+            },
+            {
+              duration: 520,
+              easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+              pseudoElement: "::view-transition-new(root)"
+            } as KeyframeAnimationOptions
+          );
+        }).catch(() => {
+          // The immediate theme update is still valid when the host declines a view transition.
+        });
+        return;
+      } catch {
+        // Older Electron builds can expose the API but reject a transition at runtime.
+      }
+    }
+
+    applyTheme();
+  }
+
   return (
-    <main className="studioShell">
+    <main className={`studioShell theme-${theme}${themeTransitioning ? " isThemeTransitioning" : ""}`}>
       <header className="desktopTopbar">
         <div className="brandMark">
           <div className="brandGlyph">
@@ -5276,6 +5410,18 @@ export function App() {
             </button>
             <button className="toolButton" title="音频资产库" onClick={openAudioLibrary}>
               <Library size={17} strokeWidth={1.9} />
+            </button>
+            <button
+              className={`toolButton themeToggleButton ${theme === "dark" ? "isDark" : "isLight"}${themeTransitioning ? " isTransitioning" : ""}`}
+              title={theme === "dark" ? "切换为日间模式" : "切换为夜晚模式"}
+              aria-label={theme === "dark" ? "切换为日间模式" : "切换为夜晚模式"}
+              aria-pressed={theme === "dark"}
+              onClick={toggleTheme}
+            >
+              <span className="themeToggleIcon" aria-hidden="true">
+                <Moon className="themeToggleMoon" size={17} strokeWidth={1.9} />
+                <Sun className="themeToggleSun" size={17} strokeWidth={1.9} />
+              </span>
             </button>
             <button className="toolButton" title="设置" onClick={openSettings}>
               <Settings size={17} strokeWidth={1.9} />
@@ -5449,20 +5595,27 @@ export function App() {
           </section>
 
           <section className="softPanel controlPanel">
-            <div
-              className="segmented"
-              style={{ "--segment-count": supportedCloneModes.length } as CSSProperties}
-            >
-              {supportedCloneModes.map((mode) => (
-                <button
-                  key={mode}
-                  className={mode === cloneMode ? "segment active" : "segment"}
-                  onClick={() => setCloneMode(mode)}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
+            {supportedCloneModes.length > 1 ? (
+              <div
+                className="segmented"
+                style={{ "--segment-count": supportedCloneModes.length } as CSSProperties}
+              >
+                {supportedCloneModes.map((mode) => (
+                  <button
+                    key={mode}
+                    className={mode === cloneMode ? "segment active" : "segment"}
+                    onClick={() => setCloneMode(mode)}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="cloneModeSummary">
+                <span>生成模式</span>
+                <strong>{cloneMode}</strong>
+              </div>
+            )}
             {showControlPrompt ? (
               <>
                 <textarea
@@ -5863,33 +6016,62 @@ export function App() {
                   <FileText size={17} strokeWidth={1.9} />
                   <span>导入 TXT</span>
                 </button>
-                <button className="dockButton" onClick={() => setInput("")}>
+                <button className="dockButton compactDockButton" title="清空文本" aria-label="清空文本" onClick={() => setInput("")}>
                   <Trash2 size={17} strokeWidth={1.9} />
                   <span>清空文本</span>
                 </button>
-                <div className="drawControl" role="group" aria-label="抽卡生成条数" title="同一参数串行生成多条候选；不会并行占用显存。">
-                  <span>抽卡</span>
-                  {([2, 3, 4] as const).map((count) => (
-                    <button
-                      key={count}
-                      type="button"
-                      className={drawCount === count ? "active" : ""}
-                      disabled={loading}
-                      aria-pressed={drawCount === count}
-                      onClick={() => setDrawCount(count)}
-                    >
-                      {count}
-                    </button>
-                  ))}
+                <div
+                  className="generateSplitAction"
+                  ref={drawMenuRef}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setDrawMenuOpen(false);
+                    }
+                  }}
+                >
+                  <button className="primaryAction editorGenerateButton" disabled={!canGenerate} onClick={onGenerate}>
+                    {loading ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} strokeWidth={1.9} />}
+                    <span>{loading ? "生成中" : "开始生成"}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="primaryAction generateMenuTrigger"
+                    aria-label="选择抽卡生成条数"
+                    aria-haspopup="menu"
+                    aria-expanded={drawMenuOpen}
+                    disabled={loading}
+                    title="抽卡生成"
+                    onClick={() => setDrawMenuOpen((open) => !open)}
+                  >
+                    <ChevronDown size={17} strokeWidth={2} />
+                  </button>
+                  {drawMenuOpen && (
+                    <div className="drawGenerateMenu" role="menu" aria-label="抽卡生成">
+                      <div className="drawGenerateMenuHeader">
+                        <Sparkles size={16} strokeWidth={1.9} />
+                        <div>
+                          <strong>抽卡生成</strong>
+                          <span>同一参数串行生成，不会并发占用显存。</span>
+                        </div>
+                      </div>
+                      {([2, 3, 4] as const).map((count) => (
+                        <button
+                          key={count}
+                          type="button"
+                          role="menuitem"
+                          disabled={!canGenerate}
+                          onClick={() => {
+                            setDrawMenuOpen(false);
+                            void onDrawGenerate(count);
+                          }}
+                        >
+                          <span>抽 {count} 条</span>
+                          <small>{count} 条候选</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button className="secondaryAction drawGenerateButton" disabled={!canGenerate} onClick={() => void onDrawGenerate()} title="同一参数串行生成多条候选，完成后可挑选试听">
-                  {loading ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} strokeWidth={1.9} />}
-                  <span>抽 {drawCount} 条</span>
-                </button>
-                <button className="primaryAction editorGenerateButton" disabled={!canGenerate} onClick={onGenerate}>
-                  {loading ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} strokeWidth={1.9} />}
-                  <span>{loading ? "生成中" : "开始生成"}</span>
-                </button>
                 <input ref={fileInputRef} className="hiddenFile" type="file" accept=".txt,text/plain" onChange={onImportText} />
               </div>
               <textarea
@@ -5921,6 +6103,7 @@ export function App() {
               className="playerWaveform"
               peaks={resultWaveformPeaks}
               status={resultWaveformStatus}
+              theme={theme}
               progressRatio={progress / 100}
               onSeekRatio={seekGeneratedAudio}
               ariaLabel="生成音频播放波形，点击可跳转试听位置"
@@ -6439,6 +6622,7 @@ export function App() {
                   className="referenceAudioWaveform"
                   peaks={referenceAudioWaveformPeaks}
                   status={referenceAudioWaveformStatus}
+                  theme={theme}
                   progressRatio={referenceAudioEditor.durationSeconds > 0 ? referenceAudioPreviewTime / referenceAudioEditor.durationSeconds : 0}
                   selectionStartRatio={referenceAudioEditor.durationSeconds > 0 ? referenceAudioEditor.trimStartSeconds / referenceAudioEditor.durationSeconds : 0}
                   selectionEndRatio={referenceAudioEditor.durationSeconds > 0 ? referenceAudioEditor.trimEndSeconds / referenceAudioEditor.durationSeconds : 1}
