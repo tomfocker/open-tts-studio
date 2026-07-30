@@ -123,6 +123,7 @@ class Settings(BaseModel):
     app_name: str = "Open TTS Desktop API"
     api_host: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_API_HOST", "127.0.0.1"))
     api_port: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_API_PORT", "8765")))
+    backend_token: str | None = Field(default_factory=lambda: os.environ.get("OPEN_TTS_BACKEND_TOKEN") or None)
     api_access_key: str | None = Field(default_factory=lambda: os.environ.get("OPEN_TTS_API_KEY") or None)
     workspace_root: Path = WORKSPACE_ROOT
     output_dir: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_OUTPUT_DIR", str(WORKSPACE_ROOT / "data" / "outputs"))))

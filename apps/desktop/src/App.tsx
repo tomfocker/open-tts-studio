@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   Cloud,
   Copy,
   Cpu,
@@ -72,6 +73,7 @@ import {
   retryBatchProject,
   retrySpeechJob,
   recognizeVoiceReference,
+  repairVoiceAudio,
   runBatchProject,
   resumeBatchProject,
   saveAppSettings,
@@ -124,8 +126,12 @@ declare global {
       maximize: () => void;
       close: () => void;
     };
+    desktopBackend?: {
+      ensureOnline: () => Promise<{ ready: boolean; status: string; message?: string | null }>;
+    };
     desktopFiles?: {
       openPath: (targetPath: string) => Promise<string>;
+      revealInFolder: (targetPath: string) => Promise<void>;
       selectDirectory: () => Promise<string | null>;
       selectModelArchive: () => Promise<string | null>;
       selectReferenceAudio: () => Promise<string | null>;
@@ -1229,6 +1235,14 @@ function formatAssetSize(sizeBytes: number) {
   return `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isBackendConnectionError(error: unknown) {
+  if (error instanceof TypeError) {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /failed to fetch|network(?:error| request)|load failed|未响应|连接(?:中断|被拒绝|失败)/i.test(message);
+}
+
 function audioAssetSourceLabel(source: AudioAsset["source"]) {
   if (source === "speech") {
     return "单句生成";
@@ -1558,6 +1572,7 @@ export function App() {
   const [audioLibraryAction, setAudioLibraryAction] = useState<string | null>(null);
   const [audioLibraryError, setAudioLibraryError] = useState<string | null>(null);
   const [audioLibraryMessage, setAudioLibraryMessage] = useState<string | null>(null);
+  const [audioAssetPlaying, setAudioAssetPlaying] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [modelInstances, setModelInstances] = useState<ModelInstanceProfile[]>([]);
@@ -1572,6 +1587,7 @@ export function App() {
   const startupPrewarmAttemptedRef = useRef(false);
   const startupModelHealthCheckedRef = useRef(false);
   const systemStatusRequestRef = useRef(false);
+  const backendRecoveryRequestRef = useRef(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [checkingModelId, setCheckingModelId] = useState<string | null>(null);
@@ -1584,6 +1600,7 @@ export function App() {
   const [modelPackageNote, setModelPackageNote] = useState("");
   const [modelPackageAction, setModelPackageAction] = useState<string | null>(null);
   const [voiceImporting, setVoiceImporting] = useState(false);
+  const [voiceImportMenuOpen, setVoiceImportMenuOpen] = useState(false);
   const [referenceAudioEditor, setReferenceAudioEditor] = useState<ReferenceAudioEditorState | null>(null);
   const [referenceAudioEditorSaving, setReferenceAudioEditorSaving] = useState(false);
   const [referenceAudioEditorError, setReferenceAudioEditorError] = useState<string | null>(null);
@@ -1595,6 +1612,7 @@ export function App() {
   const [voiceSaving, setVoiceSaving] = useState(false);
   const [voiceMessage, setVoiceMessage] = useState<string | null>(null);
   const [voiceQuality, setVoiceQuality] = useState<VoiceQualityReport | null>(null);
+  const [voiceQualityById, setVoiceQualityById] = useState<Record<string, VoiceQualityReport>>({});
   const [voiceQualityLoading, setVoiceQualityLoading] = useState(false);
   const [samplerOpen, setSamplerOpen] = useState(false);
   const [samplerState, setSamplerState] = useState<BilibiliSamplerState>(() => createDefaultBilibiliSamplerState());
@@ -1634,6 +1652,7 @@ export function App() {
   const [resultWaveformPeaks, setResultWaveformPeaks] = useState<number[]>([]);
   const [resultWaveformStatus, setResultWaveformStatus] = useState<WaveformStatus>("idle");
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioAssetRef = useRef<HTMLAudioElement | null>(null);
   const referenceAudioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const referenceAudioPreviewUrlRef = useRef<string | null>(null);
   const referenceAudioWaveformRequestRef = useRef(0);
@@ -1680,10 +1699,7 @@ export function App() {
     () => customVoices.filter((voice) => !voice.modelBinding || voice.modelBinding.modelId === selectedModel),
     [customVoices, selectedModel]
   );
-  const availableVoices = useMemo(() => {
-    const importVoice = voicePresets.find((voice) => voice.id === "custom");
-    return importVoice ? [...visibleManagedVoices, importVoice] : visibleManagedVoices;
-  }, [visibleManagedVoices]);
+  const availableVoices = visibleManagedVoices;
 
   const selectedVoiceInfo = useMemo(
     () => availableVoices.find((voice) => voice.id === selectedVoice) ?? availableVoices[0] ?? voicePresets[0],
@@ -2028,6 +2044,36 @@ export function App() {
       }
     } catch (err) {
       setBackendError(err instanceof Error ? err.message : "无法连接本地 API");
+      void recoverLocalBackend();
+    }
+  }
+
+  async function recoverLocalBackend() {
+    if (!window.desktopBackend?.ensureOnline || backendRecoveryRequestRef.current) {
+      return;
+    }
+    backendRecoveryRequestRef.current = true;
+    setBackendError("本地后端连接中断，正在自动恢复…");
+    try {
+      const recovery = await window.desktopBackend.ensureOnline();
+      if (!recovery.ready) {
+        setBackendError(recovery.message || "本地后端暂未恢复，请查看任务诊断后重试。");
+        return;
+      }
+      setBackendError(null);
+      await Promise.all([
+        loadModels(),
+        loadVoices(),
+        loadSystemStatus(),
+        loadModelInstances(),
+        loadModelPackages(),
+        loadTaskSummaries(),
+        loadDoubaoState()
+      ]);
+    } catch (err) {
+      setBackendError(err instanceof Error ? err.message : "本地后端自动恢复失败。");
+    } finally {
+      backendRecoveryRequestRef.current = false;
     }
   }
 
@@ -2039,8 +2085,12 @@ export function App() {
           .map(createImportedVoicePreset)
           .filter((voice): voice is VoicePreset => Boolean(voice))
       );
-    } catch {
+    } catch (err) {
       setCustomVoices([]);
+      if (isBackendConnectionError(err)) {
+        setBackendError("本地后端连接中断，正在自动恢复…");
+        void recoverLocalBackend();
+      }
     }
   }
 
@@ -2449,6 +2499,34 @@ export function App() {
     }
   }
 
+  async function onRepairManagedVoiceAudio() {
+    if (!managedVoice?.referenceAudio) {
+      setVoiceManagerError("该音色没有可修复的参考音频。");
+      return;
+    }
+    if (!managedVoice.referenceAudioManaged) {
+      setVoiceManagerError("这条音频未由音色库托管，请替换或重新导入后再修复。");
+      return;
+    }
+    setVoiceManagerAction("repair-audio");
+    setVoiceManagerError(null);
+    setVoiceManagerMessage(null);
+    try {
+      const repaired = await repairVoiceAudio(managedVoice.id);
+      mergeManagedVoice(repaired.voice, selectedVoice === repaired.voice.id);
+      setVoiceManagerMessage(
+        repaired.converted
+          ? "已转换为兼容的单声道 PCM 16-bit WAV，原生成文件未改动。"
+          : "该参考音频已经是兼容的单声道 PCM 16-bit WAV。"
+      );
+      await loadVoiceQuality(repaired.voice.id);
+    } catch (err) {
+      setVoiceManagerError(err instanceof Error ? err.message : "修复参考音频失败");
+    } finally {
+      setVoiceManagerAction(null);
+    }
+  }
+
   async function onExportVoicePackage() {
     if (!managedVoice || !window.desktopFiles?.saveVoicePackage) {
       setVoiceManagerError("请在桌面软件中导出音色包。");
@@ -2520,6 +2598,7 @@ export function App() {
     try {
       const report = await fetchVoiceQuality(voiceId);
       setVoiceQuality(report);
+      setVoiceQualityById((reports) => ({ ...reports, [voiceId]: report }));
     } catch {
       setVoiceQuality(null);
     } finally {
@@ -2755,8 +2834,9 @@ export function App() {
     try {
       const status = await fetchSystemStatus();
       setSystemStatus(status);
-    } catch {
-      // Keep the last resource snapshot visible while a local model is busy.
+    } catch (err) {
+      setBackendError(err instanceof Error ? err.message : "本地后端连接中断");
+      void recoverLocalBackend();
     } finally {
       systemStatusRequestRef.current = false;
     }
@@ -2837,6 +2917,9 @@ export function App() {
       );
     } catch (err) {
       setAudioLibraryError(err instanceof Error ? err.message : "无法读取输出目录中的音频资产");
+      if (isBackendConnectionError(err)) {
+        void recoverLocalBackend();
+      }
     } finally {
       setAudioLibraryLoading(false);
     }
@@ -2866,6 +2949,40 @@ export function App() {
       setAudioLibraryError(err instanceof Error ? err.message : "打开音频文件失败");
     } finally {
       setAudioLibraryAction(null);
+    }
+  }
+
+  async function onRevealAudioAsset(asset: AudioAsset) {
+    if (!window.desktopFiles?.revealInFolder) {
+      setAudioLibraryError("请在桌面软件中定位本地音频文件");
+      return;
+    }
+    setAudioLibraryAction(`reveal-${asset.file_path}`);
+    setAudioLibraryError(null);
+    try {
+      await window.desktopFiles.revealInFolder(asset.file_path);
+      setAudioLibraryMessage(`已在资源管理器中定位 ${asset.file_name}。`);
+    } catch (err) {
+      setAudioLibraryError(err instanceof Error ? err.message : "打开所在目录失败");
+    } finally {
+      setAudioLibraryAction(null);
+    }
+  }
+
+  async function onToggleAudioAssetPlayback() {
+    const audio = audioAssetRef.current;
+    if (!audio) {
+      return;
+    }
+    setAudioLibraryError(null);
+    try {
+      if (audio.paused) {
+        await audio.play();
+      } else {
+        audio.pause();
+      }
+    } catch (err) {
+      setAudioLibraryError(err instanceof Error ? err.message : "无法在软件内播放该音频");
     }
   }
 
@@ -3889,6 +4006,9 @@ export function App() {
       setError(err instanceof Error ? err.message : "生成失败");
       setLoading(false);
       setGenerationStartedAt(null);
+      if (isBackendConnectionError(err)) {
+        void recoverLocalBackend();
+      }
       void loadSystemStatus();
     }
   }
@@ -4298,6 +4418,11 @@ export function App() {
         if (disposed) {
           return;
         }
+        if (isBackendConnectionError(err)) {
+          setBackendError("生成任务与本地后端暂时断开，正在恢复连接…");
+          void recoverLocalBackend();
+          return;
+        }
         setError(err instanceof Error ? err.message : "读取生成任务状态失败");
         setLoading(false);
         setGenerationStartedAt(null);
@@ -4348,6 +4473,15 @@ export function App() {
   }, [audioUrl]);
 
   useEffect(() => {
+    const audio = audioAssetRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    setAudioAssetPlaying(false);
+  }, [selectedAudioAsset?.file_path]);
+
+  useEffect(() => {
     if (!audioUrl) {
       setResultWaveformPeaks([]);
       setResultWaveformStatus("idle");
@@ -4396,6 +4530,14 @@ export function App() {
     }
     void loadVoiceQuality(importedVoice.id);
   }, [customVoices, selectedVoice]);
+
+  useEffect(() => {
+    if (!voiceMessage) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setVoiceMessage(null), 5600);
+    return () => window.clearTimeout(timer);
+  }, [voiceMessage]);
 
   useEffect(() => {
     let disposed = false;
@@ -4531,7 +4673,10 @@ export function App() {
             <div className="panelTitle voicePanelTitle">
               <span className="panelTitleGroup">
                 {isDoubao ? <Cloud size={17} strokeWidth={1.9} /> : <Library size={17} strokeWidth={1.9} />}
-                <span>{isDoubao ? "豆包预设音色" : "音色库"}</span>
+                <span>
+                  {isDoubao ? "豆包预设音色" : "音色库"}
+                  {!isDoubao && <small className="voiceLibraryCount">{visibleManagedVoices.length}</small>}
+                </span>
               </span>
               <div className="voicePanelActions">
                 {isDoubao ? (
@@ -4541,15 +4686,50 @@ export function App() {
                   </button>
                 ) : (
                   <>
-                    <button className="voiceImportButton" disabled={voiceImporting || modelWarmupBusy} onClick={() => void onImportVoice()} title={modelWarmupBusy ? "模型预热完成后再导入参考音频" : "导入后自动识别参考文本"}>
-                      {voiceImporting ? <Loader2 className="spin" size={14} /> : <Upload size={14} strokeWidth={1.9} />}
-                      <span>导入</span>
-                    </button>
-                    <button className="voiceImportButton" onClick={openSampler}>
-                      <Download size={14} strokeWidth={1.9} />
-                      <span>取样</span>
-                    </button>
-                    <button className="voiceImportButton" onClick={openVoiceManager}>
+                    <div className="voiceImportMenu">
+                      <button
+                        className="voiceImportButton"
+                        aria-expanded={voiceImportMenuOpen}
+                        aria-haspopup="menu"
+                        onClick={() => setVoiceImportMenuOpen((open) => !open)}
+                        title="导入本地音频或从 B 站取样"
+                      >
+                        {voiceImporting ? <Loader2 className="spin" size={14} /> : <Upload size={14} strokeWidth={1.9} />}
+                        <span>导入</span>
+                        <ChevronDown size={13} strokeWidth={2} />
+                      </button>
+                      {voiceImportMenuOpen && (
+                        <div className="voiceImportDropdown" role="menu">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={voiceImporting || modelWarmupBusy}
+                            onClick={() => {
+                              setVoiceImportMenuOpen(false);
+                              void onImportVoice();
+                            }}
+                          >
+                            <Upload size={14} strokeWidth={1.9} />
+                            <span>本地音频</span>
+                          </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setVoiceImportMenuOpen(false);
+                              openSampler();
+                            }}
+                          >
+                            <Download size={14} strokeWidth={1.9} />
+                            <span>B 站取样</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <button className="voiceImportButton voiceManageButton" onClick={() => {
+                      setVoiceImportMenuOpen(false);
+                      openVoiceManager();
+                    }}>
                       <Settings size={14} strokeWidth={1.9} />
                       <span>管理</span>
                     </button>
@@ -4601,65 +4781,37 @@ export function App() {
                   </div>
                 )}
               </>
-            ) : showVoiceLibrary ? (
+            ) : showVoiceLibrary && availableVoices.length > 0 ? (
               <div className="voiceGrid compactVoiceGrid">
                 {availableVoices.map((voice) => (
                   <button
                     key={voice.id}
                     className={voice.id === selectedVoice ? "voiceCard active" : "voiceCard"}
                     onClick={() => {
-                      if (voice.id === "custom") {
-                        void onImportVoice();
-                        return;
-                      }
                       setSelectedVoice(voice.id);
                       if (voice.modelBinding) {
                         setReferenceText(voice.referenceText ?? "");
                       }
                     }}
-                    disabled={voice.id === "custom" && voiceImporting}
-                    title={voice.name}
+                    title={voiceQualityById[voice.id]?.warnings[0] ?? `${voice.name} · ${voice.subtitle}`}
                     >
-                      <span
-                      className="voiceAvatar"
-                      style={{ "--avatar-bg": voice.background } as CSSProperties}
-                      aria-hidden="true"
-                    >
+                    <span className="voiceAvatar" style={{ "--avatar-bg": voice.background } as CSSProperties} aria-hidden="true">
                       {voice.initials}
-                      </span>
+                    </span>
+                    <span
+                      className={`voiceQualityDot ${voiceQualityById[voice.id]?.status ?? "unknown"}`}
+                      aria-label={voiceQualityById[voice.id] ? voiceQualityLabel(voiceQualityById[voice.id]) : "尚未检查参考音频"}
+                    />
                       <span className="voiceName">{voice.name}</span>
                       {voice.modelBinding && <span className="voiceModelWeightBadge">专属权重</span>}
-                      <small>{voice.subtitle}</small>
                   </button>
                 ))}
               </div>
             ) : (
-              <div className="voiceEmptyState">
+              <div className="voiceEmptyState compactVoiceEmpty">
                 <Mic2 size={20} strokeWidth={1.9} />
-                <strong>{selectedModelInfo?.display_name ?? selectedModel}</strong>
-                <span>{capabilityHint(selectedModelInfo, cloneMode)}</span>
-              </div>
-            )}
-            {!isDoubao && voiceMessage && <div className="voiceNotice">{voiceMessage}</div>}
-            {!isDoubao && voiceQualityLoading && (
-              <div className="voiceQualityNotice loading">
-                <Loader2 className="spin" size={15} />
-                <span>正在检查参考音频</span>
-              </div>
-            )}
-            {!isDoubao && voiceQuality && (
-              <div className={`voiceQualityNotice ${voiceQuality.status}`}>
-                <Gauge size={16} strokeWidth={1.9} />
-                <div>
-                  <strong>{voiceQualityLabel(voiceQuality)}</strong>
-                  <span>
-                    {voiceSourceLabel(selectedVoiceInfo.sourceType)}
-                    {voiceQuality.duration_seconds ? ` · ${formatDuration(voiceQuality.duration_seconds)}` : ""}
-                    {voiceQuality.sample_rate ? ` · ${voiceQuality.sample_rate} Hz` : ""}
-                    {typeof voiceQuality.silence_ratio === "number" ? ` · 静音 ${Math.round(voiceQuality.silence_ratio * 100)}%` : ""}
-                  </span>
-                  {voiceQuality.warnings[0] && <em>{voiceQuality.warnings[0]}</em>}
-                </div>
+                <strong>还没有可用音色</strong>
+                <span>从“导入”添加本地参考音频或 B 站取样。</span>
               </div>
             )}
           </section>
@@ -5236,6 +5388,16 @@ export function App() {
                       <p className="voiceManagerHint">
                         替换时可先试听和裁切，再保存到音色目录；是否识别参考文字由你在保存前决定。极致克隆和 GPT-SoVITS 使用前仍建议核对文本。
                       </p>
+                      <button
+                        className="pathPickButton voiceRepairButton"
+                        type="button"
+                        title="将托管参考音频转换为单声道 PCM 16-bit WAV，不会改动原始生成文件"
+                        disabled={voiceManagerAction !== null || !managedVoice.referenceAudioManaged || !managedVoice.referenceAudio}
+                        onClick={() => void onRepairManagedVoiceAudio()}
+                      >
+                        {voiceManagerAction === "repair-audio" ? <Loader2 className="spin" size={15} /> : <Gauge size={15} strokeWidth={1.9} />}
+                        <span>{voiceManagerAction === "repair-audio" ? "正在修复" : "修复音频格式"}</span>
+                      </button>
                       <label className="settingsField">
                         <span>音色名称（可重命名）</span>
                         <input value={voiceManagerDraft.name} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, name: event.target.value }))} />
@@ -5590,7 +5752,22 @@ export function App() {
                         </div>
                         <span>{selectedAudioAsset.duration_seconds ? formatDuration(selectedAudioAsset.duration_seconds) : formatAssetSize(selectedAudioAsset.file_size_bytes)}</span>
                       </div>
-                      <audio controls preload="metadata" src={toAudioUrl(selectedAudioAsset.audio_url)} />
+                      <div className="audioAssetPlayer" aria-label="软件内试听">
+                        <button className="audioAssetPlayButton" type="button" title={audioAssetPlaying ? "暂停试听" : "软件内试听"} onClick={() => void onToggleAudioAssetPlayback()}>
+                          {audioAssetPlaying ? <Pause size={17} fill="currentColor" strokeWidth={1.9} /> : <Play size={17} fill="currentColor" strokeWidth={1.9} />}
+                          <span>{audioAssetPlaying ? "暂停" : "试听"}</span>
+                        </button>
+                        <audio
+                          ref={audioAssetRef}
+                          controls
+                          preload="metadata"
+                          src={toAudioUrl(selectedAudioAsset.audio_url)}
+                          onPlay={() => setAudioAssetPlaying(true)}
+                          onPause={() => setAudioAssetPlaying(false)}
+                          onEnded={() => setAudioAssetPlaying(false)}
+                          onError={() => setAudioLibraryError("该音频无法在软件内播放，可能文件已被移动或损坏。")}
+                        />
+                      </div>
                       <div className="audioAssetMeta">
                         <span>模型</span><strong>{selectedAudioAsset.model ?? "未关联"}</strong>
                         <span>生成时间</span><strong>{formatHistoryTime(selectedAudioAsset.modified_at)}</strong>
@@ -5601,6 +5778,10 @@ export function App() {
                         <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onOpenAudioAsset(selectedAudioAsset)}>
                           {audioLibraryAction === `open-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <FolderOpen size={15} strokeWidth={1.9} />}
                           <span>打开音频</span>
+                        </button>
+                        <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onRevealAudioAsset(selectedAudioAsset)}>
+                          {audioLibraryAction === `reveal-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <FolderOpen size={15} strokeWidth={1.9} />}
+                          <span>所在目录</span>
                         </button>
                         <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onAddAudioAssetToVoiceLibrary(selectedAudioAsset)}>
                           {audioLibraryAction === `voice-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <Save size={15} strokeWidth={1.9} />}
@@ -6819,6 +7000,12 @@ export function App() {
               </button>
             </footer>
           </section>
+        </div>
+      )}
+      {voiceMessage && (
+        <div className="voiceToast" role="status" aria-live="polite">
+          <CheckCircle2 size={16} strokeWidth={1.9} />
+          <span>{voiceMessage}</span>
         </div>
       )}
     </main>

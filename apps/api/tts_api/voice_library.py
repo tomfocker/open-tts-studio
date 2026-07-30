@@ -49,8 +49,10 @@ def ingest_reference_audio(
             "reference_audio_managed": False,
         }
 
-    suffix = ".wav" if should_trim else source.suffix.lower() or ".wav"
-    destination = settings.voice_asset_dir / voice_id / f"reference{suffix}"
+    # A managed library asset should be boring on purpose: mono PCM16 WAV is
+    # readable by Python's stdlib, FFmpeg and all current adapter packages.
+    # The original source remains recorded in ``original_reference_audio``.
+    destination = settings.voice_asset_dir / voice_id / "reference.wav"
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         if should_trim:
@@ -61,8 +63,12 @@ def ingest_reference_audio(
                 start_seconds=trim_start_seconds,
                 end_seconds=trim_end_seconds,
             )
-        elif source.resolve() != destination.resolve():
-            _copy_reference_audio(source, destination)
+        else:
+            _store_compatible_reference_audio(
+                source=source,
+                destination=destination,
+                ffmpeg_path=settings.ffmpeg_path,
+            )
         return {
             "reference_audio": str(destination),
             "original_reference_audio": original_path,
@@ -78,6 +84,21 @@ def ingest_reference_audio(
         }
 
 
+def repair_managed_reference_audio(*, reference_path: str, settings: Settings) -> bool:
+    """Convert an older managed asset in place when it is not PCM16 WAV.
+
+    Returns ``True`` only when a conversion was necessary. The original
+    generation/source path is deliberately not touched.
+    """
+    source = Path(reference_path)
+    if not source.is_file():
+        raise HTTPException(status_code=404, detail="参考音频文件不存在，无法修复。")
+    if _is_compatible_pcm16_wav(source):
+        return False
+    _transcode_reference_audio(source=source, destination=source, ffmpeg_path=settings.ffmpeg_path)
+    return True
+
+
 def _copy_reference_audio(source: Path, destination: Path) -> None:
     """Copy atomically so a failed replacement cannot corrupt a saved voice."""
     temporary = destination.with_name(f"{destination.stem}.incoming{destination.suffix}")
@@ -87,6 +108,26 @@ def _copy_reference_audio(source: Path, destination: Path) -> None:
         temporary.replace(destination)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _is_compatible_pcm16_wav(path: Path) -> bool:
+    if path.suffix.lower() != ".wav":
+        return False
+    try:
+        import wave
+
+        with wave.open(str(path), "rb") as wav_file:
+            return wav_file.getcomptype() == "NONE" and wav_file.getsampwidth() == 2 and wav_file.getnchannels() == 1
+    except (OSError, wave.Error):
+        return False
+
+
+def _store_compatible_reference_audio(*, source: Path, destination: Path, ffmpeg_path: str) -> None:
+    if _is_compatible_pcm16_wav(source):
+        if source.resolve() != destination.resolve():
+            _copy_reference_audio(source, destination)
+        return
+    _transcode_reference_audio(source=source, destination=destination, ffmpeg_path=ffmpeg_path)
 
 
 def _trim_reference_audio(*, source: Path, destination: Path, ffmpeg_path: str, start_seconds: float, end_seconds: float) -> None:
@@ -110,6 +151,8 @@ def _trim_reference_audio(*, source: Path, destination: Path, ffmpeg_path: str, 
         "-map",
         "0:a:0",
         "-vn",
+        "-ac",
+        "1",
         "-c:a",
         "pcm_s16le",
         str(temporary),
@@ -125,6 +168,43 @@ def _trim_reference_audio(*, source: Path, destination: Path, ffmpeg_path: str, 
         raise HTTPException(status_code=504, detail="裁切参考音频超时，请缩短片段后重试。") from exc
     except (subprocess.CalledProcessError, RuntimeError) as exc:
         raise HTTPException(status_code=422, detail="无法裁切该参考音频，请检查文件是否可正常播放。") from exc
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _transcode_reference_audio(*, source: Path, destination: Path, ffmpeg_path: str) -> None:
+    """Atomically decode a reference audio file to mono PCM16 WAV."""
+    temporary = destination.with_name(f"{destination.stem}.incoming.wav")
+    temporary.unlink(missing_ok=True)
+    command = [
+        ffmpeg_path,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostdin",
+        "-y",
+        "-i",
+        str(source),
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        str(temporary),
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, timeout=60)
+        if not temporary.is_file() or temporary.stat().st_size <= 44:
+            raise RuntimeError("转码结果为空")
+        temporary.replace(destination)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=503, detail="找不到 FFmpeg，无法转换参考音频。") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=504, detail="转换参考音频超时，请缩短片段后重试。") from exc
+    except (subprocess.CalledProcessError, RuntimeError) as exc:
+        raise HTTPException(status_code=422, detail="无法转换该参考音频，请检查文件是否可正常播放。") from exc
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -241,19 +321,27 @@ def _import_manifest_voice(voice_data: dict, audio_info, archive: ZipFile, sourc
         raise ValueError("音色包缺少有效名称。")
     voice_id = uuid4().hex
     suffix = Path(audio_info.filename).suffix.lower() or ".wav"
-    destination = settings.voice_asset_dir / voice_id / f"reference{suffix}"
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    imported_destination = settings.voice_asset_dir / voice_id / f"reference.imported{suffix}"
+    destination = settings.voice_asset_dir / voice_id / "reference.wav"
+    imported_destination.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with archive.open(audio_info) as archive_audio, destination.open("wb") as output:
+        with archive.open(audio_info) as archive_audio, imported_destination.open("wb") as output:
             shutil.copyfileobj(archive_audio, output, length=1024 * 1024)
+        imported_digest = file_sha256(imported_destination)
+        expected_digest = voice_data.get("reference_audio_sha256")
+        if isinstance(expected_digest, str) and expected_digest and imported_digest != expected_digest:
+            raise ValueError("参考音频校验失败，文件可能已损坏。")
+        _store_compatible_reference_audio(
+            source=imported_destination,
+            destination=destination,
+            ffmpeg_path=settings.ffmpeg_path,
+        )
     except OSError:
         destination.unlink(missing_ok=True)
         raise
+    finally:
+        imported_destination.unlink(missing_ok=True)
     digest = file_sha256(destination)
-    expected_digest = voice_data.get("reference_audio_sha256")
-    if isinstance(expected_digest, str) and expected_digest and digest != expected_digest:
-        destination.unlink(missing_ok=True)
-        raise ValueError("参考音频校验失败，文件可能已损坏。")
     return VoiceInfo(
         id=voice_id,
         name=name.strip()[:120],

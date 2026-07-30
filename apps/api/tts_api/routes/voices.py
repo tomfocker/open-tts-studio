@@ -1,13 +1,14 @@
 from uuid import uuid4
 import json
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, status
 
 from tts_api.adapters.voxcpm2 import VoxCpm2Adapter
 from tts_api.config import get_settings
 from tts_api.runtime_memory import release_conflicting_runtimes, resolve_runtime_settings
-from tts_api.schemas import CreateVoiceRequest, UpdateVoiceRequest, VoiceInfo, VoicePackageExport, VoicePackageImportRequest, VoiceQualityReport
-from tts_api.voice_library import create_voice_package, import_voice_package, ingest_reference_audio, utc_now
+from tts_api.schemas import CreateVoiceRequest, UpdateVoiceRequest, VoiceAudioRepair, VoiceInfo, VoicePackageExport, VoicePackageImportRequest, VoiceQualityReport
+from tts_api.voice_library import create_voice_package, file_sha256, import_voice_package, ingest_reference_audio, repair_managed_reference_audio, utc_now
 from tts_api.voice_quality import inspect_voice_quality
 
 router = APIRouter()
@@ -176,6 +177,27 @@ def inspect_voice(voice_id: str) -> VoiceQualityReport:
         return inspect_voice_quality(BUILTIN_VOICES[voice_id])
     _, voice = get_custom_voice_or_404(voice_id)
     return inspect_voice_quality(voice)
+
+
+@router.post("/v1/tts/voices/{voice_id}/repair-audio", response_model=VoiceAudioRepair)
+def repair_voice_audio(voice_id: str) -> VoiceAudioRepair:
+    """Normalize legacy/generated references that were saved as float WAV files."""
+    custom_voices, voice = get_custom_voice_or_404(voice_id)
+    if not voice.reference_audio:
+        raise HTTPException(status_code=422, detail="该音色没有可修复的参考音频。")
+    if not voice.reference_audio_managed:
+        raise HTTPException(status_code=422, detail="只能修复音色库托管的音频；请先替换或重新导入该参考音频。")
+
+    converted = repair_managed_reference_audio(reference_path=voice.reference_audio, settings=get_settings())
+    updated = voice.model_copy(
+        update={
+            "reference_audio_sha256": file_sha256(Path(voice.reference_audio)),
+            "updated_at": utc_now(),
+        }
+    )
+    custom_voices[voice_id] = updated
+    save_custom_voices(custom_voices)
+    return VoiceAudioRepair(voice=updated, converted=converted)
 
 
 @router.post("/v1/tts/voices/{voice_id}/recognize")

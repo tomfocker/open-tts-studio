@@ -1,14 +1,17 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const { randomUUID } = require("node:crypto");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const {
   chooseFrontendTarget,
+  createBackendSupervisor,
   createDesktopPaths,
-  ensureBackend,
+  isBackendHealthy,
   loadFrontend,
   openLegadoImportUrl,
   openLocalPath,
+  revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
   resolveFfmpegPath,
@@ -27,7 +30,9 @@ const { createUpdateService } = require("./updater-runtime.cjs");
 
 let mainWindow;
 let backendProcess;
+let backendSupervisor;
 const selectedPreviewAudioPaths = new Set();
+const backendToken = app.isPackaged ? randomUUID() : null;
 const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
 const packagedDataRoot = app.isPackaged ? path.join(app.getPath("userData"), "data") : undefined;
 const packagedModelStoreRoot = app.isPackaged ? path.join(app.getPath("userData"), "models") : undefined;
@@ -42,7 +47,7 @@ const paths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
   resourcesRoot: app.isPackaged ? process.resourcesPath : undefined,
   distIndex: packagedAppRoot ? path.join(packagedAppRoot, "dist", "index.html") : undefined
 });
-let desktopSettings = resolveDesktopSettings(paths);
+let desktopSettings = resolveDesktopSettings(paths, { backendToken });
 const bilibiliSamplerService = new BilibiliSamplerService({
   app,
   defaultOutputDirectory: resolveBilibiliInputsDirectory(paths),
@@ -61,16 +66,29 @@ updateService.subscribe((state) => {
   mainWindow.webContents.send("app-update:state-changed", state);
 });
 
-async function prepareBackend() {
-  desktopSettings = resolveDesktopSettings(paths);
+function configureBackend() {
+  desktopSettings = resolveDesktopSettings(paths, { backendToken });
   process.env.OPEN_TTS_API_BASE = desktopSettings.apiBase;
   process.env.OPEN_TTS_APP_VERSION = app.getVersion();
+}
+
+function getBackendSupervisor() {
+  if (backendSupervisor) {
+    return backendSupervisor;
+  }
   const healthUrl = `${desktopSettings.apiBase}/v1/health`;
-  const result = await ensureBackend({
+  backendSupervisor = createBackendSupervisor({
     healthUrl,
+    isHealthy: () => isBackendHealthy(healthUrl, desktopSettings.backendToken),
     spawnBackend: () => spawnBackendProcess(paths, desktopSettings)
   });
+  return backendSupervisor;
+}
+
+async function ensureLocalBackend() {
+  const result = await getBackendSupervisor().ensureOnline();
   backendProcess = result.process;
+  return result;
 }
 
 async function createWindow() {
@@ -95,8 +113,9 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  await prepareBackend();
+  configureBackend();
   await createWindow();
+  void ensureLocalBackend();
   if (app.isPackaged) {
     setTimeout(() => void updateService.check(), 3500);
   }
@@ -122,6 +141,8 @@ ipcMain.on("window:close", () => {
 });
 
 ipcMain.handle("file:open-path", (_event, targetPath) => openLocalPath(targetPath, shell));
+
+ipcMain.handle("file:reveal-in-folder", (_event, targetPath) => revealLocalItem(targetPath, shell));
 
 ipcMain.handle("external:open-legado-import", (_event, targetUrl) => openLegadoImportUrl(targetUrl, shell));
 
@@ -162,6 +183,15 @@ ipcMain.handle("file:save-settings-backup", (_event, content) => {
 });
 
 ipcMain.handle("file:select-settings-backup", () => selectSettingsBackup(dialog, fs));
+
+ipcMain.handle("backend:ensure-online", async () => {
+  const result = await ensureLocalBackend();
+  return {
+    ready: result.ready,
+    status: result.status,
+    message: result.error ?? null
+  };
+});
 
 ipcMain.handle("app-update:get-state", () => updateService.getState());
 
@@ -217,5 +247,9 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  terminateProcessTree(backendProcess);
+  if (backendSupervisor) {
+    backendSupervisor.stop();
+  } else {
+    terminateProcessTree(backendProcess);
+  }
 });

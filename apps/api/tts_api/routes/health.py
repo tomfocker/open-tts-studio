@@ -12,4 +12,5 @@ def health() -> dict[str, object]:
         "status": "ok",
         "service": settings.app_name,
         "port": settings.api_port,
+        "instance_token": settings.backend_token,
     }

@@ -10,8 +10,13 @@ contextBridge.exposeInMainWorld("desktopConfig", {
   apiBase: process.env.OPEN_TTS_API_BASE || "http://127.0.0.1:8765"
 });
 
+contextBridge.exposeInMainWorld("desktopBackend", {
+  ensureOnline: () => ipcRenderer.invoke("backend:ensure-online")
+});
+
 contextBridge.exposeInMainWorld("desktopFiles", {
   openPath: (targetPath) => ipcRenderer.invoke("file:open-path", targetPath),
+  revealInFolder: (targetPath) => ipcRenderer.invoke("file:reveal-in-folder", targetPath),
   selectDirectory: () => ipcRenderer.invoke("file:select-directory"),
   selectModelArchive: () => ipcRenderer.invoke("file:select-model-archive"),
   selectReferenceAudio: () => ipcRenderer.invoke("file:select-reference-audio"),

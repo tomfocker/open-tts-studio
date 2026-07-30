@@ -262,6 +262,11 @@ export type VoiceQualityReport = {
   warnings: string[];
 };
 
+export type VoiceAudioRepair = {
+  voice: VoiceInfo;
+  converted: boolean;
+};
+
 export type IpcResponse<T = unknown> = {
   success: boolean;
   data?: T;

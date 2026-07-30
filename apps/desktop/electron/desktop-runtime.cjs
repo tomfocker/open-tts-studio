@@ -45,6 +45,7 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       PYTHONIOENCODING: "utf-8",
       OPEN_TTS_API_HOST: settings.apiHost,
       OPEN_TTS_API_PORT: String(settings.apiPort),
+      ...(settings.backendToken ? { OPEN_TTS_BACKEND_TOKEN: settings.backendToken } : {}),
       OPEN_TTS_SETTINGS_FILE: settings.settingsFile,
       OPEN_TTS_OUTPUT_DIR: path.join(paths.dataRoot, "outputs"),
       OPEN_TTS_VOICE_LIBRARY_FILE: path.join(paths.dataRoot, "config", "voices.json"),
@@ -92,11 +93,13 @@ function resolveDesktopSettings(paths, options = {}) {
 
   const apiHost = normalizeApiHost(options.apiHost ?? stored.api_host);
   const apiPort = normalizeApiPort(options.apiPort ?? stored.api_port);
+  const backendToken = typeof options.backendToken === "string" && options.backendToken.trim() ? options.backendToken : null;
 
   return {
     apiBase: `http://${apiHost}:${apiPort}`,
     apiHost,
     apiPort,
+    backendToken,
     settingsFile
   };
 }
@@ -138,6 +141,26 @@ async function isHttpOk(url, fetchImpl = fetch, timeoutMs = 1000) {
   try {
     const response = await fetchImpl(url, { signal: controller.signal });
     return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function isBackendHealthy(url, expectedToken, fetchImpl = fetch, timeoutMs = 1000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(url, { signal: controller.signal });
+    if (!response.ok) {
+      return false;
+    }
+    if (!expectedToken) {
+      return true;
+    }
+    const payload = await response.json().catch(() => null);
+    return Boolean(payload && payload.instance_token === expectedToken);
   } catch {
     return false;
   } finally {
@@ -196,6 +219,126 @@ async function ensureBackend(options) {
   return { status: ready ? "started" : "starting", process: processHandle };
 }
 
+function createBackendSupervisor(options) {
+  const isHealthy = options.isHealthy || (() => isHttpOk(options.healthUrl));
+  const waitForReady = options.waitForReady || (() => waitForBackend({ healthUrl: options.healthUrl, isHealthy }));
+  const spawnBackend = options.spawnBackend;
+  const terminate = options.terminate || terminateProcessTree;
+  const restartOnExit = options.restartOnExit ?? true;
+  const restartDelayMs = options.restartDelayMs ?? 1200;
+  const maxUnexpectedExitRetries = options.maxUnexpectedExitRetries ?? 2;
+  let backendProcess = null;
+  let recoveryPromise = null;
+  let lastError = null;
+  let stopped = false;
+  let restartTimer = null;
+  let unexpectedExitRetries = 0;
+
+  function clearRestartTimer() {
+    if (restartTimer) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
+  }
+
+  function scheduleRecovery() {
+    if (!restartOnExit || stopped || recoveryPromise || restartTimer || unexpectedExitRetries >= maxUnexpectedExitRetries) {
+      return;
+    }
+    unexpectedExitRetries += 1;
+    restartTimer = setTimeout(async () => {
+      restartTimer = null;
+      const result = await ensureOnline();
+      if (!result.ready) {
+        scheduleRecovery();
+      }
+    }, restartDelayMs);
+    restartTimer.unref?.();
+  }
+
+  function watchProcess(processHandle) {
+    if (!processHandle || typeof processHandle.once !== "function") {
+      return;
+    }
+    const clearProcess = () => {
+      if (backendProcess === processHandle) {
+        backendProcess = null;
+        return true;
+      }
+      return false;
+    };
+    processHandle.once("exit", () => {
+      if (clearProcess()) {
+        scheduleRecovery();
+      }
+    });
+    processHandle.once("error", (error) => {
+      lastError = error instanceof Error ? error.message : "本地后端启动失败。";
+      if (clearProcess()) {
+        scheduleRecovery();
+      }
+    });
+  }
+
+  async function ensureOnline() {
+    if (recoveryPromise) {
+      return recoveryPromise;
+    }
+
+    recoveryPromise = (async () => {
+      stopped = false;
+      if (await isHealthy()) {
+        lastError = null;
+        unexpectedExitRetries = 0;
+        return { ready: true, status: backendProcess ? "ready" : "reused", process: backendProcess };
+      }
+
+      if (backendProcess) {
+        const processToTerminate = backendProcess;
+        backendProcess = null;
+        terminate(processToTerminate);
+      }
+
+      try {
+        backendProcess = spawnBackend();
+        watchProcess(backendProcess);
+        const ready = await waitForReady();
+        if (ready) {
+          lastError = null;
+          unexpectedExitRetries = 0;
+          return { ready: true, status: "started", process: backendProcess };
+        }
+        lastError = "本地后端未在预期时间内恢复，请查看任务诊断。";
+        return { ready: false, status: "unavailable", process: backendProcess, error: lastError };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : "无法启动本地后端。";
+        return { ready: false, status: "failed", process: backendProcess, error: lastError };
+      }
+    })();
+
+    try {
+      return await recoveryPromise;
+    } finally {
+      recoveryPromise = null;
+    }
+  }
+
+  return {
+    ensureOnline,
+    getProcess: () => backendProcess,
+    getLastError: () => lastError,
+    stop: () => {
+      stopped = true;
+      clearRestartTimer();
+      if (backendProcess) {
+        const processToTerminate = backendProcess;
+        backendProcess = null;
+        terminate(processToTerminate);
+      }
+    }
+  };
+}
+
 async function chooseFrontendTarget(paths, options = {}) {
   const devUrl = options.devUrl || process.env.OPEN_TTS_DESKTOP_DEV_URL || DEFAULT_DEV_URL;
   const preferDevServer = options.preferDevServer ?? true;
@@ -239,6 +382,14 @@ async function openLocalPath(targetPath, shellImpl) {
     throw new Error("Path is required");
   }
   return shellImpl.openPath(normalizedPath);
+}
+
+function revealLocalItem(targetPath, shellImpl) {
+  const normalizedPath = typeof targetPath === "string" ? targetPath.trim() : "";
+  if (!normalizedPath) {
+    throw new Error("Path is required");
+  }
+  shellImpl.showItemInFolder(normalizedPath);
 }
 
 function validateLegadoImportUrl(targetUrl) {
@@ -400,11 +551,14 @@ module.exports = {
   buildBackendLaunchOptions,
   chooseFrontendTarget,
   createDesktopPaths,
+  createBackendSupervisor,
   ensureBackend,
+  isBackendHealthy,
   isHttpOk,
   loadFrontend,
   openLegadoImportUrl,
   openLocalPath,
+  revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
   resolveFfmpegPath,

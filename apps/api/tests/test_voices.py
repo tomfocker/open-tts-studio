@@ -1,4 +1,6 @@
 import json
+import struct
+import wave
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -9,6 +11,15 @@ from tts_api.config import get_settings
 from tts_api.main import app
 from tts_api.routes import voices as voice_routes
 from tts_api import voice_library
+
+
+def write_float_wav(path: Path, sample_rate: int = 48000, duration_seconds: float = 1.0) -> None:
+    """Write a minimal IEEE-float WAV that Python 3.11's wave module rejects."""
+    frame_count = int(sample_rate * duration_seconds)
+    samples = b"".join(struct.pack("<f", 0.2) for _ in range(frame_count))
+    fmt_chunk = struct.pack("<HHIIHH", 3, 1, sample_rate, sample_rate * 4, 4, 32)
+    payload = b"WAVE" + b"fmt " + struct.pack("<I", len(fmt_chunk)) + fmt_chunk + b"data" + struct.pack("<I", len(samples)) + samples
+    path.write_bytes(b"RIFF" + struct.pack("<I", len(payload)) + payload)
 
 
 def test_list_voices_returns_builtin_default():
@@ -106,6 +117,67 @@ def test_create_voice_trims_reference_audio_before_storing(tmp_path: Path, monke
     assert Path(voice["reference_audio"]).suffix == ".wav"
     assert Path(voice["reference_audio"]).is_file()
     assert commands and "-ss" in commands[0] and "-t" in commands[0]
+
+
+def test_create_voice_transcodes_float_wav_to_managed_pcm16(tmp_path: Path, monkeypatch):
+    voice_library_file = tmp_path / "voices.json"
+    source_audio = tmp_path / "generated-float.wav"
+    write_float_wav(source_audio)
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(voice_library_file))
+    get_settings.cache_clear()
+    commands: list[list[str]] = []
+
+    def fake_ffmpeg(command, **_kwargs):
+        commands.append(command)
+        write_sine_wav(Path(command[-1]), sample_rate=48000, duration_seconds=1)
+
+    monkeypatch.setattr(voice_library.subprocess, "run", fake_ffmpeg)
+    client = TestClient(app)
+    response = client.post(
+        "/v1/tts/voices",
+        json={"name": "Float output", "reference_audio": str(source_audio), "authorization_status": "generated_local"},
+    )
+
+    assert response.status_code == 200
+    voice = response.json()
+    managed_path = Path(voice["reference_audio"])
+    assert managed_path.suffix == ".wav"
+    assert managed_path != source_audio
+    with wave.open(str(managed_path), "rb") as wav_file:
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getnchannels() == 1
+    assert commands and "pcm_s16le" in commands[0]
+
+
+def test_repair_voice_audio_transcodes_existing_float_wav(tmp_path: Path, monkeypatch):
+    voice_library_file = tmp_path / "voices.json"
+    source_audio = tmp_path / "source.wav"
+    write_sine_wav(source_audio, duration_seconds=5)
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(voice_library_file))
+    get_settings.cache_clear()
+    client = TestClient(app)
+    created = client.post(
+        "/v1/tts/voices",
+        json={"name": "Legacy float", "reference_audio": str(source_audio), "authorization_status": "authorized"},
+    ).json()
+    managed_path = Path(created["reference_audio"])
+    write_float_wav(managed_path)
+    commands: list[list[str]] = []
+
+    def fake_ffmpeg(command, **_kwargs):
+        commands.append(command)
+        write_sine_wav(Path(command[-1]), sample_rate=48000, duration_seconds=1)
+
+    monkeypatch.setattr(voice_library.subprocess, "run", fake_ffmpeg)
+    response = client.post(f"/v1/tts/voices/{created['id']}/repair-audio")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["converted"] is True
+    with wave.open(str(managed_path), "rb") as wav_file:
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getnchannels() == 1
+    assert commands and "pcm_s16le" in commands[0]
 
 
 def test_create_voice_rejects_incomplete_trim_range(tmp_path: Path, monkeypatch):
@@ -258,6 +330,42 @@ def test_voice_package_exports_and_imports_portably(tmp_path: Path, monkeypatch)
     assert imported["reference_text"] == "这是一条可以带走的参考文本。"
     assert imported["reference_audio_managed"] is True
     assert Path(imported["reference_audio"]).is_file()
+
+
+def test_voice_package_import_normalizes_float_wav(tmp_path: Path, monkeypatch):
+    source_audio = tmp_path / "package-float.wav"
+    package_path = tmp_path / "float-voice.zip"
+    write_float_wav(source_audio)
+    with ZipFile(package_path, "w") as package:
+        package.writestr(
+            "voice.json",
+            json.dumps(
+                {
+                    "schema": "open-tts-voice-package",
+                    "version": 1,
+                    "voice": {
+                        "name": "Float package",
+                        "reference_audio": "audio/reference.wav",
+                        "reference_audio_sha256": voice_library.file_sha256(source_audio),
+                    },
+                }
+            ),
+        )
+        package.write(source_audio, "audio/reference.wav")
+    monkeypatch.setenv("OPEN_TTS_VOICE_LIBRARY_FILE", str(tmp_path / "voices.json"))
+    get_settings.cache_clear()
+
+    def fake_ffmpeg(command, **_kwargs):
+        write_sine_wav(Path(command[-1]), sample_rate=48000, duration_seconds=1)
+
+    monkeypatch.setattr(voice_library.subprocess, "run", fake_ffmpeg)
+    client = TestClient(app)
+    response = client.post("/v1/tts/voices/import", json={"package_path": str(package_path)})
+
+    assert response.status_code == 200
+    with wave.open(response.json()["reference_audio"], "rb") as wav_file:
+        assert wav_file.getsampwidth() == 2
+        assert wav_file.getnchannels() == 1
 
 
 def test_voice_package_rejects_unsafe_audio_path(tmp_path: Path, monkeypatch):

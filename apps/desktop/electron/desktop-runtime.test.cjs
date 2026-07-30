@@ -5,10 +5,13 @@ const test = require("node:test");
 const {
   buildBackendLaunchOptions,
   chooseFrontendTarget,
+  createBackendSupervisor,
   createDesktopPaths,
   ensureBackend,
+  isBackendHealthy,
   openLegadoImportUrl,
   openLocalPath,
+  revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
   resolveFfmpegPath,
@@ -92,6 +95,90 @@ test("ensureBackend reuses an already healthy local API", async () => {
   assert.equal(spawnCount, 0);
 });
 
+test("isBackendHealthy requires the current desktop instance token when configured", async () => {
+  const healthy = await isBackendHealthy(
+    "http://127.0.0.1:8765/v1/health",
+    "current-token",
+    async () => ({ ok: true, json: async () => ({ instance_token: "current-token" }) })
+  );
+  const stale = await isBackendHealthy(
+    "http://127.0.0.1:8765/v1/health",
+    "current-token",
+    async () => ({ ok: true, json: async () => ({ instance_token: "stale-token" }) })
+  );
+
+  assert.equal(healthy, true);
+  assert.equal(stale, false);
+});
+
+test("backend supervisor serializes recovery and clears an exited child process", async () => {
+  let healthy = false;
+  let spawnCount = 0;
+  const handlers = {};
+  const child = {
+    pid: 3200,
+    once: (event, callback) => {
+      handlers[event] = callback;
+    }
+  };
+  const supervisor = createBackendSupervisor({
+    healthUrl: "http://127.0.0.1:8765/v1/health",
+    isHealthy: async () => healthy,
+    spawnBackend: () => {
+      spawnCount += 1;
+      healthy = true;
+      return child;
+    },
+    waitForReady: async () => healthy,
+    terminate: () => assert.fail("a fresh recovery should not terminate a child"),
+    restartOnExit: false
+  });
+
+  const [first, second] = await Promise.all([supervisor.ensureOnline(), supervisor.ensureOnline()]);
+
+  assert.equal(first.ready, true);
+  assert.equal(second.ready, true);
+  assert.equal(spawnCount, 1);
+  assert.equal(supervisor.getProcess(), child);
+  handlers.exit();
+  assert.equal(supervisor.getProcess(), null);
+});
+
+test("backend supervisor restarts an unexpectedly exited child", async () => {
+  let healthy = false;
+  let spawnCount = 0;
+  const children = [];
+  const supervisor = createBackendSupervisor({
+    healthUrl: "http://127.0.0.1:8765/v1/health",
+    isHealthy: async () => healthy,
+    spawnBackend: () => {
+      spawnCount += 1;
+      healthy = true;
+      const handlers = {};
+      const child = {
+        pid: 3300 + spawnCount,
+        once: (event, callback) => {
+          handlers[event] = callback;
+        },
+        handlers
+      };
+      children.push(child);
+      return child;
+    },
+    waitForReady: async () => healthy,
+    restartDelayMs: 1
+  });
+
+  await supervisor.ensureOnline();
+  healthy = false;
+  children[0].handlers.exit();
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  assert.equal(spawnCount, 2);
+  assert.equal(supervisor.getProcess(), children[1]);
+  supervisor.stop();
+});
+
 test("resolveDesktopSettings reads a configured API port for the next launch", () => {
   const workspaceRoot = path.resolve("D:/code/tts");
   const paths = createDesktopPaths(__dirname, workspaceRoot);
@@ -160,6 +247,19 @@ test("openLocalPath rejects empty paths", async () => {
     () => openLocalPath(" ", { openPath: async () => "" }),
     /Path is required/
   );
+});
+
+test("revealLocalItem delegates to the desktop shell for a local file", () => {
+  const revealed = [];
+  revealLocalItem("D:/OpenTTS/data/outputs/preview.wav", {
+    showItemInFolder: (targetPath) => revealed.push(targetPath)
+  });
+
+  assert.deepEqual(revealed, ["D:/OpenTTS/data/outputs/preview.wav"]);
+});
+
+test("revealLocalItem rejects empty paths", () => {
+  assert.throws(() => revealLocalItem("", { showItemInFolder: () => undefined }), /Path is required/);
 });
 
 test("openLegadoImportUrl opens only a validated HTTP TTS deep link", async () => {

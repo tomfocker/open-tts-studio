@@ -206,6 +206,13 @@ class VoiceQualityReport(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class VoiceAudioRepair(BaseModel):
+    """Result of normalizing a managed reference audio file for broad TTS compatibility."""
+
+    voice: VoiceInfo
+    converted: bool
+
+
 class BatchProjectStatus(StrEnum):
     draft = "draft"
     queued = "queued"

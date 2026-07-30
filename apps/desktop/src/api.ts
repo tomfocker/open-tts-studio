@@ -42,6 +42,7 @@ import type {
   SystemStatus,
   TaskSummary,
   UpdateVoiceRequest,
+  VoiceAudioRepair,
   VoicePackageExport,
   VoiceQualityReport,
   VoiceInfo
@@ -214,6 +215,17 @@ export async function fetchVoiceQuality(voiceId: string): Promise<VoiceQualityRe
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
     throw new Error(payload?.detail ?? `Failed to inspect voice quality: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function repairVoiceAudio(voiceId: string): Promise<VoiceAudioRepair> {
+  const response = await fetch(`${getApiBase()}/v1/tts/voices/${voiceId}/repair-audio`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to repair voice audio: ${response.status}`);
   }
   return response.json();
 }
