@@ -18,6 +18,13 @@ dependencies = [
   "pytest-asyncio>=0.23.0"
 ]
 
+[tool.setuptools.packages.find]
+# ``vendor/`` contains runtime assets copied alongside the desktop API, not a
+# second distributable Python package.  Keep editable installs reproducible on
+# clean CI runners after the vendored Vox runtime was added.
+include = ["tts_api*"]
+exclude = ["tests*", "tools*", "vendor*"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
