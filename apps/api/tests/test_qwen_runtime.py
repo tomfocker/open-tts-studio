@@ -39,8 +39,42 @@ def test_auto_prefers_complete_cuda_runtime_and_prepares_child_dll_paths(tmp_pat
     assert runtime_status(settings)["cuda_available"] is True
 
 
+def test_auto_discovers_cuda_runtime_beside_a_custom_capswriter_install(tmp_path: Path):
+    managed_store = tmp_path / "managed-store"
+    external_models = tmp_path / "external-models"
+    runtime = _touch(external_models / "Qwen3-runtime-cuda" / "python.exe")
+    dml_python = _touch(managed_store / "Qwen3-runtime" / "python.exe")
+    capswriter = external_models / "CapsWriter-Offline"
+    backend = capswriter / ".open-tts-backends" / "cuda"
+    for kind in ("asr", "aligner"):
+        for name in ("llama.dll", "ggml.dll", "ggml-base.dll", "ggml-cuda.dll"):
+            _touch(backend / kind / "bin" / name)
+    _touch(runtime.parent / "Lib" / "site-packages" / "onnxruntime" / "capi" / "onnxruntime_providers_cuda.dll")
+    _touch(runtime.parent / "Lib" / "site-packages" / "nvidia" / "cufft" / "bin" / "cufft64_11.dll")
+    _touch(runtime.parent / "Lib" / "site-packages" / "nvidia" / "cudnn" / "bin" / "cudnn64_9.dll")
+    settings = Settings(
+        qwen_cuda_python=managed_store / "Qwen3-runtime-cuda" / "python.exe",
+        qwen_cuda_backend_dir=managed_store / "CapsWriter-Offline" / ".open-tts-backends" / "cuda",
+        qwen_asr_python=dml_python,
+        qwen_asr_capswriter_root=capswriter,
+        alignment_capswriter_root=capswriter,
+    )
+
+    resolved = resolve_qwen_runtime(settings, "auto")
+
+    assert resolved.active_device == "cuda"
+    assert resolved.python_executable == runtime
+    assert resolved.llama_backend_dir == backend
+    assert runtime_status(settings)["cuda_available"] is True
+
+
 def test_explicit_cuda_fails_without_a_complete_local_runtime(tmp_path: Path):
-    settings = Settings(qwen_cuda_python=tmp_path / "missing.exe", qwen_asr_python=_touch(tmp_path / "dml" / "python.exe"))
+    settings = Settings(
+        qwen_cuda_python=tmp_path / "missing.exe",
+        qwen_asr_python=_touch(tmp_path / "dml" / "python.exe"),
+        qwen_asr_capswriter_root=None,
+        alignment_capswriter_root=None,
+    )
 
     with pytest.raises(QwenRuntimeError, match="CUDA 运行时未安装"):
         resolve_qwen_runtime(settings, "cuda")

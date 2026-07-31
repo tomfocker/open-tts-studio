@@ -42,26 +42,78 @@ class ResolvedQwenRuntime:
         return "CPU"
 
 
-def cuda_backend_dir(settings: Settings) -> Path:
-    return settings.qwen_cuda_backend_dir
+@dataclass(frozen=True)
+class CudaRuntimeLayout:
+    """One complete, local CUDA Python + llama.cpp layout.
+
+    The desktop application deliberately lets users keep Qwen model packages
+    outside its managed model store.  In that case the companion CUDA runtime
+    lives next to that package, rather than under the new managed store.  A
+    layout keeps the Python runtime and native decoder overlay paired so they
+    cannot accidentally be resolved from two different installations.
+    """
+
+    python_executable: Path
+    llama_backend_dir: Path
 
 
-def cuda_runtime_ready(settings: Settings) -> bool:
-    """Check files only; importing CUDA DLLs belongs to the isolated worker."""
-
-    runtime = settings.qwen_cuda_python
-    backend_root = cuda_backend_dir(settings)
-    backend_dirs = [backend_root / name / "bin" for name in ("asr", "aligner")]
-    runtime_root = runtime.parent
+def _cuda_layout_is_ready(layout: CudaRuntimeLayout) -> bool:
+    runtime_root = layout.python_executable.parent
     site_packages = runtime_root / "Lib" / "site-packages"
+    backend_dirs = [layout.llama_backend_dir / name / "bin" for name in ("asr", "aligner")]
     required = (
-        runtime,
+        layout.python_executable,
         *(path / filename for path in backend_dirs for filename in ("llama.dll", "ggml.dll", "ggml-base.dll", "ggml-cuda.dll")),
         site_packages / "onnxruntime" / "capi" / "onnxruntime_providers_cuda.dll",
         site_packages / "nvidia" / "cufft" / "bin" / "cufft64_11.dll",
         site_packages / "nvidia" / "cudnn" / "bin" / "cudnn64_9.dll",
     )
     return all(path.is_file() for path in required)
+
+
+def _cuda_layout_candidates(settings: Settings) -> list[CudaRuntimeLayout]:
+    """Return configured and compatible external Qwen CUDA layouts.
+
+    ``qwen_cuda_*`` defaults point at the application's managed model store.
+    Existing users can still configure the ASR/aligner/CapsWriter package in a
+    custom directory.  Its sibling ``Qwen3-runtime-cuda`` is a valid managed
+    companion and must remain discoverable after the desktop data migration.
+    """
+
+    candidates = [CudaRuntimeLayout(settings.qwen_cuda_python, settings.qwen_cuda_backend_dir)]
+    for capswriter_root in (settings.qwen_asr_capswriter_root, settings.alignment_capswriter_root):
+        if not capswriter_root:
+            continue
+        candidates.append(
+            CudaRuntimeLayout(
+                capswriter_root.parent / "Qwen3-runtime-cuda" / "python.exe",
+                capswriter_root / ".open-tts-backends" / "cuda",
+            )
+        )
+
+    unique: list[CudaRuntimeLayout] = []
+    seen: set[tuple[Path, Path]] = set()
+    for candidate in candidates:
+        key = (candidate.python_executable, candidate.llama_backend_dir)
+        if key not in seen:
+            seen.add(key)
+            unique.append(candidate)
+    return unique
+
+
+def resolve_cuda_layout(settings: Settings) -> CudaRuntimeLayout | None:
+    return next((layout for layout in _cuda_layout_candidates(settings) if _cuda_layout_is_ready(layout)), None)
+
+
+def cuda_backend_dir(settings: Settings) -> Path:
+    layout = resolve_cuda_layout(settings)
+    return layout.llama_backend_dir if layout else settings.qwen_cuda_backend_dir
+
+
+def cuda_runtime_ready(settings: Settings) -> bool:
+    """Check files only; importing CUDA DLLs belongs to the isolated worker."""
+
+    return resolve_cuda_layout(settings) is not None
 
 
 def qwen_worker_environment(runtime: ResolvedQwenRuntime, base: dict[str, str] | None = None) -> dict[str, str]:
@@ -100,16 +152,17 @@ def resolve_qwen_runtime(
         raise QwenRuntimeError("本地 Qwen 设备必须是 auto、cuda、dml 或 cpu。")
     device: QwenDevice = value  # type: ignore[assignment]
 
-    if device == "cuda" or (device == "auto" and cuda_runtime_ready(settings)):
-        if not cuda_runtime_ready(settings):
+    cuda_layout = resolve_cuda_layout(settings)
+    if device == "cuda" or (device == "auto" and cuda_layout is not None):
+        if cuda_layout is None:
             raise QwenRuntimeError("Qwen CUDA 运行时未安装；请先安装本地 NVIDIA CUDA 加速组件。")
         return ResolvedQwenRuntime(
             requested_device=device,
             active_device="cuda",
-            python_executable=settings.qwen_cuda_python,
+            python_executable=cuda_layout.python_executable,
             onnx_provider="CUDA",
             llm_use_gpu=True,
-            llama_backend_dir=cuda_backend_dir(settings),
+            llama_backend_dir=cuda_layout.llama_backend_dir,
         )
 
     standard_python = fallback_python or settings.qwen_asr_python
@@ -157,10 +210,11 @@ def runtime_status(settings: Settings) -> dict[str, object]:
                 "error": str(exc),
             }
 
-    cuda_dir = cuda_backend_dir(settings)
+    cuda_layout = resolve_cuda_layout(settings)
+    cuda_dir = cuda_layout.llama_backend_dir if cuda_layout else settings.qwen_cuda_backend_dir
     return {
         "cuda_available": cuda_runtime_ready(settings),
-        "cuda_python_installed": settings.qwen_cuda_python.is_file(),
+        "cuda_python_installed": bool(cuda_layout and cuda_layout.python_executable.is_file()),
         "cuda_llama_backend_installed": all(
             (cuda_dir / name / "bin" / "ggml-cuda.dll").is_file() for name in ("asr", "aligner")
         ),
