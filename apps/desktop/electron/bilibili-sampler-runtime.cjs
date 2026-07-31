@@ -196,7 +196,26 @@ function resolvePollStatus(payload) {
   return "invalid";
 }
 
-function normalizeConfirmedSession(payload) {
+function readSetCookieValues(response) {
+  const headers = response?.headers;
+  if (!headers) {
+    return new Map();
+  }
+
+  const rawHeaders = typeof headers.getSetCookie === "function"
+    ? headers.getSetCookie()
+    : [headers.get?.("set-cookie")].filter(Boolean);
+  const values = new Map();
+  for (const rawHeader of rawHeaders) {
+    const matcher = /\b(SESSDATA|bili_jct)=([^;,\s]+)/gi;
+    for (const match of String(rawHeader ?? "").matchAll(matcher)) {
+      values.set(match[1], match[2]);
+    }
+  }
+  return values;
+}
+
+function normalizeConfirmedSession(payload, responseCookies = new Map()) {
   const loginSession = {
     isLoggedIn: true,
     nickname: normalizeText(payload?.user_info?.uname),
@@ -214,8 +233,12 @@ function normalizeConfirmedSession(payload) {
     }
   }
 
-  const sessData = normalizeText(payload?.sessdata) ?? cookieMap.get("SESSDATA") ?? null;
-  const biliJct = normalizeText(payload?.bili_jct) ?? cookieMap.get("bili_jct") ?? null;
+  // Bilibili's current QR poll API places the authenticated cookies in the
+  // successful HTTP response headers.  Older variants included them in JSON,
+  // so retain that fallback for compatibility.  The cookie values never leave
+  // this main-process service.
+  const sessData = responseCookies.get("SESSDATA") ?? normalizeText(payload?.sessdata) ?? cookieMap.get("SESSDATA") ?? null;
+  const biliJct = responseCookies.get("bili_jct") ?? normalizeText(payload?.bili_jct) ?? cookieMap.get("bili_jct") ?? null;
   if (!sessData || !biliJct) {
     throw new Error("Bilibili confirmed login is missing auth cookies");
   }
@@ -432,9 +455,9 @@ class BilibiliSamplerService {
       return { success: false, error: "QR login has not been initialized" };
     }
     try {
-      const payload = await this.fetchJson(
+      const { payload, responseCookies } = await this.fetchJson(
         `${QR_POLL_URL}?qrcode_key=${encodeURIComponent(this.pendingAuthCode)}`,
-        { includeAuth: false, allowNonZeroCode: true }
+        { includeAuth: false, allowNonZeroCode: true, captureResponseCookies: true }
       );
       const pollData = payload?.data ?? {};
       const status = resolvePollStatus(pollData);
@@ -453,7 +476,7 @@ class BilibiliSamplerService {
         return { success: false, error: "QR login expired" };
       }
       if (status === "confirmed") {
-        const confirmedSession = normalizeConfirmedSession(pollData);
+        const confirmedSession = normalizeConfirmedSession(pollData, responseCookies);
         await this.persistSession(confirmedSession);
         this.pendingAuthCode = null;
         this.authSession = confirmedSession.auth;
@@ -847,10 +870,19 @@ class BilibiliSamplerService {
     const response = await this.fetchImpl(url, {
       headers: options.includeAuth === false ? {} : this.getRequestHeaders()
     });
+    if (response && response.ok === false) {
+      throw new Error(`Bilibili request failed (HTTP ${response.status ?? "unknown"})`);
+    }
     const payload = await response.json();
     const code = Number(payload?.code ?? 0);
     if (!options.allowNonZeroCode && Number.isFinite(code) && code !== 0) {
       throw new Error(normalizeText(payload?.message) ?? "Bilibili request failed");
+    }
+    if (options.captureResponseCookies) {
+      return {
+        payload,
+        responseCookies: readSetCookieValues(response)
+      };
     }
     return payload;
   }

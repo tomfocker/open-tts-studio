@@ -3436,40 +3436,9 @@ export function App() {
         throw new Error(response.error ?? "生成 B 站登录二维码失败");
       }
       setSamplerQrPayload(response.data);
-      setSamplerMessage("二维码已生成，扫码后点击确认");
+      setSamplerMessage("二维码已生成，正在等待扫码确认");
     } catch (err) {
       setSamplerFailure(err instanceof Error ? err.message : "生成 B 站登录二维码失败");
-    } finally {
-      setSamplerPendingAction(null);
-    }
-  }
-
-  async function onSamplerPollLogin() {
-    const sampler = requireSamplerBridge();
-    if (!sampler) {
-      return;
-    }
-    setSamplerPendingAction("poll-login");
-    setSamplerMessage(null);
-    setSamplerState((state) => ({ ...state, error: null }));
-    try {
-      const response = await sampler.pollLogin();
-      if (!response.success || !response.data) {
-        throw new Error(response.error ?? "确认 B 站登录失败");
-      }
-      if (response.data.loginSession) {
-        setSamplerState((state) => ({
-          ...state,
-          loginSession: response.data!.loginSession!,
-          error: null
-        }));
-      }
-      if (response.data.status === "confirmed") {
-        setSamplerQrPayload(null);
-      }
-      setSamplerMessage(samplerPollStatusLabel(response.data.status));
-    } catch (err) {
-      setSamplerFailure(err instanceof Error ? err.message : "确认 B 站登录失败");
     } finally {
       setSamplerPendingAction(null);
     }
@@ -5026,6 +4995,52 @@ export function App() {
     const timer = window.setTimeout(() => setVoiceMessage(null), 5600);
     return () => window.clearTimeout(timer);
   }, [voiceMessage]);
+
+  useEffect(() => {
+    const sampler = window.desktopBilibiliSampler;
+    if (!samplerOpen || !sampler || !samplerQrPayload?.authCode || samplerState.loginSession.isLoggedIn) {
+      return undefined;
+    }
+
+    let disposed = false;
+    let timer: number | null = null;
+    const poll = async () => {
+      try {
+        const response = await sampler.pollLogin();
+        if (disposed) {
+          return;
+        }
+        if (!response.success || !response.data) {
+          setSamplerQrPayload(null);
+          setSamplerFailure(response.error ?? "B 站二维码登录失败，请重新获取二维码");
+          return;
+        }
+        if (response.data.loginSession) {
+          setSamplerState((state) => ({ ...state, loginSession: response.data!.loginSession!, error: null }));
+        }
+        if (response.data.status === "confirmed") {
+          setSamplerQrPayload(null);
+          setSamplerMessage("登录成功");
+          return;
+        }
+        setSamplerMessage(samplerPollStatusLabel(response.data.status));
+        timer = window.setTimeout(() => void poll(), 1400);
+      } catch (err) {
+        if (!disposed) {
+          setSamplerQrPayload(null);
+          setSamplerFailure(err instanceof Error ? err.message : "B 站二维码登录失败，请重新获取二维码");
+        }
+      }
+    };
+
+    timer = window.setTimeout(() => void poll(), 500);
+    return () => {
+      disposed = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [samplerOpen, samplerQrPayload?.authCode, samplerState.loginSession.isLoggedIn]);
 
   useEffect(() => {
     let disposed = false;
@@ -7206,16 +7221,10 @@ export function App() {
                         <span>退出</span>
                       </button>
                     ) : (
-                      <>
-                        <button className="pathPickButton" disabled={samplerBusy} onClick={() => void onSamplerStartLogin()}>
-                          {samplerPendingAction === "login" ? <Loader2 className="spin" size={15} /> : <LogIn size={15} strokeWidth={1.9} />}
-                          <span>扫码登录</span>
-                        </button>
-                        <button className="pathPickButton" disabled={samplerBusy || !samplerQrPayload} onClick={() => void onSamplerPollLogin()}>
-                          {samplerPendingAction === "poll-login" ? <Loader2 className="spin" size={15} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}
-                          <span>确认</span>
-                        </button>
-                      </>
+                      <button className="pathPickButton" disabled={samplerBusy} onClick={() => void onSamplerStartLogin()}>
+                        {samplerPendingAction === "login" ? <Loader2 className="spin" size={15} /> : samplerQrPayload ? <RefreshCw size={15} strokeWidth={1.9} /> : <LogIn size={15} strokeWidth={1.9} />}
+                        <span>{samplerQrPayload ? "刷新二维码" : "扫码登录"}</span>
+                      </button>
                     )}
                   </div>
                 </div>
@@ -7224,7 +7233,7 @@ export function App() {
                     <div className="samplerQrBox">
                       {samplerQrCodeUrl ? <img src={samplerQrCodeUrl} alt="B 站登录二维码" /> : <Loader2 className="spin" size={20} />}
                     </div>
-                    <span>扫码并在手机确认后，点击确认。</span>
+                    <span>扫码并在手机确认，软件会自动完成登录。</span>
                   </div>
                 )}
               </div>

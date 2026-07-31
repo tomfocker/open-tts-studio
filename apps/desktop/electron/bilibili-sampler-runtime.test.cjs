@@ -72,10 +72,14 @@ function createFsMock(initialFiles = {}) {
   };
 }
 
-function createFetchResponse(body) {
+function createFetchResponse(body, options = {}) {
   return {
-    ok: true,
-    status: 200,
+    ok: options.ok ?? true,
+    status: options.status ?? 200,
+    headers: {
+      getSetCookie: () => options.setCookies ?? [],
+      get: (name) => name.toLowerCase() === "set-cookie" ? (options.setCookies ?? []).join(", ") : null
+    },
     async json() {
       return body;
     }
@@ -149,6 +153,71 @@ test("parseBilibiliLink rejects unsupported hosts and accepts video links", () =
     ],
     selectedItemId: "page:2"
   });
+});
+
+test("QR login persists only the auth cookies returned by the confirmed poll response", async () => {
+  const fsMock = createFsMock();
+  let pollCount = 0;
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fs: fsMock,
+    fetch: async (url) => {
+      if (String(url).includes("qrcode/generate")) {
+        return createFetchResponse({
+          code: 0,
+          data: { url: "https://passport.bilibili.com/h5-app/passport/sso?token=opaque", qrcode_key: "qr-key" }
+        });
+      }
+      if (String(url).includes("qrcode/poll")) {
+        pollCount += 1;
+        return createFetchResponse({
+          code: 0,
+          data: {
+            code: 0,
+            refresh_token: "refresh-token",
+            user_info: { uname: "Local User", face: "https://i0.hdslb.com/avatar.jpg" }
+          }
+        }, {
+          setCookies: [
+            "SESSDATA=sess-token; Path=/; HttpOnly",
+            "bili_jct=csrf-token; Path=/"
+          ]
+        });
+      }
+      throw new Error(`Unexpected fetch url: ${url}`);
+    }
+  });
+
+  const bootstrap = await service.bootstrapQrLogin();
+  assert.equal(bootstrap.success, true);
+  assert.equal(bootstrap.data.qrUrl, "https://passport.bilibili.com/h5-app/passport/sso?token=opaque");
+
+  const result = await service.pollLogin();
+  assert.equal(pollCount, 1);
+  assert.equal(result.success, true);
+  assert.equal(result.data.status, "confirmed");
+  assert.deepEqual(toPlain(result.data.loginSession), {
+    isLoggedIn: true,
+    nickname: "Local User",
+    avatarUrl: "https://i0.hdslb.com/avatar.jpg",
+    expiresAt: null
+  });
+
+  const persisted = JSON.parse(fsMock.files.get(path.join(createTestApp().getPath("userData"), "bilibili-sampler-session.json")));
+  assert.equal(persisted.auth.sessData, "sess-token");
+  assert.equal(persisted.auth.biliJct, "csrf-token");
+  assert.doesNotMatch(JSON.stringify(result), /sess-token|csrf-token|refresh-token/);
+});
+
+test("QR login returns a safe HTTP error when Bilibili rejects the bootstrap request", async () => {
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fetch: async () => createFetchResponse({ code: -412, message: "blocked" }, { ok: false, status: 412 })
+  });
+
+  const result = await service.bootstrapQrLogin();
+  assert.deepEqual(result, { success: false, error: "Bilibili request failed (HTTP 412)" });
+  assert.equal(service.getState().error, "Bilibili request failed (HTTP 412)");
 });
 
 test("parseLink loads Bilibili page metadata and selectable pages", async () => {
