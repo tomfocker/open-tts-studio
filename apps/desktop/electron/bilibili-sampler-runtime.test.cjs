@@ -127,7 +127,8 @@ test("createDefaultBilibiliSamplerState returns an idle logged-out state", () =>
     },
     parsedLink: null,
     selection: {
-      itemId: null
+      itemId: null,
+      qn: null
     },
     audioOptionSummary: null,
     taskStage: "idle",
@@ -301,6 +302,15 @@ test("loadAudioOptions stores selected play payload and reports audio availabili
       hasVideo: true,
       disabledReason: null,
       videoDisabledReason: null
+    },
+    selectedVideo: {
+      qn: 80,
+      label: "1080P",
+      width: null,
+      height: null,
+      codec: null,
+      requestedQn: 120,
+      fellBack: true
     }
   });
   assert.equal(fetchCalls[1], "https://api.bilibili.com/x/player/playurl?bvid=BV1xK4y1m7aA&cid=101&fnval=4048&qn=120&fourk=1");
@@ -457,7 +467,117 @@ test("downloadVideo downloads DASH tracks and remuxes a local MP4 without re-enc
     audioPath: path.join(taskDirectory, "source.audio.m4s"),
     outputPath
   }]);
-  assert.deepEqual(toPlain(result.data), { videoPath: outputPath, title: "Video Study", itemTitle: "Intro" });
+  assert.deepEqual(toPlain(result.data), {
+    videoPath: outputPath,
+    title: "Video Study",
+    itemTitle: "Intro",
+    videoQuality: {
+      qn: 80,
+      label: "80P",
+      width: null,
+      height: null,
+      codec: null,
+      requestedQn: 80,
+      fellBack: false
+    }
+  });
+});
+
+test("video quality selection re-requests Bilibili and downloads the actual selected track", async () => {
+  const fsMock = createFsMock();
+  const fetchUrls = [];
+  const downloaded = [];
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fs: fsMock,
+    fetch: async (url) => {
+      const parsedUrl = new URL(String(url));
+      fetchUrls.push(parsedUrl);
+      if (parsedUrl.pathname.endsWith("/x/web-interface/view")) {
+        return createFetchResponse({
+          code: 0,
+          data: { title: "Quality Study", pages: [{ page: 1, part: "Intro", cid: 101 }] }
+        });
+      }
+      if (parsedUrl.pathname.endsWith("/x/player/playurl")) {
+        const qn = Number(parsedUrl.searchParams.get("qn"));
+        return createFetchResponse({
+          code: 0,
+          data: {
+            quality: qn,
+            accept_quality: [120, 80],
+            accept_description: ["4K", "1080P"],
+            dash: {
+              video: [{ id: qn, width: qn === 120 ? 3840 : 1920, height: qn === 120 ? 2160 : 1080, codecs: "avc1.640028", baseUrl: `https://cdn.example.com/video-${qn}.m4s` }],
+              audio: [{ id: 30280, baseUrl: "https://cdn.example.com/audio.m4s" }]
+            }
+          }
+        });
+      }
+      throw new Error(`Unexpected fetch URL: ${url}`);
+    },
+    now: () => 1713657600003,
+    getFfmpegPath: () => "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    downloadBinary: async ({ url, destinationPath }) => {
+      downloaded.push(url);
+      await fsMock.promises.writeFile(destinationPath, Buffer.from("track"));
+    },
+    mergeFfmpeg: async (input) => {
+      await fsMock.promises.writeFile(input.outputPath, Buffer.from("mp4"));
+    }
+  });
+
+  await service.parseLink({ url: "https://www.bilibili.com/video/BV1xK4y1m7aA" });
+  await service.loadAudioOptions({ kind: "video", itemId: "page:1" });
+  const result = await service.loadAudioOptions({ kind: "video", itemId: "page:1", qn: 80 });
+
+  assert.equal(fetchUrls.at(-1).searchParams.get("qn"), "80");
+  assert.deepEqual(toPlain(result.data.selectedVideo), {
+    qn: 80,
+    label: "1080P",
+    width: 1920,
+    height: 1080,
+    codec: "AVC1.640028",
+    requestedQn: 80,
+    fellBack: false
+  });
+  assert.deepEqual(toPlain(result.data.qnOptions), [
+    { qn: 120, label: "4K", selected: false, available: true },
+    { qn: 80, label: "1080P", selected: true, available: true }
+  ]);
+
+  await service.downloadVideo({ fileName: "Selected Quality" });
+  assert.deepEqual(downloaded, ["https://cdn.example.com/video-80.m4s", "https://cdn.example.com/audio.m4s"]);
+});
+
+test("video quality selection reports when Bilibili falls back to a lower actual stream", async () => {
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fetch: async (url) => {
+      if (String(url).includes("/x/web-interface/view")) {
+        return createFetchResponse({ code: 0, data: { pages: [{ page: 1, part: "Intro", cid: 101 }] } });
+      }
+      return createFetchResponse({
+        code: 0,
+        data: {
+          quality: 80,
+          accept_quality: [120, 80],
+          accept_description: ["4K", "1080P"],
+          dash: {
+            video: [{ id: 80, width: 1920, height: 1080, codecs: "hev1.1.6.L153.B0", baseUrl: "https://cdn.example.com/video-80.m4s" }],
+            audio: [{ id: 30280, baseUrl: "https://cdn.example.com/audio.m4s" }]
+          }
+        }
+      });
+    }
+  });
+
+  await service.parseLink({ url: "https://www.bilibili.com/video/BV1xK4y1m7aA" });
+  const result = await service.loadAudioOptions({ kind: "video", itemId: "page:1", qn: 120 });
+
+  assert.equal(result.data.selectedVideo.fellBack, true);
+  assert.equal(result.data.selectedVideo.qn, 80);
+  assert.equal(service.getState().selection.qn, 80);
 });
 
 test("extractSample surfaces a redacted FFmpeg diagnostic on conversion failure", async () => {

@@ -57,7 +57,7 @@ contextBridge.exposeInMainWorld("desktopBilibiliSampler", {
   pollLogin: () => ipcRenderer.invoke("bilibili-sampler:poll-login"),
   logout: () => ipcRenderer.invoke("bilibili-sampler:logout"),
   parseLink: (link) => ipcRenderer.invoke("bilibili-sampler:parse-link", link),
-  loadAudioOptions: (kind, itemId) => ipcRenderer.invoke("bilibili-sampler:load-audio-options", { kind, itemId }),
+  loadAudioOptions: (kind, itemId, qn) => ipcRenderer.invoke("bilibili-sampler:load-audio-options", { kind, itemId, qn }),
   extractSample: (request) => ipcRenderer.invoke("bilibili-sampler:extract-sample", request),
   downloadVideo: (request) => ipcRenderer.invoke("bilibili-sampler:download-video", request),
   cancelExtract: () => ipcRenderer.invoke("bilibili-sampler:cancel-extract"),

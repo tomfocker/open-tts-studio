@@ -113,6 +113,7 @@ import type {
   BilibiliParsedLink,
   BilibiliPollLoginPayload,
   BilibiliSamplerState,
+  BilibiliVideoQuality,
   DoubaoStatus,
   DoubaoVoice,
   ModelDirectory,
@@ -176,7 +177,7 @@ declare global {
       pollLogin: () => Promise<IpcResponse<BilibiliPollLoginPayload>>;
       logout: () => Promise<IpcResponse>;
       parseLink: (link: string) => Promise<IpcResponse<BilibiliParsedLink>>;
-      loadAudioOptions: (kind: BilibiliParsedLink["kind"], itemId: string) => Promise<IpcResponse<BilibiliAudioOptionsResult>>;
+      loadAudioOptions: (kind: BilibiliParsedLink["kind"], itemId: string, qn?: number) => Promise<IpcResponse<BilibiliAudioOptionsResult>>;
       extractSample: (request: BilibiliExtractSampleRequest) => Promise<IpcResponse<BilibiliExtractSampleResult>>;
       downloadVideo: (request: BilibiliDownloadVideoRequest) => Promise<IpcResponse<BilibiliDownloadVideoResult>>;
       cancelExtract: () => Promise<IpcResponse>;
@@ -663,7 +664,8 @@ function createDefaultBilibiliSamplerState(): BilibiliSamplerState {
     },
     parsedLink: null,
     selection: {
-      itemId: null
+      itemId: null,
+      qn: null
     },
     audioOptionSummary: null,
     taskStage: "idle",
@@ -707,6 +709,11 @@ function formatSamplerItemMeta(item: BilibiliParsedItem | null) {
     return item.epId;
   }
   return item.seasonId;
+}
+
+function formatSamplerVideoQuality(quality: BilibiliVideoQuality) {
+  const resolution = quality.width && quality.height ? `${quality.width}×${quality.height}` : null;
+  return [quality.label, resolution, quality.codec].filter(Boolean).join(" · ");
 }
 
 function samplerKindLabel(kind: BilibiliParsedLink["kind"] | null | undefined) {
@@ -1777,6 +1784,7 @@ export function App() {
   const [voiceQualityLoading, setVoiceQualityLoading] = useState(false);
   const [samplerOpen, setSamplerOpen] = useState(false);
   const [samplerState, setSamplerState] = useState<BilibiliSamplerState>(() => createDefaultBilibiliSamplerState());
+  const [samplerMediaOptions, setSamplerMediaOptions] = useState<BilibiliAudioOptionsResult | null>(null);
   const [samplerLink, setSamplerLink] = useState("");
   const [samplerQrPayload, setSamplerQrPayload] = useState<BilibiliLoginQrPayload | null>(null);
   const [samplerQrCodeUrl, setSamplerQrCodeUrl] = useState<string | null>(null);
@@ -3513,11 +3521,12 @@ export function App() {
       setSamplerState((state) => ({
         ...state,
         parsedLink,
-        selection: { itemId: parsedLink.selectedItemId },
+        selection: { itemId: parsedLink.selectedItemId, qn: null },
         audioOptionSummary: null,
         taskStage: "idle",
         error: null
       }));
+      setSamplerMediaOptions(null);
 
       const audioResponse = await sampler.loadAudioOptions(parsedLink.kind, parsedLink.selectedItemId);
       if (!audioResponse.success || !audioResponse.data) {
@@ -3525,11 +3534,12 @@ export function App() {
       }
       setSamplerState((state) => ({
         ...state,
-        selection: { itemId: audioResponse.data!.itemId },
+        selection: { itemId: audioResponse.data!.itemId, qn: audioResponse.data!.selectedVideo?.qn ?? null },
         audioOptionSummary: audioResponse.data!.summary,
         taskStage: "idle",
         error: null
       }));
+      setSamplerMediaOptions(audioResponse.data);
       setSamplerMessage(audioResponse.data.summary.hasAudio ? "音频流已就绪" : audioResponse.data.summary.disabledReason ?? "没有可用音频流");
     } catch (err) {
       setSamplerFailure(err instanceof Error ? err.message : "解析 B 站链接失败");
@@ -3547,10 +3557,11 @@ export function App() {
     setSamplerMessage(null);
     setSamplerState((state) => ({
       ...state,
-      selection: { itemId },
+      selection: { itemId, qn: null },
       audioOptionSummary: null,
       error: null
     }));
+    setSamplerMediaOptions(null);
     try {
       const response = await sampler.loadAudioOptions(samplerState.parsedLink.kind, itemId);
       if (!response.success || !response.data) {
@@ -3558,11 +3569,12 @@ export function App() {
       }
       setSamplerState((state) => ({
         ...state,
-        selection: { itemId: response.data!.itemId },
+        selection: { itemId: response.data!.itemId, qn: response.data!.selectedVideo?.qn ?? null },
         audioOptionSummary: response.data!.summary,
         taskStage: "idle",
         error: null
       }));
+      setSamplerMediaOptions(response.data);
       setSamplerMessage(response.data.summary.hasAudio ? "音频流已就绪" : response.data.summary.disabledReason ?? "没有可用音频流");
     } catch (err) {
       setSamplerFailure(err instanceof Error ? err.message : "加载音频流失败");
@@ -3632,6 +3644,43 @@ export function App() {
     }
   }
 
+  async function onSamplerSelectVideoQuality(qn: number) {
+    const sampler = requireSamplerBridge();
+    const parsedLink = samplerState.parsedLink;
+    const itemId = samplerState.selection.itemId;
+    if (!sampler || !parsedLink || !itemId || !Number.isFinite(qn) || qn <= 0) {
+      return;
+    }
+    setSamplerPendingAction("load-quality");
+    setSamplerMessage(null);
+    setSamplerState((state) => ({ ...state, error: null }));
+    try {
+      const response = await sampler.loadAudioOptions(parsedLink.kind, itemId, qn);
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? "切换视频清晰度失败");
+      }
+      const { selectedVideo } = response.data;
+      setSamplerState((state) => ({
+        ...state,
+        selection: { itemId: response.data!.itemId, qn: selectedVideo?.qn ?? null },
+        audioOptionSummary: response.data!.summary,
+        taskStage: "idle",
+        error: null
+      }));
+      setSamplerMediaOptions(response.data);
+      if (selectedVideo?.fellBack) {
+        const requestedLabel = response.data.qnOptions.find((option) => option.qn === qn)?.label ?? `${qn}P`;
+        setSamplerMessage(`请求 ${requestedLabel}，B 站实际返回 ${formatSamplerVideoQuality(selectedVideo)}`);
+      } else if (selectedVideo) {
+        setSamplerMessage(`视频清晰度已切换：${formatSamplerVideoQuality(selectedVideo)}`);
+      }
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "切换视频清晰度失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
   async function onSamplerDownloadVideo() {
     const sampler = requireSamplerBridge();
     if (!sampler) {
@@ -3650,7 +3699,8 @@ export function App() {
       if (!response.success || !response.data) {
         throw new Error(response.error ?? "下载 MP4 失败");
       }
-      setSamplerMessage(`MP4 已保存：${response.data.videoPath}`);
+      const quality = response.data.videoQuality ? `（${formatSamplerVideoQuality(response.data.videoQuality)}）` : "";
+      setSamplerMessage(`MP4 已保存${quality}：${response.data.videoPath}`);
     } catch (err) {
       setSamplerFailure(err instanceof Error ? err.message : "下载 MP4 失败");
     } finally {
@@ -7340,6 +7390,23 @@ export function App() {
                     </select>
                   </label>
 
+                  {samplerMediaOptions?.selectedVideo && samplerMediaOptions.qnOptions.length > 0 && (
+                    <label className="settingsField samplerField">
+                      <span>视频清晰度</span>
+                      <select
+                        value={samplerMediaOptions.selectedVideo.qn}
+                        disabled={samplerBusy}
+                        onChange={(event) => void onSamplerSelectVideoQuality(Number(event.target.value))}
+                      >
+                        {samplerMediaOptions.qnOptions.map((option) => (
+                          <option key={option.qn} value={option.qn}>
+                            {option.label}{option.selected ? "（当前）" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
                   {samplerState.audioOptionSummary && (
                     <div className={samplerState.audioOptionSummary.hasAudio ? "samplerAudioStatus ready" : "samplerAudioStatus warning"}>
                       {samplerState.audioOptionSummary.hasAudio ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <AlertCircle size={16} strokeWidth={1.9} />}
@@ -7350,7 +7417,11 @@ export function App() {
                   {samplerState.audioOptionSummary && (
                     <div className={samplerState.audioOptionSummary.hasVideo ? "samplerAudioStatus ready" : "samplerAudioStatus warning"}>
                       {samplerState.audioOptionSummary.hasVideo ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <AlertCircle size={16} strokeWidth={1.9} />}
-                      <span>{samplerState.audioOptionSummary.hasVideo ? "视频流可用，可下载 MP4" : samplerState.audioOptionSummary.videoDisabledReason ?? "没有可用视频流"}</span>
+                      <span>
+                        {samplerState.audioOptionSummary.hasVideo
+                          ? `视频流可用：${samplerMediaOptions?.selectedVideo ? formatSamplerVideoQuality(samplerMediaOptions.selectedVideo) : "可下载 MP4"}${samplerMediaOptions?.selectedVideo?.fellBack ? "（已按可用清晰度回退）" : ""}`
+                          : samplerState.audioOptionSummary.videoDisabledReason ?? "没有可用视频流"}
+                      </span>
                     </div>
                   )}
 

@@ -173,7 +173,8 @@ function createDefaultBilibiliSamplerState() {
     },
     parsedLink: null,
     selection: {
-      itemId: null
+      itemId: null,
+      qn: null
     },
     audioOptionSummary: null,
     taskStage: "idle",
@@ -536,7 +537,7 @@ class BilibiliSamplerService {
       this.playPayloads.clear();
       this.updateState({
         parsedLink: null,
-        selection: { itemId: null },
+        selection: { itemId: null, qn: null },
         audioOptionSummary: null,
         taskStage: "failed",
         error: "Unsupported Bilibili link"
@@ -554,7 +555,7 @@ class BilibiliSamplerService {
           : await this.loadBangumiMetadata(parsedInput);
       this.updateState({
         parsedLink,
-        selection: { itemId: parsedLink.selectedItemId },
+        selection: { itemId: parsedLink.selectedItemId, qn: null },
         audioOptionSummary: null,
         taskStage: "idle",
         error: null
@@ -564,7 +565,7 @@ class BilibiliSamplerService {
       const message = this.toErrorMessage(error);
       this.updateState({
         parsedLink: null,
-        selection: { itemId: null },
+        selection: { itemId: null, qn: null },
         audioOptionSummary: null,
         taskStage: "failed",
         error: message
@@ -584,23 +585,27 @@ class BilibiliSamplerService {
       return { success: false, error: "Selected item was not found" };
     }
 
+    const requestedQn = normalizePositiveNumber(request?.qn) ?? DEFAULT_STREAM_QN;
     this.updateState({
       taskStage: "loading-audio-options",
-      selection: { itemId: request.itemId },
+      selection: { itemId: request.itemId, qn: null },
       error: null
     });
 
     try {
-      const playPayload = await this.loadPlayInfo(this.state.parsedLink, request.itemId);
+      const playPayload = await this.loadPlayInfo(this.state.parsedLink, request.itemId, requestedQn);
       this.playPayloads.set(request.itemId, playPayload);
       const summary = this.buildAudioSummary(playPayload);
+      const selectedVideo = this.describeSelectedVideo(playPayload, requestedQn);
       const data = {
         itemId: request.itemId,
-        qnOptions: this.normalizeQnOptions(playPayload),
-        summary
+        qnOptions: this.normalizeQnOptions(playPayload, selectedVideo?.qn ?? requestedQn),
+        summary,
+        selectedVideo
       };
       this.updateState({
         audioOptionSummary: summary,
+        selection: { itemId: request.itemId, qn: selectedVideo?.qn ?? null },
         taskStage: "idle",
         error: null
       });
@@ -730,6 +735,7 @@ class BilibiliSamplerService {
     if (!playPayload) {
       return { success: false, error: "Selected item is missing loaded stream options" };
     }
+    const selectedVideo = this.describeSelectedVideo(playPayload, this.state.selection.qn ?? DEFAULT_STREAM_QN);
     const videoUrl = this.resolveVideoUrl(playPayload);
     const audioUrl = this.resolveAudioUrl(playPayload);
     if (!videoUrl || !audioUrl) {
@@ -788,7 +794,8 @@ class BilibiliSamplerService {
         data: {
           videoPath: outputPath,
           title: this.state.parsedLink.title,
-          itemTitle: selectedItem?.title ?? null
+          itemTitle: selectedItem?.title ?? null,
+          videoQuality: selectedVideo
         }
       };
     } catch (error) {
@@ -901,7 +908,7 @@ class BilibiliSamplerService {
     };
   }
 
-  async loadPlayInfo(parsedLink, itemId) {
+  async loadPlayInfo(parsedLink, itemId, requestedQn = DEFAULT_STREAM_QN) {
     const target = this.itemPlaybackTargets.get(itemId);
     if (!target?.cid) {
       throw new Error("Selected item is missing playback metadata");
@@ -923,13 +930,13 @@ class BilibiliSamplerService {
     }
     url.searchParams.set("cid", String(target.cid));
     url.searchParams.set("fnval", String(DEFAULT_FNVAL));
-    url.searchParams.set("qn", String(DEFAULT_STREAM_QN));
+    url.searchParams.set("qn", String(normalizePositiveNumber(requestedQn) ?? DEFAULT_STREAM_QN));
     url.searchParams.set("fourk", "1");
     const payload = await this.fetchJson(url.toString());
     return payload?.result ?? payload?.data ?? payload;
   }
 
-  normalizeQnOptions(playPayload) {
+  normalizeQnOptions(playPayload, selectedQn = null) {
     const qualityList = Array.isArray(playPayload?.accept_quality) ? playPayload.accept_quality : [];
     const descriptions = Array.isArray(playPayload?.accept_description) ? playPayload.accept_description : [];
     const seen = new Set();
@@ -943,11 +950,26 @@ class BilibiliSamplerService {
       options.push({
         qn,
         label: normalizeText(descriptions[index]) ?? `${qn}P`,
-        selected: index === 0,
+        selected: qn === selectedQn,
         available: true
       });
     });
+    if (selectedQn && !seen.has(selectedQn)) {
+      options.unshift({
+        qn: selectedQn,
+        label: this.getQualityLabel(playPayload, selectedQn),
+        selected: true,
+        available: true
+      });
+    }
     return options;
+  }
+
+  getQualityLabel(playPayload, qn) {
+    const qualities = Array.isArray(playPayload?.accept_quality) ? playPayload.accept_quality : [];
+    const descriptions = Array.isArray(playPayload?.accept_description) ? playPayload.accept_description : [];
+    const index = qualities.findIndex((quality) => normalizePositiveNumber(quality) === qn);
+    return normalizeText(index >= 0 ? descriptions[index] : null) ?? `${qn}P`;
   }
 
   buildAudioSummary(playPayload) {
@@ -975,14 +997,56 @@ class BilibiliSamplerService {
   }
 
   resolveVideoUrl(playPayload) {
+    return this.resolveVideoStream(playPayload)?.url ?? null;
+  }
+
+  resolveVideoStream(playPayload) {
     const videoStreams = Array.isArray(playPayload?.dash?.video) ? playPayload.dash.video : [];
-    for (const stream of videoStreams) {
-      const url = getResourceUrl(stream);
-      if (url) {
-        return url;
-      }
+    const actualQn = normalizePositiveNumber(playPayload?.quality);
+    const candidates = videoStreams
+      .filter((stream) => Boolean(getResourceUrl(stream)))
+      .sort((left, right) => this.videoCodecRank(left) - this.videoCodecRank(right));
+    if (candidates.length === 0) {
+      return null;
     }
-    return null;
+    const selected = candidates.find((stream) => normalizePositiveNumber(stream?.id) === actualQn) ?? candidates[0];
+    return {
+      stream: selected,
+      url: getResourceUrl(selected),
+      qn: actualQn ?? normalizePositiveNumber(selected?.id)
+    };
+  }
+
+  videoCodecRank(stream) {
+    const codec = String(stream?.codecs ?? "").toLowerCase();
+    if (codec.includes("avc") || codec.includes("h264")) {
+      return 0;
+    }
+    if (codec.includes("hev") || codec.includes("hvc")) {
+      return 1;
+    }
+    if (codec.includes("av01") || codec.includes("av1")) {
+      return 2;
+    }
+    return 3;
+  }
+
+  describeSelectedVideo(playPayload, requestedQn) {
+    const resolved = this.resolveVideoStream(playPayload);
+    if (!resolved?.stream || !resolved.qn) {
+      return null;
+    }
+    const stream = resolved.stream;
+    const codec = normalizeText(stream.codecs);
+    return {
+      qn: resolved.qn,
+      label: this.getQualityLabel(playPayload, resolved.qn),
+      width: normalizePositiveNumber(stream.width),
+      height: normalizePositiveNumber(stream.height),
+      codec: codec ? codec.toUpperCase() : null,
+      requestedQn: normalizePositiveNumber(requestedQn) ?? DEFAULT_STREAM_QN,
+      fellBack: resolved.qn !== (normalizePositiveNumber(requestedQn) ?? DEFAULT_STREAM_QN)
+    };
   }
 
   async fetchJson(url, options = {}) {

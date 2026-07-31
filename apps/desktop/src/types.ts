@@ -448,10 +448,21 @@ export type BilibiliAudioOption = {
   available: boolean;
 };
 
+export type BilibiliVideoQuality = {
+  qn: number;
+  label: string;
+  width: number | null;
+  height: number | null;
+  codec: string | null;
+  requestedQn: number;
+  fellBack: boolean;
+};
+
 export type BilibiliAudioOptionsResult = {
   itemId: string;
   qnOptions: BilibiliAudioOption[];
   summary: BilibiliAudioOptionSummary;
+  selectedVideo: BilibiliVideoQuality | null;
 };
 
 export type BilibiliSamplerState = {
@@ -459,6 +470,7 @@ export type BilibiliSamplerState = {
   parsedLink: BilibiliParsedLink | null;
   selection: {
     itemId: string | null;
+    qn: number | null;
   };
   audioOptionSummary: BilibiliAudioOptionSummary | null;
   taskStage: BilibiliSamplerStage;
@@ -498,6 +510,7 @@ export type BilibiliDownloadVideoResult = {
   videoPath: string;
   title: string | null;
   itemTitle: string | null;
+  videoQuality: BilibiliVideoQuality | null;
 };
 
 export type WorkerStatus = {
