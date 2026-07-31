@@ -2,6 +2,8 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Cloud,
   Copy,
   Cpu,
@@ -42,7 +44,7 @@ import {
   X
 } from "lucide-react";
 import QRCode from "qrcode";
-import { CSSProperties, ChangeEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ChangeEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
@@ -139,6 +141,10 @@ import type {
   VoiceQualityReport,
   WorkerStatus
 } from "./types";
+
+type PrimaryWorkspace = "creation" | "doubao" | "transcription" | "sampler" | "enhancement" | "separation";
+
+const primaryWorkspaceOrder: PrimaryWorkspace[] = ["creation", "doubao", "transcription", "sampler", "enhancement", "separation"];
 
 declare global {
   interface Window {
@@ -1859,11 +1865,12 @@ export function App() {
   const [samplerReferenceText, setSamplerReferenceText] = useState("");
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
   const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch" | "realtime">("single");
-  const [doubaoWorkspaceOpen, setDoubaoWorkspaceOpen] = useState(false);
-  const [transcriptionWorkspaceOpen, setTranscriptionWorkspaceOpen] = useState(false);
-  const [mediaSamplerWorkspaceOpen, setMediaSamplerWorkspaceOpen] = useState(false);
-  const [enhancementWorkspaceOpen, setEnhancementWorkspaceOpen] = useState(false);
-  const [separationWorkspaceOpen, setSeparationWorkspaceOpen] = useState(false);
+  const workbenchNavRef = useRef<HTMLDivElement>(null);
+  const [activeWorkspace, setActiveWorkspace] = useState<PrimaryWorkspace>("creation");
+  const [workspaceTransition, setWorkspaceTransition] = useState<"idle" | "leaving" | "entering">("idle");
+  const [workspaceTransitionDirection, setWorkspaceTransitionDirection] = useState<"forward" | "backward">("forward");
+  const workspaceTransitionTimersRef = useRef<number[]>([]);
+  const [workbenchIndicator, setWorkbenchIndicator] = useState({ left: 4, width: 0, ready: false });
   const [doubaoStatus, setDoubaoStatus] = useState<DoubaoStatus | null>(null);
   const [doubaoVoices, setDoubaoVoices] = useState<DoubaoVoice[]>([]);
   const [doubaoStateError, setDoubaoStateError] = useState<string | null>(null);
@@ -3098,6 +3105,59 @@ export function App() {
   function openRealtimeWorkspace() {
     setGenerationWorkspace("realtime");
   }
+
+  function selectWorkspace(workbench: PrimaryWorkspace) {
+    if (workbench === activeWorkspace) return;
+    workspaceTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    const nextDirection = primaryWorkspaceOrder.indexOf(workbench) > primaryWorkspaceOrder.indexOf(activeWorkspace) ? "forward" : "backward";
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setWorkspaceTransitionDirection(nextDirection);
+    if (reduceMotion) {
+      setActiveWorkspace(workbench);
+      setWorkspaceTransition("idle");
+      return;
+    }
+    setWorkspaceTransition("leaving");
+    const replaceTimer = window.setTimeout(() => {
+      setActiveWorkspace(workbench);
+      setWorkspaceTransition("entering");
+      const settleTimer = window.setTimeout(() => setWorkspaceTransition("idle"), 260);
+      workspaceTransitionTimersRef.current = [settleTimer];
+    }, 120);
+    workspaceTransitionTimersRef.current = [replaceTimer];
+  }
+
+  function scrollWorkbenchNavigation(direction: -1 | 1) {
+    const navigation = workbenchNavRef.current;
+    if (!navigation) return;
+    navigation.scrollBy({
+      left: direction * 220,
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"
+    });
+  }
+
+  useEffect(() => () => {
+    workspaceTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+  }, []);
+
+  useLayoutEffect(() => {
+    const navigation = workbenchNavRef.current;
+    const activeButton = navigation?.querySelector<HTMLButtonElement>(`[data-workbench-id="${activeWorkspace}"]`);
+    if (!navigation || !activeButton) return;
+    const updateIndicator = () => {
+      setWorkbenchIndicator({ left: activeButton.offsetLeft, width: activeButton.offsetWidth, ready: true });
+    };
+    updateIndicator();
+    activeButton.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "nearest",
+      inline: "nearest"
+    });
+    const observer = new ResizeObserver(updateIndicator);
+    observer.observe(navigation);
+    observer.observe(activeButton);
+    return () => observer.disconnect();
+  }, [activeWorkspace]);
 
   function editBatchProject(project: BatchProject) {
     setGenerationWorkspace("batch");
@@ -5798,14 +5858,56 @@ export function App() {
           </div>
         </div>
 
-        <div className="topStatus">
+        <div className="workbenchNavWrap" aria-label="工作台导航">
+          <button className="workbenchNavScroll" type="button" title="显示前面的工作台" aria-label="显示前面的工作台" onClick={() => scrollWorkbenchNavigation(-1)}>
+            <ChevronLeft size={16} strokeWidth={2} />
+          </button>
+          <div
+            className="workbenchNav"
+            ref={workbenchNavRef}
+            role="group"
+            aria-label="功能工作台"
+            style={{ "--workbench-indicator-x": `${workbenchIndicator.left}px`, "--workbench-indicator-width": `${workbenchIndicator.width}px`, "--workbench-indicator-opacity": workbenchIndicator.ready ? 1 : 0 } as CSSProperties}
+          >
+            <span className="workbenchNavIndicator" aria-hidden="true" />
+            <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "creation"} onClick={() => selectWorkspace("creation")}>
+              <Sparkles size={16} strokeWidth={1.9} />
+              <span>语音创作</span>
+            </button>
+            <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "doubao"} onClick={() => selectWorkspace("doubao")}>
+              <Cloud size={16} strokeWidth={1.9} />
+              <span>豆包管理</span>
+            </button>
+            <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "transcription"} onClick={() => selectWorkspace("transcription")}>
+              <FileText size={16} strokeWidth={1.9} />
+              <span>音视频转写</span>
+            </button>
+            <button data-workbench-id="sampler" className={activeWorkspace === "sampler" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "sampler"} onClick={() => selectWorkspace("sampler")}>
+              <Film size={16} strokeWidth={1.9} />
+              <span>媒体采样</span>
+            </button>
+            <button data-workbench-id="enhancement" className={activeWorkspace === "enhancement" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "enhancement"} onClick={() => selectWorkspace("enhancement")}>
+              <Wand2 size={16} strokeWidth={1.9} />
+              <span>语音增强</span>
+            </button>
+            <button data-workbench-id="separation" className={activeWorkspace === "separation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "separation"} onClick={() => selectWorkspace("separation")}>
+              <Waves size={16} strokeWidth={1.9} />
+              <span>音频分轨</span>
+            </button>
+          </div>
+          <button className="workbenchNavScroll" type="button" title="显示后面的工作台" aria-label="显示后面的工作台" onClick={() => scrollWorkbenchNavigation(1)}>
+            <ChevronRight size={16} strokeWidth={2} />
+          </button>
+        </div>
+
+        <div className="topStatus" title={`${online ? "本地后端在线" : "等待后端"} · ${apiBaseLabel}`}>
           <span className={online ? "statusDot online" : "statusDot"} />
           <span>{online ? "本地后端在线" : "等待后端"}</span>
           <code>{apiBaseLabel}</code>
         </div>
 
         <div className="windowTools">
-          <div className="toolGroup workspaceToolGroup" role="group" aria-label="工作台工具">
+          <div className="toolGroup globalToolGroup" role="group" aria-label="全局工具">
             <button className="toolButton" title="刷新状态" onClick={() => {
               void loadModels();
               void loadSystemStatus();
@@ -5825,23 +5927,8 @@ export function App() {
             }}>
               <Gauge size={17} strokeWidth={1.9} />
             </button>
-            <button className="toolButton" title="豆包账号、阅读与缓存管理" onClick={() => setDoubaoWorkspaceOpen(true)}>
-              <Cloud size={17} strokeWidth={1.9} />
-            </button>
             <button className="toolButton" title="音频资产库" onClick={openAudioLibrary}>
               <Library size={17} strokeWidth={1.9} />
-            </button>
-            <button className="toolButton" title="音视频转写" onClick={() => setTranscriptionWorkspaceOpen(true)}>
-              <FileText size={17} strokeWidth={1.9} />
-            </button>
-            <button className="toolButton" title="媒体取样" onClick={() => setMediaSamplerWorkspaceOpen(true)}>
-              <Film size={17} strokeWidth={1.9} />
-            </button>
-            <button className="toolButton" title="语音增强对比" onClick={() => setEnhancementWorkspaceOpen(true)}>
-              <Wand2 size={17} strokeWidth={1.9} />
-            </button>
-            <button className="toolButton" title="人声伴奏分轨" onClick={() => setSeparationWorkspaceOpen(true)}>
-              <Waves size={17} strokeWidth={1.9} />
             </button>
             <button
               className={`toolButton themeToggleButton ${theme === "dark" ? "isDark" : "isLight"}${themeTransitioning ? " isTransitioning" : ""}`}
@@ -5877,8 +5964,8 @@ export function App() {
         </div>
       </header>
 
-      <section className="workbench">
-        <aside className="leftRail">
+      <section className={activeWorkspace === "creation" ? "workbench" : "workbench workspaceWorkbench"}>
+        <aside className={activeWorkspace === "creation" ? "leftRail" : "leftRail workspaceRailHidden"}>
           <section className="softPanel voicePanel">
             <div className="panelTitle voicePanelTitle">
               <span className="panelTitleGroup">
@@ -5890,7 +5977,7 @@ export function App() {
               </span>
               <div className="voicePanelActions">
                 {isDoubao ? (
-                  <button className="voiceImportButton cloudManageButton" onClick={() => setDoubaoWorkspaceOpen(true)}>
+                  <button className="voiceImportButton cloudManageButton" onClick={() => selectWorkspace("doubao")}>
                     <LogIn size={14} strokeWidth={1.9} />
                     <span>账号管理</span>
                   </button>
@@ -6219,7 +6306,7 @@ export function App() {
                 <div className={doubaoUsable ? "doubaoAccountNote ready" : "doubaoAccountNote warning"}>
                   {doubaoUsable ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <AlertCircle size={16} strokeWidth={1.9} />}
                   <span>{doubaoUsable ? `云端服务可用 · ${doubaoStatus?.cookies.valid ?? 0} 个有效账号` : doubaoStateError ?? "没有有效 Cookie，登录后才能生成"}</span>
-                  {!doubaoUsable && <button onClick={() => setDoubaoWorkspaceOpen(true)}>去登录</button>}
+                  {!doubaoUsable && <button onClick={() => selectWorkspace("doubao")}>去登录</button>}
                 </div>
               </>
             )}
@@ -6272,7 +6359,9 @@ export function App() {
           </section>
         </aside>
 
-        <section className="mainStage">
+        <section className={`mainStage${activeWorkspace === "creation" ? "" : " workspaceMainStage"} workspaceTransition-${workspaceTransition} workspaceTransition-${workspaceTransitionDirection}`}>
+          {activeWorkspace === "creation" ? (
+            <>
           <section className={generationWorkspace === "batch" ? "softPanel canvasPanel batchCanvasPanel" : generationWorkspace === "realtime" ? "softPanel canvasPanel realtimeCanvasPanel" : "softPanel canvasPanel"}>
             <div className="engineStrip">
               <div className="engineHeader">
@@ -6588,9 +6677,28 @@ export function App() {
               onEnded={() => setIsPlaying(false)}
             />
           </section>
+            </>
+          ) : (
+            <section className="workspaceScreen" aria-live="polite">
+              {activeWorkspace === "doubao" ? (
+                <DoubaoWorkspace initialTab="accounts" onClose={() => {
+                  selectWorkspace("creation");
+                  void loadDoubaoState();
+                }} />
+              ) : activeWorkspace === "transcription" ? (
+                <TranscriptionWorkspace onClose={() => selectWorkspace("creation")} />
+              ) : activeWorkspace === "sampler" ? (
+                <MediaSamplerWorkspace onClose={() => selectWorkspace("creation")} onCreateVoiceFromSample={onMediaSamplerCreateVoice} />
+              ) : activeWorkspace === "enhancement" ? (
+                <EnhancementWorkspace onClose={() => selectWorkspace("creation")} />
+              ) : (
+                <SeparationWorkspace onClose={() => selectWorkspace("creation")} />
+              )}
+            </section>
+          )}
         </section>
 
-        <aside className="rightRail" aria-label="运行与系统监控">
+        <aside className={activeWorkspace === "creation" ? "rightRail" : "rightRail workspaceRailHidden"} aria-label="运行与系统监控">
           {renderSystemMonitorPanels()}
         </aside>
       </section>
@@ -7193,16 +7301,6 @@ export function App() {
           </section>
         </div>
       )}
-
-      {doubaoWorkspaceOpen && <DoubaoWorkspace initialTab="accounts" onClose={() => {
-        setDoubaoWorkspaceOpen(false);
-        void loadDoubaoState();
-      }} />}
-
-      {transcriptionWorkspaceOpen && <TranscriptionWorkspace onClose={() => setTranscriptionWorkspaceOpen(false)} />}
-      {mediaSamplerWorkspaceOpen && <MediaSamplerWorkspace onClose={() => setMediaSamplerWorkspaceOpen(false)} onCreateVoiceFromSample={onMediaSamplerCreateVoice} />}
-      {enhancementWorkspaceOpen && <EnhancementWorkspace onClose={() => setEnhancementWorkspaceOpen(false)} />}
-      {separationWorkspaceOpen && <SeparationWorkspace onClose={() => setSeparationWorkspaceOpen(false)} />}
 
       {audioLibraryOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音频资产库">

@@ -148,3 +148,55 @@
 @media (prefers-reduced-motion: reduce) {
   .enhancementWorkspace *, .enhancementWorkspace *::before, .enhancementWorkspace *::after { transition-duration: 1ms !important; }
 }
+
+/* Shared embedded canvas for enhancement and separation workspaces. */
+.mainStage.workspaceMainStage .enhancementOverlay {
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, white);
+  border-radius: 15px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--panel) 92%, white), color-mix(in srgb, var(--app-bg) 88%, var(--panel)));
+  box-shadow: var(--shadow-soft), var(--inner);
+}
+
+.mainStage.workspaceMainStage .enhancementWorkspace {
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 91%, white);
+  box-shadow: none;
+}
+
+.mainStage.workspaceMainStage .enhancementHeader {
+  padding: 17px 20px;
+  background: linear-gradient(100deg, color-mix(in srgb, var(--accent) 8%, var(--panel-strong)), color-mix(in srgb, var(--panel-strong) 91%, white));
+}
+
+.mainStage.workspaceMainStage .enhancementHeadingIcon {
+  width: 42px;
+  height: 42px;
+  flex-basis: 42px;
+  border-radius: 12px;
+}
+
+.mainStage.workspaceMainStage .enhancementBody {
+  background: color-mix(in srgb, var(--app-bg) 30%, var(--panel));
+}
+
+.mainStage.workspaceMainStage .enhancementSetup,
+.mainStage.workspaceMainStage .enhancementHistory {
+  padding: 19px;
+}
+
+.mainStage.workspaceMainStage .enhancementResult {
+  padding: 20px;
+}
+
+.mainStage.workspaceMainStage .enhancementPicker,
+.mainStage.workspaceMainStage .enhancementOutputs article,
+.mainStage.workspaceMainStage .enhancementEmptyState {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.56);
+}
+
+@media (max-width: 980px) {
+  .mainStage.workspaceMainStage .enhancementOverlay { padding: 0; border: 0; border-radius: 0; }
+  .mainStage.workspaceMainStage .enhancementWorkspace { border-radius: 0; }
+}
