@@ -127,6 +127,43 @@ def test_srt_rejects_out_of_range_qwen_timestamp_instead_of_clamping(tmp_path: P
     assert not failed.segments
 
 
+def test_srt_preserves_worker_timestamp_warnings_without_fabricating_boundaries(tmp_path: Path, monkeypatch):
+    settings = _settings(tmp_path)
+    input_id = _input(settings)
+
+    class FakeQwen:
+        runtime_model_id = "qwen3-asr"
+
+        def __init__(self, _settings):
+            pass
+
+        def transcribe_timestamped_path(self, _path, language="zh", on_process=None):
+            return TimestampedQwenTranscription(
+                text="真实边界",
+                raw_text="真实边界",
+                tokens=["真", "实", "边", "界"],
+                timestamps=[0.0, 0.2, 0.5, 0.7],
+                duration_seconds=1.0,
+                language=language,
+                model="fake",
+                warnings=["timestamp_outside_audio_chunk_dropped:2"],
+            )
+
+    monkeypatch.setattr(transcription, "QwenASRTranscriber", FakeQwen)
+    monkeypatch.setattr(transcription, "probe_audio_metadata", lambda _path, _ffmpeg: (16000, 1.0))
+    monkeypatch.setattr(transcription, "release_conflicting_runtimes", lambda *_args: [])
+    store = transcription.TranscriptionJobStore(settings.transcription_jobs_file)
+    runner = transcription.TranscriptionRunner(store, settings)
+    queued = runner.enqueue(
+        TranscriptionJobRequest(input_id=input_id, source_file_name="media.mp4", backend="qwen3", output_format="srt")
+    )
+    completed = _wait(store, queued.id)
+
+    assert completed.status.value == "completed"
+    assert completed.warnings == ["timestamp_outside_audio_chunk_dropped:2"]
+    assert all(0 <= token.start_seconds < token.end_seconds <= 1.0 for token in completed.tokens)
+
+
 def test_text_job_allows_lightweight_asr_without_forcing_alignment(tmp_path: Path, monkeypatch):
     settings = _settings(tmp_path)
     input_id = _input(settings, ".wav")

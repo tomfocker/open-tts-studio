@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 import wave
@@ -161,6 +162,64 @@ def _decode_chunk(recognizer, aligner, samples, language: str, context: str):
     return text, tokens, timestamps
 
 
+def _valid_timestamp_pairs(tokens, timestamps, chunk_duration: float):
+    """Keep only actual per-chunk bounds; never clamp a model timestamp.
+
+    The GGUF aligner occasionally reports positions in the fixed-length
+    encoder padding after a short final chunk.  Those positions belong to no
+    audio frame in the imported media.  Dropping them is truthful; moving them
+    to the final frame would fabricate a subtitle boundary.
+    """
+
+    pairs = []
+    dropped = 0
+    for token, timestamp in zip(tokens, timestamps):
+        try:
+            value = float(timestamp)
+        except (TypeError, ValueError):
+            dropped += 1
+            continue
+        if not math.isfinite(value) or value < 0.0 or value > chunk_duration:
+            dropped += 1
+            continue
+        pairs.append((token, value))
+    dropped += abs(len(tokens) - len(timestamps))
+    return [token for token, _value in pairs], [value for _token, value in pairs], dropped
+
+
+def _timestamps_are_monotonic(values) -> bool:
+    return all(right >= left for left, right in zip(values, values[1:]))
+
+
+def _merge_monotonic_chunk(
+    merge, prev_tokens, prev_timestamps, new_tokens, new_timestamps, offset: float, overlap: float, is_first_segment: bool
+):
+    """Merge overlap tokens while preserving measured timestamp order.
+
+    The upstream text matcher is useful for removing duplicated overlap text,
+    but a rare ambiguous match can join a newer token before an older retained
+    token.  Fall back to the measured suffix in that case.  We only remove
+    overlapped tokens; no timestamp is generated or adjusted.
+    """
+
+    merged_tokens, merged_timestamps = merge(
+        prev_tokens=prev_tokens,
+        prev_timestamps=prev_timestamps,
+        new_tokens=new_tokens,
+        new_timestamps=new_timestamps,
+        offset=offset,
+        overlap=overlap,
+        is_first_segment=is_first_segment,
+    )
+    if len(merged_tokens) == len(merged_timestamps) and _timestamps_are_monotonic(merged_timestamps):
+        return merged_tokens, merged_timestamps, False
+
+    global_new = [float(value) + offset for value in new_timestamps]
+    last = prev_timestamps[-1] if prev_timestamps else float("-inf")
+    start = next((index for index, value in enumerate(global_new) if value >= last), len(global_new))
+    return prev_tokens + new_tokens[start:], prev_timestamps + global_new[start:], True
+
+
 def _run(request: dict) -> dict:
     language = str(request.get("language") or "zh")
     if language.lower() not in {"zh", "zh-cn", "zh_hans"}:
@@ -223,24 +282,39 @@ def _run(request: dict) -> dict:
         combined_text = ""
         combined_tokens: list[str] = []
         combined_timestamps: list[float] = []
+        warnings: list[str] = []
         for index, (offset, chunk) in enumerate(_iter_chunks(samples, chunk_size, chunk_overlap)):
             text, tokens, timestamps = _decode_chunk(recognizer, aligner, chunk, language, combined_text[-120:])
             if text:
                 combined_text = merge_by_text(combined_text, text)
-            clean_tokens = process_tokens_safely(tokens)
-            clean_timestamps = [float(value) for value in timestamps]
+            raw_tokens = process_tokens_safely(tokens)
+            clean_tokens, clean_timestamps, dropped = _valid_timestamp_pairs(
+                raw_tokens,
+                timestamps,
+                len(chunk) / 16000.0,
+            )
+            if dropped:
+                warnings.append(f"timestamp_outside_audio_chunk_dropped:{dropped}")
             if clean_tokens and clean_timestamps:
-                combined_tokens, combined_timestamps = merge_tokens_by_sequence_matcher(
-                    prev_tokens=combined_tokens,
-                    prev_timestamps=combined_timestamps,
-                    new_tokens=clean_tokens,
-                    new_timestamps=clean_timestamps,
-                    offset=offset,
-                    overlap=chunk_overlap,
-                    is_first_segment=index == 0,
+                combined_tokens, combined_timestamps, used_fallback = _merge_monotonic_chunk(
+                    merge_tokens_by_sequence_matcher,
+                    combined_tokens,
+                    combined_timestamps,
+                    clean_tokens,
+                    clean_timestamps,
+                    offset,
+                    chunk_overlap,
+                    index == 0,
                 )
+                if used_fallback:
+                    warnings.append("timestamp_overlap_merge_fallback: 已保留可验证的单调边界，请复核分块交界处字幕。")
         token_text = tokens_to_text(combined_tokens) if combined_tokens else ""
-        if not token_text.strip() or not combined_timestamps:
+        if (
+            not token_text.strip()
+            or not combined_timestamps
+            or len(combined_tokens) != len(combined_timestamps)
+            or not _timestamps_are_monotonic(combined_timestamps)
+        ):
             raise WorkerFailure("本地 Qwen3-ASR 未返回可用于真实时间轴的识别结果。")
         return {
             "text": token_text.strip(),
@@ -250,6 +324,7 @@ def _run(request: dict) -> dict:
             "duration_seconds": duration,
             "language": "zh",
             "model": "qwen3-asr-1.7b+qwen3-forced-aligner-0.6b",
+            "warnings": list(dict.fromkeys(warnings)),
         }
     finally:
         if aligner is not None:

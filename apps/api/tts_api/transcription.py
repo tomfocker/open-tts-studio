@@ -477,7 +477,7 @@ class TranscriptionRunner:
                     tokens = _tokens_from_timestamps(timed, duration_seconds)
                     segments = build_subtitle_segments(tokens)
                     text = timed.raw_text or timed.text
-                    warnings: list[str] = []
+                    warnings: list[str] = list(timed.warnings)
                     token_text = "".join(token.text for token in tokens)
                     if _comparable_text(text) != _comparable_text(token_text):
                         warnings.append("asr_alignment_text_mismatch: 已保留原始 ASR 文本与真实时间轴 token，请复核字幕。")

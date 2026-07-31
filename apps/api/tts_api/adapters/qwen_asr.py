@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import BinaryIO, Callable
 from uuid import uuid4
@@ -36,6 +36,7 @@ class TimestampedQwenTranscription:
     duration_seconds: float
     language: str
     model: str
+    warnings: list[str] = field(default_factory=list)
 
 
 class QwenASRTranscriber:
@@ -222,6 +223,7 @@ class QwenASRTranscriber:
                         duration_seconds=float(duration),
                         language=str(result.get("language") or language),
                         model=str(result.get("model") or "qwen3-asr-1.7b+qwen3-forced-aligner-0.6b"),
+                        warnings=[str(item) for item in result.get("warnings", []) if isinstance(item, str) and item.strip()],
                     )
                 raise RuntimeError("本地 Qwen3 未返回完整的真实字幕时间轴。")
             if isinstance(payload, dict):
