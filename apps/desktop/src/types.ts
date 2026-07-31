@@ -366,8 +366,10 @@ export type BilibiliSamplerStage =
   | "idle"
   | "parsing"
   | "loading-audio-options"
+  | "downloading-video"
   | "downloading-audio"
   | "converting"
+  | "merging"
   | "completed"
   | "failed"
   | "cancelled";
@@ -434,7 +436,9 @@ export type BilibiliParsedLink =
 
 export type BilibiliAudioOptionSummary = {
   hasAudio: boolean;
+  hasVideo: boolean;
   disabledReason: string | null;
+  videoDisabledReason: string | null;
 };
 
 export type BilibiliAudioOption = {
@@ -482,6 +486,16 @@ export type BilibiliExtractSampleResult = {
   sourceAudioPath: string;
   durationSeconds: number;
   sampleRate: number;
+  title: string | null;
+  itemTitle: string | null;
+};
+
+export type BilibiliDownloadVideoRequest = {
+  fileName?: string;
+};
+
+export type BilibiliDownloadVideoResult = {
+  videoPath: string;
   title: string | null;
   itemTitle: string | null;
 };

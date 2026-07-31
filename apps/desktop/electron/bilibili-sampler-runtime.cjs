@@ -11,10 +11,13 @@ const BILIBILI_BANGUMI_SEASON_URL = "https://api.bilibili.com/pgc/view/web/seaso
 const BILIBILI_BANGUMI_PLAY_URL = "https://api.bilibili.com/pgc/player/web/playurl";
 const DEFAULT_STREAM_QN = 120;
 const DEFAULT_FNVAL = 4048;
+const BILIBILI_MEDIA_REFERER = "https://www.bilibili.com/";
+const BILIBILI_MEDIA_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const SESSION_FILE_NAME = "bilibili-sampler-session.json";
 const TASK_ROOT_DIRECTORY_NAME = "bilibili-sampler";
 const TASKS_DIRECTORY_NAME = "tasks";
 const SOURCE_AUDIO_FILE_NAME = "source.audio";
+const SOURCE_VIDEO_FILE_NAME = "source.video";
 const DEFAULT_SAMPLE_RATE = 24000;
 const DEFAULT_CHANNELS = 1;
 
@@ -328,6 +331,20 @@ function getResourceUrl(resource) {
   return null;
 }
 
+function summarizeFfmpegStderr(value) {
+  const relevantLines = String(value ?? "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^ffmpeg version|^built with|^configuration:|^lib\w+/i.test(line));
+  const summary = relevantLines
+    .slice(-5)
+    .join(" ")
+    .replace(/(?:[A-Za-z]:)?[\\/][^\s'\"]+/g, "<local-file>")
+    .slice(0, 1200);
+  return summary || null;
+}
+
 function readWavMetadata(pathToWav, fsImpl = fs) {
   const buffer = fsImpl.readFileSync(pathToWav);
   if (!Buffer.isBuffer(buffer) || buffer.length < 44 || buffer.toString("ascii", 0, 4) !== "RIFF") {
@@ -376,6 +393,7 @@ class BilibiliSamplerService {
     this.defaultOutputDirectory = dependencies.defaultOutputDirectory ?? null;
     this.downloadBinaryImpl = dependencies.downloadBinary ?? ((input) => this.downloadBinary(input));
     this.runFfmpegImpl = dependencies.runFfmpeg ?? ((input) => this.runFfmpeg(input));
+    this.mergeFfmpegImpl = dependencies.mergeFfmpeg ?? ((input) => this.mergeFfmpeg(input));
     this.getFfmpegPathImpl = dependencies.getFfmpegPath ?? (() => process.env.OPEN_TTS_FFMPEG_PATH || "ffmpeg");
     this.readWavMetadataImpl = dependencies.readWavMetadata ?? ((filePath) => readWavMetadata(filePath, this.fs));
     this.stateListeners = new Set();
@@ -646,7 +664,7 @@ class BilibiliSamplerService {
         url: audioUrl,
         destinationPath: sourceTempPath,
         signal: controller.signal,
-        headers: this.getRequestHeaders()
+        headers: this.getMediaRequestHeaders()
       });
 
       this.updateState({ taskStage: "converting", error: null });
@@ -692,6 +710,95 @@ class BilibiliSamplerService {
       }
       const message = this.toErrorMessage(error);
       await this.cleanupTaskDirectory(tempDirectory);
+      this.updateState({ taskStage: "failed", error: message });
+      return { success: false, error: message };
+    } finally {
+      this.activeExtractTask = null;
+    }
+  }
+
+  async downloadVideo(request = {}) {
+    if (!this.state.parsedLink || !this.state.selection.itemId) {
+      return { success: false, error: "Load Bilibili stream options before downloading video" };
+    }
+    if (this.activeExtractTask) {
+      return { success: false, error: "A Bilibili task is already in progress" };
+    }
+
+    const selectedItemId = this.state.selection.itemId;
+    const playPayload = this.playPayloads.get(selectedItemId);
+    if (!playPayload) {
+      return { success: false, error: "Selected item is missing loaded stream options" };
+    }
+    const videoUrl = this.resolveVideoUrl(playPayload);
+    const audioUrl = this.resolveAudioUrl(playPayload);
+    if (!videoUrl || !audioUrl) {
+      return { success: false, error: "Selected item does not have both video and audio streams" };
+    }
+
+    const ffmpegPath = this.getFfmpegPathImpl();
+    if (!ffmpegPath) {
+      return { success: false, error: "FFmpeg is not available" };
+    }
+
+    const controller = new AbortController();
+    const tempDirectory = this.getTaskDirectory();
+    const outputDirectory = request.outputDirectory || this.app.getPath("downloads");
+    const outputBaseName = sanitizeFileName(request.fileName || this.getDefaultSampleName());
+    const videoTempPath = path.join(tempDirectory, `${SOURCE_VIDEO_FILE_NAME}${getExtensionFromUrl(videoUrl)}`);
+    const audioTempPath = path.join(tempDirectory, `${SOURCE_AUDIO_FILE_NAME}${getExtensionFromUrl(audioUrl)}`);
+    const outputPath = path.join(outputDirectory, `${outputBaseName}.mp4`);
+
+    this.activeExtractTask = { controller, tempDirectory };
+    this.fs.mkdirSync(tempDirectory, { recursive: true });
+    this.fs.mkdirSync(outputDirectory, { recursive: true });
+
+    try {
+      this.updateState({ taskStage: "downloading-video", error: null });
+      await this.downloadBinaryImpl({
+        url: videoUrl,
+        destinationPath: videoTempPath,
+        signal: controller.signal,
+        headers: this.getMediaRequestHeaders()
+      });
+
+      this.updateState({ taskStage: "downloading-audio", error: null });
+      await this.downloadBinaryImpl({
+        url: audioUrl,
+        destinationPath: audioTempPath,
+        signal: controller.signal,
+        headers: this.getMediaRequestHeaders()
+      });
+
+      this.updateState({ taskStage: "merging", error: null });
+      this.removeExistingFileIfPresent(outputPath);
+      await this.mergeFfmpegImpl({
+        ffmpegPath,
+        videoPath: videoTempPath,
+        audioPath: audioTempPath,
+        outputPath
+      });
+      this.assertOutputFile(outputPath);
+      await this.cleanupTaskDirectory(tempDirectory);
+
+      const selectedItem = this.getSelectedItem();
+      this.updateState({ taskStage: "completed", error: null });
+      return {
+        success: true,
+        data: {
+          videoPath: outputPath,
+          title: this.state.parsedLink.title,
+          itemTitle: selectedItem?.title ?? null
+        }
+      };
+    } catch (error) {
+      const cancelled = controller.signal.aborted || this.isAbortError(error);
+      await this.cleanupTaskDirectory(tempDirectory);
+      if (cancelled) {
+        this.updateState({ taskStage: "cancelled", error: null });
+        return { success: false, error: "Video download cancelled" };
+      }
+      const message = this.toErrorMessage(error);
       this.updateState({ taskStage: "failed", error: message });
       return { success: false, error: message };
     } finally {
@@ -845,16 +952,31 @@ class BilibiliSamplerService {
 
   buildAudioSummary(playPayload) {
     const audioStreams = Array.isArray(playPayload?.dash?.audio) ? playPayload.dash.audio : [];
+    const videoStreams = Array.isArray(playPayload?.dash?.video) ? playPayload.dash.video : [];
     const hasAudio = audioStreams.some((stream) => Boolean(getResourceUrl(stream)));
+    const hasVideo = videoStreams.some((stream) => Boolean(getResourceUrl(stream)));
     return {
       hasAudio,
-      disabledReason: hasAudio ? null : "当前条目没有可用音频流"
+      hasVideo,
+      disabledReason: hasAudio ? null : "当前条目没有可用音频流",
+      videoDisabledReason: hasVideo ? null : "当前条目没有可用视频流"
     };
   }
 
   resolveAudioUrl(playPayload) {
     const audioStreams = Array.isArray(playPayload?.dash?.audio) ? playPayload.dash.audio : [];
     for (const stream of audioStreams) {
+      const url = getResourceUrl(stream);
+      if (url) {
+        return url;
+      }
+    }
+    return null;
+  }
+
+  resolveVideoUrl(playPayload) {
+    const videoStreams = Array.isArray(playPayload?.dash?.video) ? playPayload.dash.video : [];
+    for (const stream of videoStreams) {
       const url = getResourceUrl(stream);
       if (url) {
         return url;
@@ -893,6 +1015,16 @@ class BilibiliSamplerService {
     }
     return {
       cookie: `SESSDATA=${this.authSession.sessData}; bili_jct=${this.authSession.biliJct}`
+    };
+  }
+
+  getMediaRequestHeaders() {
+    return {
+      accept: "*/*",
+      "accept-language": "zh-CN,zh;q=0.9",
+      referer: BILIBILI_MEDIA_REFERER,
+      "user-agent": BILIBILI_MEDIA_USER_AGENT,
+      ...this.getRequestHeaders()
     };
   }
 
@@ -977,6 +1109,9 @@ class BilibiliSamplerService {
       headers: input.headers,
       signal: input.signal
     });
+    if (response && response.ok === false) {
+      throw new Error(`Bilibili media download failed (HTTP ${response.status ?? "unknown"})`);
+    }
     if (typeof response.arrayBuffer !== "function") {
       throw new Error("Binary downloads are not supported by the current fetch implementation");
     }
@@ -994,15 +1129,44 @@ class BilibiliSamplerService {
     }
     args.push("-ac", String(input.channels), "-ar", String(input.sampleRate), input.outputPath);
 
+    await this.runFfmpegCommand(input.ffmpegPath, args);
+  }
+
+  async mergeFfmpeg(input) {
+    await this.runFfmpegCommand(input.ffmpegPath, [
+      "-y",
+      "-i", input.videoPath,
+      "-i", input.audioPath,
+      "-map", "0:v:0",
+      "-map", "1:a:0",
+      "-c", "copy",
+      "-movflags", "+faststart",
+      input.outputPath
+    ]);
+  }
+
+  async runFfmpegCommand(ffmpegPath, args) {
     await new Promise((resolve, reject) => {
-      const child = childProcess.spawn(input.ffmpegPath, args, { windowsHide: true });
+      const child = childProcess.spawn(ffmpegPath, args, {
+        windowsHide: true,
+        stdio: ["ignore", "ignore", "pipe"]
+      });
+      let stderr = "";
+      child.stderr?.setEncoding("utf8");
+      child.stderr?.on("data", (chunk) => {
+        if (stderr.length < 16 * 1024) {
+          stderr += chunk;
+        }
+      });
       child.once("error", reject);
-      child.once("exit", (code) => {
+      child.once("exit", (code, signal) => {
         if (code === 0) {
           resolve();
           return;
         }
-        reject(new Error(`FFmpeg exited with code ${code ?? "unknown"}`));
+        const detail = summarizeFfmpegStderr(stderr);
+        const exitReason = signal ? `signal ${signal}` : `code ${code ?? "unknown"}`;
+        reject(new Error(`FFmpeg exited with ${exitReason}${detail ? `: ${detail}` : ""}`));
       });
     });
   }

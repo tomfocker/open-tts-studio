@@ -103,6 +103,8 @@ import type {
   AppSettings,
   BatchProject,
   BilibiliAudioOptionsResult,
+  BilibiliDownloadVideoRequest,
+  BilibiliDownloadVideoResult,
   BilibiliExtractSampleRequest,
   BilibiliExtractSampleResult,
   BilibiliLoginQrPayload,
@@ -176,6 +178,7 @@ declare global {
       parseLink: (link: string) => Promise<IpcResponse<BilibiliParsedLink>>;
       loadAudioOptions: (kind: BilibiliParsedLink["kind"], itemId: string) => Promise<IpcResponse<BilibiliAudioOptionsResult>>;
       extractSample: (request: BilibiliExtractSampleRequest) => Promise<IpcResponse<BilibiliExtractSampleResult>>;
+      downloadVideo: (request: BilibiliDownloadVideoRequest) => Promise<IpcResponse<BilibiliDownloadVideoResult>>;
       cancelExtract: () => Promise<IpcResponse>;
       onStateChanged: (listener: (state: BilibiliSamplerState) => void) => () => void;
     };
@@ -674,10 +677,14 @@ function samplerStageLabel(stage: BilibiliSamplerState["taskStage"]) {
       return "正在解析";
     case "loading-audio-options":
       return "加载音频流";
+    case "downloading-video":
+      return "下载视频";
     case "downloading-audio":
       return "下载音频";
     case "converting":
       return "转码切分";
+    case "merging":
+      return "封装 MP4";
     case "completed":
       return "已完成";
     case "failed":
@@ -1337,11 +1344,17 @@ function samplerTaskProgress(stage: BilibiliSamplerState["taskStage"]) {
   if (stage === "loading-audio-options") {
     return 34;
   }
+  if (stage === "downloading-video") {
+    return 42;
+  }
   if (stage === "downloading-audio") {
-    return 58;
+    return 64;
   }
   if (stage === "converting") {
     return 82;
+  }
+  if (stage === "merging") {
+    return 88;
   }
   if (stage === "completed") {
     return 100;
@@ -2002,7 +2015,7 @@ export function App() {
           : samplerEndValue !== null && samplerEndValue <= (samplerStartValue ?? 0)
             ? "结束时间必须大于开始时间"
             : null;
-  const samplerExtracting = samplerState.taskStage === "downloading-audio" || samplerState.taskStage === "converting";
+  const samplerExtracting = ["downloading-video", "downloading-audio", "converting", "merging"].includes(samplerState.taskStage);
   const samplerBusy =
     Boolean(samplerPendingAction) ||
     samplerState.taskStage === "parsing" ||
@@ -2015,6 +2028,14 @@ export function App() {
       samplerState.audioOptionSummary?.hasAudio &&
       samplerName.trim() &&
       !samplerClipError &&
+      !samplerBusy
+  );
+  const samplerCanDownloadVideo = Boolean(
+    samplerBridgeAvailable &&
+      samplerState.parsedLink &&
+      samplerSelectedItem &&
+      samplerState.audioOptionSummary?.hasAudio &&
+      samplerState.audioOptionSummary?.hasVideo &&
       !samplerBusy
   );
   const samplerFeedback = samplerState.error ?? samplerClipError ?? samplerMessage;
@@ -2044,7 +2065,7 @@ export function App() {
       updated_at: now,
       error: samplerState.error,
       retryable: status === "failed" || status === "cancelled",
-      cancelable: stage === "downloading-audio" || stage === "converting",
+      cancelable: ["downloading-video", "downloading-audio", "converting", "merging"].includes(stage),
       events: [{ occurred_at: now, stage, message, level: samplerState.error ? "error" : "info" }]
     };
   }, [samplerPendingAction, samplerState]);
@@ -3606,6 +3627,32 @@ export function App() {
       }
     } catch (err) {
       setSamplerFailure(err instanceof Error ? err.message : "取样失败");
+    } finally {
+      setSamplerPendingAction(null);
+    }
+  }
+
+  async function onSamplerDownloadVideo() {
+    const sampler = requireSamplerBridge();
+    if (!sampler) {
+      return;
+    }
+    if (!samplerState.parsedLink || !samplerSelectedItem || !samplerState.audioOptionSummary?.hasAudio || !samplerState.audioOptionSummary.hasVideo) {
+      setSamplerFailure("请先解析链接并选择同时含音频和视频的条目");
+      return;
+    }
+
+    setSamplerPendingAction("download-video");
+    setSamplerMessage(null);
+    setSamplerState((state) => ({ ...state, error: null }));
+    try {
+      const response = await sampler.downloadVideo({ fileName: samplerDefaultName });
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? "下载 MP4 失败");
+      }
+      setSamplerMessage(`MP4 已保存：${response.data.videoPath}`);
+    } catch (err) {
+      setSamplerFailure(err instanceof Error ? err.message : "下载 MP4 失败");
     } finally {
       setSamplerPendingAction(null);
     }
@@ -7300,6 +7347,13 @@ export function App() {
                     </div>
                   )}
 
+                  {samplerState.audioOptionSummary && (
+                    <div className={samplerState.audioOptionSummary.hasVideo ? "samplerAudioStatus ready" : "samplerAudioStatus warning"}>
+                      {samplerState.audioOptionSummary.hasVideo ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <AlertCircle size={16} strokeWidth={1.9} />}
+                      <span>{samplerState.audioOptionSummary.hasVideo ? "视频流可用，可下载 MP4" : samplerState.audioOptionSummary.videoDisabledReason ?? "没有可用视频流"}</span>
+                    </div>
+                  )}
+
                   <div className="samplerClipGrid">
                     <label className="settingsField samplerField">
                       <span>开始秒</span>
@@ -7360,9 +7414,13 @@ export function App() {
                 {samplerPendingAction === "cancel-extract" ? <Loader2 className="spin" size={16} /> : <X size={16} strokeWidth={1.9} />}
                 <span>{samplerExtracting ? "取消任务" : "关闭"}</span>
               </button>
+              <button className="secondaryAction settingsAction" disabled={!samplerCanDownloadVideo} onClick={() => void onSamplerDownloadVideo()}>
+                {samplerPendingAction === "download-video" ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
+                <span>{samplerPendingAction === "download-video" ? "下载中" : "下载 MP4"}</span>
+              </button>
               <button className="primaryAction settingsAction" disabled={!samplerCanExtract} onClick={() => void onSamplerExtractAndSave()}>
-                {samplerPendingAction === "extract" || samplerExtracting ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
-                <span>{samplerPendingAction === "extract" || samplerExtracting ? "取样中" : "取样入库"}</span>
+                {samplerPendingAction === "extract" ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
+                <span>{samplerPendingAction === "extract" ? "取样中" : "取样入库"}</span>
               </button>
             </footer>
           </section>

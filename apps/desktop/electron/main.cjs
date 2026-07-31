@@ -268,6 +268,10 @@ ipcMain.handle("bilibili-sampler:extract-sample", (_event, payload) => {
   return bilibiliSamplerService.extractSample(payload);
 });
 
+ipcMain.handle("bilibili-sampler:download-video", (_event, payload) => {
+  return bilibiliSamplerService.downloadVideo(payload);
+});
+
 ipcMain.handle("bilibili-sampler:cancel-extract", () => bilibiliSamplerService.cancelExtract());
 
 bilibiliSamplerService.onStateChanged((state) => {

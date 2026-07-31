@@ -280,7 +280,7 @@ test("loadAudioOptions stores selected play payload and reports audio availabili
             accept_quality: [80],
             accept_description: ["1080P"],
             dash: {
-              video: [],
+              video: [{ id: 80, baseUrl: "https://cdn.example.com/video.m4s" }],
               audio: [{ id: 30280, baseUrl: "https://cdn.example.com/audio.m4s" }]
             }
           }
@@ -298,7 +298,9 @@ test("loadAudioOptions stores selected play payload and reports audio availabili
     qnOptions: [{ qn: 80, label: "1080P", selected: true, available: true }],
     summary: {
       hasAudio: true,
-      disabledReason: null
+      hasVideo: true,
+      disabledReason: null,
+      videoDisabledReason: null
     }
   });
   assert.equal(fetchCalls[1], "https://api.bilibili.com/x/player/playurl?bvid=BV1xK4y1m7aA&cid=101&fnval=4048&qn=120&fourk=1");
@@ -334,8 +336,8 @@ test("extractSample downloads audio and runs ffmpeg with clipping options", asyn
     now: () => 1713657600000,
     defaultOutputDirectory: outputDirectory,
     getFfmpegPath: () => "C:\\ffmpeg\\bin\\ffmpeg.exe",
-    downloadBinary: async ({ url, destinationPath }) => {
-      downloaded.push({ url, destinationPath });
+    downloadBinary: async ({ url, destinationPath, headers }) => {
+      downloaded.push({ url, destinationPath, headers });
       await fsMock.promises.writeFile(destinationPath, Buffer.from(`payload:${url}`));
     },
     runFfmpeg: async (input) => {
@@ -359,7 +361,13 @@ test("extractSample downloads audio and runs ffmpeg with clipping options", asyn
   assert.deepEqual(downloaded, [
     {
       url: "https://cdn.example.com/audio.m4s",
-      destinationPath: path.join(createTestApp().getPath("userData"), "bilibili-sampler", "tasks", "1713657600000", "source.audio.m4s")
+      destinationPath: path.join(createTestApp().getPath("userData"), "bilibili-sampler", "tasks", "1713657600000", "source.audio.m4s"),
+      headers: {
+        accept: "*/*",
+        "accept-language": "zh-CN,zh;q=0.9",
+        referer: "https://www.bilibili.com/",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      }
     }
   ]);
   assert.deepEqual(ffmpegCalls, [
@@ -394,6 +402,94 @@ test("extractSample rejects an end time before start time", async () => {
 
   assert.equal(result.success, false);
   assert.equal(result.error, "End time must be greater than start time");
+});
+
+test("downloadVideo downloads DASH tracks and remuxes a local MP4 without re-encoding", async () => {
+  const fsMock = createFsMock();
+  const downloaded = [];
+  const mergeCalls = [];
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fs: fsMock,
+    fetch: createFixtureFetch({
+      metadataPayload: {
+        code: 0,
+        data: { title: "Video Study", pages: [{ page: 1, part: "Intro", cid: 101 }] }
+      },
+      playPayload: {
+        code: 0,
+        data: {
+          dash: {
+            video: [{ id: 80, baseUrl: "https://cdn.example.com/video.m4s" }],
+            audio: [{ id: 30280, baseUrl: "https://cdn.example.com/audio.m4s" }]
+          }
+        }
+      }
+    }),
+    now: () => 1713657600002,
+    getFfmpegPath: () => "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    downloadBinary: async ({ url, destinationPath, headers }) => {
+      downloaded.push({ url, destinationPath, headers });
+      await fsMock.promises.writeFile(destinationPath, Buffer.from(`track:${url}`));
+    },
+    mergeFfmpeg: async (input) => {
+      mergeCalls.push(input);
+      await fsMock.promises.writeFile(input.outputPath, Buffer.from("mp4"));
+    }
+  });
+
+  await service.parseLink({ url: "https://www.bilibili.com/video/BV1xK4y1m7aA" });
+  await service.loadAudioOptions({ kind: "video", itemId: "page:1" });
+  const result = await service.downloadVideo({ fileName: "Video Export" });
+
+  const taskDirectory = path.join(createTestApp().getPath("userData"), "bilibili-sampler", "tasks", "1713657600002");
+  const outputPath = path.join(createTestApp().getPath("downloads"), "Video Export.mp4");
+  assert.equal(result.success, true);
+  assert.equal(service.getState().taskStage, "completed");
+  assert.deepEqual(downloaded.map(({ url, destinationPath }) => ({ url, destinationPath })), [
+    { url: "https://cdn.example.com/video.m4s", destinationPath: path.join(taskDirectory, "source.video.m4s") },
+    { url: "https://cdn.example.com/audio.m4s", destinationPath: path.join(taskDirectory, "source.audio.m4s") }
+  ]);
+  assert.equal(downloaded.every(({ headers }) => headers.referer === "https://www.bilibili.com/"), true);
+  assert.deepEqual(mergeCalls, [{
+    ffmpegPath: "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    videoPath: path.join(taskDirectory, "source.video.m4s"),
+    audioPath: path.join(taskDirectory, "source.audio.m4s"),
+    outputPath
+  }]);
+  assert.deepEqual(toPlain(result.data), { videoPath: outputPath, title: "Video Study", itemTitle: "Intro" });
+});
+
+test("extractSample surfaces a redacted FFmpeg diagnostic on conversion failure", async () => {
+  const fsMock = createFsMock();
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fs: fsMock,
+    fetch: createFixtureFetch({
+      metadataPayload: {
+        code: 0,
+        data: { title: "Voice Study", pages: [{ page: 1, part: "Intro", cid: 101 }] }
+      },
+      playPayload: {
+        code: 0,
+        data: { dash: { audio: [{ id: 30280, baseUrl: "https://cdn.example.com/audio.m4s" }] } }
+      }
+    }),
+    downloadBinary: async ({ destinationPath }) => {
+      await fsMock.promises.writeFile(destinationPath, Buffer.from("not-audio"));
+    },
+    runFfmpeg: async () => {
+      throw new Error("FFmpeg exited with code 1: Error opening <local-file>");
+    }
+  });
+
+  await service.parseLink({ url: "https://www.bilibili.com/video/BV1xK4y1m7aA" });
+  await service.loadAudioOptions({ kind: "video", itemId: "page:1" });
+  const result = await service.extractSample({ sampleName: "Failure Case" });
+
+  assert.equal(result.success, false);
+  assert.equal(result.error, "FFmpeg exited with code 1: Error opening <local-file>");
+  assert.equal(service.getState().error, result.error);
 });
 
 test("cancelExtract aborts an active audio download", async () => {

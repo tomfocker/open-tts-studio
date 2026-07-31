@@ -19,6 +19,10 @@ data/outputs/
 data/logs/
 data/inputs/bilibili/*
 !data/inputs/bilibili/.gitkeep
+data/bilibili-login-test-user-data/
+data/bilibili-smoke-user-data/
+data/bilibili-audio-smoke/
+data/bilibili-video-smoke/
 data/config/user-settings.json
 data/config/voices.json
 data/config/projects.json
