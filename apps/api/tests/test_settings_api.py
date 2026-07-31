@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from tts_api.config import DEFAULT_GPTSOVITS_ROOT, DEFAULT_INDEXTTS2_ROOT, DEFAULT_VOXCPM2_ROOT, MODEL_STORE_ROOT, get_settings
 from tts_api.main import create_app
+from tts_api.transcription import get_transcription_runner
 
 
 def make_settings_client(tmp_path: Path, monkeypatch):
@@ -72,6 +73,18 @@ def test_settings_endpoint_persists_updates_and_refreshes_runtime(tmp_path: Path
     assert settings.local_api_idle_timeout_seconds == 150
     assert settings.default_model_id == "voxcpm2"
     assert settings.prewarm_default_model_on_startup is True
+
+
+def test_settings_update_refreshes_existing_transcription_runner(tmp_path: Path, monkeypatch):
+    client, _ = make_settings_client(tmp_path, monkeypatch)
+    original_runner = get_transcription_runner()
+    updated_qwen_model = tmp_path / "Qwen3-ASR-1.7B"
+
+    response = client.patch("/v1/settings", json={"qwen_asr_model_dir": str(updated_qwen_model)})
+
+    assert response.status_code == 200
+    assert get_transcription_runner() is original_runner
+    assert original_runner.settings.qwen_asr_model_dir == updated_qwen_model
 
 
 def test_settings_endpoint_syncs_model_instance_profiles(tmp_path: Path, monkeypatch):

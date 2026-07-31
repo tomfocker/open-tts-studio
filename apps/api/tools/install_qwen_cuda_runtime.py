@@ -59,7 +59,7 @@ class InstallError(RuntimeError):
 
 def parse_args() -> argparse.Namespace:
     workspace = Path(__file__).resolve().parents[3]
-    models = workspace / "models"
+    models = Path(os.environ.get("OPEN_TTS_MODEL_STORE_ROOT") or (workspace / "models"))
     parser = argparse.ArgumentParser(description="Install the isolated OpenTTS Qwen CUDA runtime.")
     parser.add_argument("--source-runtime", type=Path, default=models / "Qwen3-runtime")
     parser.add_argument("--target-runtime", type=Path, default=models / "Qwen3-runtime-cuda")

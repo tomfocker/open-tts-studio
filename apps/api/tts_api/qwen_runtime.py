@@ -140,6 +140,23 @@ def resolve_qwen_runtime(
 def runtime_status(settings: Settings) -> dict[str, object]:
     """Safe settings/status payload; it contains no media, voice or secret data."""
 
+    def resolve_status(requested: QwenDevice | str, *, fallback_python: Path | None = None) -> dict[str, object]:
+        try:
+            runtime = resolve_qwen_runtime(settings, requested, fallback_python=fallback_python)
+            return {
+                "requested_device": runtime.requested_device,
+                "active_device": runtime.active_device,
+                "label": runtime.label,
+                "error": None,
+            }
+        except QwenRuntimeError as exc:
+            return {
+                "requested_device": str(requested or "auto"),
+                "active_device": None,
+                "label": "不可用",
+                "error": str(exc),
+            }
+
     cuda_dir = cuda_backend_dir(settings)
     return {
         "cuda_available": cuda_runtime_ready(settings),
@@ -148,4 +165,6 @@ def runtime_status(settings: Settings) -> dict[str, object]:
             (cuda_dir / name / "bin" / "ggml-cuda.dll").is_file() for name in ("asr", "aligner")
         ),
         "dml_runtime_available": dml_runtime_ready(settings),
+        "asr": resolve_status(settings.qwen_asr_device),
+        "alignment": resolve_status(settings.alignment_device, fallback_python=settings.alignment_python),
     }

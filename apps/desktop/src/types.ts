@@ -614,6 +614,14 @@ export type AppSettings = {
   sensevoice_runtime_installed: boolean;
   sensevoice_ready: boolean;
   qwen_asr_model_installed: boolean;
+  qwen_runtime: {
+    cuda_available: boolean;
+    cuda_python_installed: boolean;
+    cuda_llama_backend_installed: boolean;
+    dml_runtime_available: boolean;
+    asr: QwenRuntimeResolution;
+    alignment: QwenRuntimeResolution;
+  };
   alignment_ready: boolean;
   voxcpm2_root: string;
   voxcpm2_api_host: string;
@@ -625,6 +633,13 @@ export type AppSettings = {
   prewarm_default_model_on_startup: boolean;
   settings_file: string;
   restart_required_fields: string[];
+};
+
+export type QwenRuntimeResolution = {
+  requested_device: "auto" | "cuda" | "dml" | "cpu";
+  active_device: "cuda" | "dml" | "cpu" | null;
+  label: string;
+  error: string | null;
 };
 
 export type AppSettingsUpdate = Partial<

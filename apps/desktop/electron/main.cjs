@@ -9,6 +9,7 @@ const {
   createDesktopPaths,
   isBackendHealthy,
   loadFrontend,
+  migrateLegacyManagedModelAssets,
   openLegadoImportUrl,
   openLocalPath,
   revealLocalItem,
@@ -115,6 +116,14 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // v0.7.1 moves mutable ASR assets out of the application installation. This
+  // one-time copy preserves older local runtime installs without touching
+  // user-selected external model directories.
+  try {
+    migrateLegacyManagedModelAssets(paths);
+  } catch (error) {
+    console.warn("OpenTTS managed-model migration skipped:", error instanceof Error ? error.message : String(error));
+  }
   configureBackend();
   await createWindow();
   void ensureLocalBackend();

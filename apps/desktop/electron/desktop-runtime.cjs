@@ -11,6 +11,14 @@ const TRANSCRIPTION_MEDIA_EXTENSIONS = [
   "wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm",
   "mp4", "mkv", "mov", "avi", "m4v", "ts", "mpeg", "mpg"
 ];
+const LEGACY_MANAGED_MODEL_ASSETS = [
+  "SenseVoiceSmall",
+  "CapsWriter-Offline",
+  "Qwen3-ASR-1.7B",
+  "Qwen3-ForcedAligner-0.6B",
+  "Qwen3-runtime",
+  "Qwen3-runtime-cuda"
+];
 
 function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
   const resolvedWorkspaceRoot = workspaceRoot || path.resolve(electronDir, "..", "..", "..");
@@ -53,6 +61,7 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_API_PORT: String(settings.apiPort),
       ...(settings.backendToken ? { OPEN_TTS_BACKEND_TOKEN: settings.backendToken } : {}),
       OPEN_TTS_SETTINGS_FILE: settings.settingsFile,
+      OPEN_TTS_MODEL_STORE_ROOT: paths.modelStoreRoot,
       OPEN_TTS_OUTPUT_DIR: path.join(paths.dataRoot, "outputs"),
       OPEN_TTS_VOICE_LIBRARY_FILE: path.join(paths.dataRoot, "config", "voices.json"),
       OPEN_TTS_VOICE_ASSET_DIR: path.join(paths.dataRoot, "voices"),
@@ -61,6 +70,12 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_MODEL_PACKAGES_FILE: path.join(paths.dataRoot, "config", "model-packages.json"),
       OPEN_TTS_TASKS_FILE: path.join(paths.dataRoot, "config", "tasks.json"),
       OPEN_TTS_TASK_LOG_DIR: path.join(paths.dataRoot, "logs", "tasks"),
+      OPEN_TTS_ALIGNMENT_JOBS_FILE: path.join(paths.dataRoot, "config", "alignments.json"),
+      OPEN_TTS_ALIGNMENT_CACHE_DIR: path.join(paths.dataRoot, "alignments", "cache"),
+      OPEN_TTS_ALIGNMENT_WORK_DIR: path.join(paths.dataRoot, "alignments", "work"),
+      OPEN_TTS_QWEN_ASR_WORK_DIR: path.join(paths.dataRoot, "asr", "qwen3-work"),
+      OPEN_TTS_TRANSCRIPTION_JOBS_FILE: path.join(paths.dataRoot, "config", "transcriptions.json"),
+      OPEN_TTS_TRANSCRIPTION_INPUT_DIR: path.join(paths.dataRoot, "transcriptions", "inputs"),
       OPEN_TTS_DOUBAO_COOKIE_FILE: path.join(paths.dataRoot, "config", "doubao-cookies.json"),
       OPEN_TTS_DOUBAO_DATA_DIR: path.join(paths.dataRoot, "doubao"),
       OPEN_TTS_FFMPEG_PATH: resolveFfmpegPath(paths),
@@ -69,6 +84,28 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_GPTSOVITS_ROOT: path.join(paths.modelStoreRoot, "GPT-SoVITS")
     }
   };
+}
+
+function migrateLegacyManagedModelAssets(paths, options = {}) {
+  const fsImpl = options.fs || fs;
+  const sourceRoot = options.sourceRoot || path.join(paths.workspaceRoot, "models");
+  const targetRoot = options.targetRoot || paths.modelStoreRoot;
+  if (path.resolve(sourceRoot) === path.resolve(targetRoot)) {
+    return [];
+  }
+
+  const migrated = [];
+  for (const name of LEGACY_MANAGED_MODEL_ASSETS) {
+    const source = path.join(sourceRoot, name);
+    const target = path.join(targetRoot, name);
+    if (!fsImpl.existsSync(source) || fsImpl.existsSync(target)) {
+      continue;
+    }
+    fsImpl.mkdirSync(path.dirname(target), { recursive: true });
+    fsImpl.cpSync(source, target, { recursive: true, force: false, errorOnExist: true });
+    migrated.push(name);
+  }
+  return migrated;
 }
 
 function normalizeApiPort(value, fallback = DEFAULT_API_PORT) {
@@ -612,6 +649,7 @@ module.exports = {
   isBackendHealthy,
   isHttpOk,
   loadFrontend,
+  migrateLegacyManagedModelAssets,
   openLegadoImportUrl,
   openLocalPath,
   revealLocalItem,

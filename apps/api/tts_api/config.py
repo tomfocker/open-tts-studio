@@ -9,7 +9,11 @@ from pydantic import BaseModel, Field
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
-MODEL_STORE_ROOT = WORKSPACE_ROOT / "models"
+# Desktop builds keep executable resources read-only. Every mutable model asset
+# (weights, isolated Python runtimes and CUDA overlays) belongs to the
+# user-managed model store instead. Development keeps the historical
+# workspace/models default unless the desktop launcher provides this value.
+MODEL_STORE_ROOT = Path(os.environ.get("OPEN_TTS_MODEL_STORE_ROOT") or (WORKSPACE_ROOT / "models"))
 DEFAULT_INDEXTTS2_ROOT = MODEL_STORE_ROOT / "IndexTTS2"
 DEFAULT_VOXCPM2_ROOT = MODEL_STORE_ROOT / "VoxCPM2"
 DEFAULT_GPTSOVITS_ROOT = MODEL_STORE_ROOT / "GPT-SoVITS"

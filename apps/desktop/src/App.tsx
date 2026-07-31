@@ -118,6 +118,7 @@ import type {
   ModelInfo,
   ModelInstanceProfile,
   ModelPackageRecord,
+  QwenRuntimeResolution,
   IpcResponse,
   SpeechResult,
   SpeechJob,
@@ -856,6 +857,16 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     default_model_id: settings?.default_model_id ?? "indextts2",
     prewarm_default_model_on_startup: settings?.prewarm_default_model_on_startup ?? false
   };
+}
+
+function qwenRuntimeLabel(resolution: QwenRuntimeResolution | undefined) {
+  if (!resolution) {
+    return "正在读取本地运行时";
+  }
+  if (resolution.error) {
+    return `不可用：${resolution.error}`;
+  }
+  return `${resolution.label}（${resolution.requested_device === "auto" ? "自动选择" : `已指定 ${resolution.requested_device.toUpperCase()}`}）`;
 }
 
 function getFileBaseName(filePath: string) {
@@ -7510,6 +7521,7 @@ export function App() {
                         ? "按需启动独立 SenseVoiceSmall；只用于转写和音色库参考音频，不参与旁白强制对齐。"
                         : "SenseVoiceSmall 尚未配置完整本地模型/运行时；保存前请按部署文档配置。"}
                   </small>
+                  <small>转写运行模式：{qwenRuntimeLabel(appSettings?.qwen_runtime?.asr)}；旁白逐词对齐：{qwenRuntimeLabel(appSettings?.qwen_runtime?.alignment)}。</small>
                 </label>
                 <details className="settingsAdvancedDetails">
                   <summary>

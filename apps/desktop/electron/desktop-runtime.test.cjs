@@ -9,6 +9,7 @@ const {
   createDesktopPaths,
   ensureBackend,
   isBackendHealthy,
+  migrateLegacyManagedModelAssets,
   openLegadoImportUrl,
   openLocalPath,
   revealLocalItem,
@@ -64,10 +65,35 @@ test("createDesktopPaths keeps packaged user data and model weights outside appl
 
   assert.equal(paths.logsDir, path.join(paths.dataRoot, "logs"));
   assert.equal(launchOptions.env.OPEN_TTS_OUTPUT_DIR, path.join(paths.dataRoot, "outputs"));
+  assert.equal(launchOptions.env.OPEN_TTS_MODEL_STORE_ROOT, paths.modelStoreRoot);
+  assert.equal(launchOptions.env.OPEN_TTS_QWEN_ASR_WORK_DIR, path.join(paths.dataRoot, "asr", "qwen3-work"));
+  assert.equal(launchOptions.env.OPEN_TTS_TRANSCRIPTION_INPUT_DIR, path.join(paths.dataRoot, "transcriptions", "inputs"));
   assert.equal(launchOptions.env.OPEN_TTS_INDEXTTS2_ROOT, path.join(paths.modelStoreRoot, "IndexTTS2"));
   assert.equal(launchOptions.env.OPEN_TTS_VOICE_LIBRARY_FILE, path.join(paths.dataRoot, "config", "voices.json"));
   assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_COOKIE_FILE, path.join(paths.dataRoot, "config", "doubao-cookies.json"));
   assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_DATA_DIR, path.join(paths.dataRoot, "doubao"));
+});
+
+test("migrateLegacyManagedModelAssets only copies managed ASR assets missing from the user model store", () => {
+  const copied = [];
+  const existing = new Set([
+    path.join("legacy", "models", "Qwen3-runtime-cuda"),
+    path.join("target", "SenseVoiceSmall")
+  ]);
+  const fakeFs = {
+    existsSync: (target) => existing.has(target),
+    mkdirSync: () => {},
+    cpSync: (source, target) => {
+      copied.push([source, target]);
+      existing.add(target);
+    }
+  };
+  const paths = { workspaceRoot: "legacy", modelStoreRoot: "target" };
+
+  const migrated = migrateLegacyManagedModelAssets(paths, { fs: fakeFs });
+
+  assert.deepEqual(migrated, ["Qwen3-runtime-cuda"]);
+  assert.deepEqual(copied, [[path.join("legacy", "models", "Qwen3-runtime-cuda"), path.join("target", "Qwen3-runtime-cuda")]]);
 });
 
 test("createDesktopPaths can load the packaged renderer from app.asar", () => {

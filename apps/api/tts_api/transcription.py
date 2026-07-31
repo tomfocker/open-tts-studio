@@ -389,6 +389,11 @@ class TranscriptionRunner:
         self._worker: threading.Thread | None = None
         self.store.recover_after_restart()
 
+    def reconfigure(self, settings: Settings) -> None:
+        """Apply saved runtime paths before the next queued job starts."""
+        with self._lock:
+            self.settings = settings
+
     def enqueue(self, request: TranscriptionJobRequest, retry_of: str | None = None) -> TranscriptionJobInfo:
         work = _build_work(request, self.settings)
         job = self.store.create(work, retry_of=retry_of)
@@ -455,13 +460,14 @@ class TranscriptionRunner:
                 self._queue.task_done()
 
     def _run_work(self, job_id: str, work: TranscriptionWork) -> None:
-        _sample_rate, duration_seconds = probe_audio_metadata(work.input_path, self.settings.ffmpeg_path)
+        settings = self.settings
+        _sample_rate, duration_seconds = probe_audio_metadata(work.input_path, settings.ffmpeg_path)
         if duration_seconds <= 0:
             raise TranscriptionError("媒体音轨时长为零，无法进行本地转写。")
         with local_gpu_generation_lock:
             if work.request.backend == TranscriptionBackend.qwen3:
-                transcriber = QwenASRTranscriber(self.settings)
-                release_conflicting_runtimes(transcriber.runtime_model_id, self.settings)
+                transcriber = QwenASRTranscriber(settings)
+                release_conflicting_runtimes(transcriber.runtime_model_id, settings)
                 if work.request.output_format == TranscriptionOutputFormat.srt:
                     timed = transcriber.transcribe_timestamped_path(
                         work.input_path,
@@ -485,8 +491,8 @@ class TranscriptionRunner:
                         warnings=warnings,
                     )
                     return
-            transcriber = get_local_transcriber(self.settings, backend=work.request.backend.value)
-            release_conflicting_runtimes(transcriber.runtime_model_id, self.settings)
+            transcriber = get_local_transcriber(settings, backend=work.request.backend.value)
+            release_conflicting_runtimes(transcriber.runtime_model_id, settings)
             text = transcriber.transcribe_path(work.input_path, language=work.request.language)
         self.store.mark_completed(
             job_id,
@@ -518,4 +524,6 @@ def get_transcription_runner(settings: Settings | None = None) -> TranscriptionR
     key = str(active.transcription_jobs_file)
     if key not in _runners:
         _runners[key] = TranscriptionRunner(get_transcription_store(active), active)
+    else:
+        _runners[key].reconfigure(active)
     return _runners[key]

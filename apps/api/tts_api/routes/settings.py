@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from tts_api.config import get_settings, save_user_settings, serialize_settings
 from tts_api.model_instances import list_model_instances
 from tts_api.model_packages import ModelPackageRecord, list_model_packages, replace_model_packages
+from tts_api.transcription import get_transcription_runner
 
 router = APIRouter()
 
@@ -169,7 +170,9 @@ def update_runtime_settings(update: SettingsUpdate) -> dict:
         payload["model_instances"] = model_instances
     save_user_settings(settings.settings_file, payload)
     get_settings.cache_clear()
-    return serialize_settings(get_settings())
+    updated_settings = get_settings()
+    get_transcription_runner(updated_settings)
+    return serialize_settings(updated_settings)
 
 
 @router.post("/v1/settings/import")
@@ -192,6 +195,7 @@ def import_runtime_settings(backup: SettingsBackup) -> dict:
     save_user_settings(settings.settings_file, payload)
     get_settings.cache_clear()
     imported_settings = get_settings()
+    get_transcription_runner(imported_settings)
     if backup.model_packages is not None:
         replace_model_packages(backup.model_packages, imported_settings)
     return serialize_settings(imported_settings)
