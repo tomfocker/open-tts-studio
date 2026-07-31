@@ -20,6 +20,7 @@ const {
   saveTranscriptionExport,
   saveVoicePackage,
   selectDirectory,
+  selectPythonExecutable,
   selectModelArchive,
   selectSettingsBackup,
   selectTranscriptionMedia,
@@ -340,6 +341,21 @@ test("selectReferenceAudio returns null when selection is cancelled", async () =
   });
 
   assert.equal(selectedPath, null);
+});
+
+test("selectPythonExecutable only allows choosing a Python executable", async () => {
+  const optionsSeen = [];
+  const selectedPath = await selectPythonExecutable({
+    showOpenDialog: async (options) => {
+      optionsSeen.push(options);
+      return { canceled: false, filePaths: ["D:/runtimes/audio-enhancement/python.exe"] };
+    }
+  });
+
+  assert.equal(selectedPath, "D:/runtimes/audio-enhancement/python.exe");
+  assert.equal(optionsSeen[0].title, "选择语音增强 Python 运行时");
+  assert.deepEqual(optionsSeen[0].properties, ["openFile"]);
+  assert.deepEqual(optionsSeen[0].filters, [{ name: "Python executable", extensions: ["exe"] }]);
 });
 
 test("selectTranscriptionMedia stages a video under an opaque managed ID", async () => {

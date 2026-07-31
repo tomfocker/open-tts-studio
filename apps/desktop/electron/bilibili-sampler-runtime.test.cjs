@@ -483,6 +483,50 @@ test("downloadVideo downloads DASH tracks and remuxes a local MP4 without re-enc
   });
 });
 
+test("downloadVideo chooses a new MP4 name when a playing preview locks the previous file", async () => {
+  const fsMock = createFsMock();
+  const downloadsPath = createTestApp().getPath("downloads");
+  const lockedPath = path.join(downloadsPath, "Video Export.mp4");
+  fsMock.files.set(lockedPath, Buffer.from("existing-mp4"));
+  const originalUnlink = fsMock.unlinkSync.bind(fsMock);
+  fsMock.unlinkSync = (filePath) => {
+    if (filePath === lockedPath) {
+      const error = new Error("resource busy");
+      error.code = "EBUSY";
+      throw error;
+    }
+    originalUnlink(filePath);
+  };
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fs: fsMock,
+    fetch: createFixtureFetch({
+      metadataPayload: { code: 0, data: { pages: [{ page: 1, part: "Intro", cid: 101 }] } },
+      playPayload: {
+        code: 0,
+        data: {
+          dash: {
+            video: [{ id: 80, baseUrl: "https://cdn.example.com/video.m4s" }],
+            audio: [{ id: 30280, baseUrl: "https://cdn.example.com/audio.m4s" }]
+          }
+        }
+      }
+    }),
+    now: () => 1713657600004,
+    getFfmpegPath: () => "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    downloadBinary: async ({ destinationPath }) => fsMock.promises.writeFile(destinationPath, Buffer.from("track")),
+    mergeFfmpeg: async (input) => fsMock.promises.writeFile(input.outputPath, Buffer.from("mp4"))
+  });
+
+  await service.parseLink({ url: "https://www.bilibili.com/video/BV1xK4y1m7aA" });
+  await service.loadAudioOptions({ kind: "video", itemId: "page:1" });
+  const result = await service.downloadVideo({ fileName: "Video Export" });
+
+  assert.equal(result.success, true);
+  assert.equal(result.data.videoPath, path.join(downloadsPath, "Video Export (2).mp4"));
+  assert.equal(fsMock.files.has(lockedPath), true);
+});
+
 test("video quality selection re-requests Bilibili and downloads the actual selected track", async () => {
   const fsMock = createFsMock();
   const fetchUrls = [];
@@ -652,4 +696,95 @@ test("cancelExtract aborts an active audio download", async () => {
   assert.equal(result.success, false);
   assert.equal(result.error, "Extraction cancelled");
   assert.equal(service.getState().taskStage, "cancelled");
+});
+
+test("extractLocalSample clips the downloaded MP4 without contacting a Bilibili stream", async () => {
+  const inputPath = path.join("D:", "downloads", "saved-video.mp4");
+  const outputDirectory = path.join("D:", "code", "tts", "data", "inputs", "bilibili");
+  const fsMock = createFsMock({ [inputPath]: Buffer.from("mp4") });
+  const ffmpegCalls = [];
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fs: fsMock,
+    defaultOutputDirectory: outputDirectory,
+    getFfmpegPath: () => "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    runFfmpeg: async (input) => {
+      ffmpegCalls.push(input);
+      await fsMock.promises.writeFile(input.outputPath, Buffer.from("RIFFwav"));
+    },
+    readWavMetadata: () => ({ sampleRate: 24000, durationSeconds: 6.5 })
+  });
+
+  const result = await service.extractLocalSample({
+    inputPath,
+    startSeconds: 10,
+    endSeconds: 16.5,
+    sampleName: "Selected clip"
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(ffmpegCalls, [{
+    ffmpegPath: "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    inputPath,
+    outputPath: path.join(outputDirectory, "Selected clip.wav"),
+    startSeconds: 10,
+    endSeconds: 16.5,
+    sampleRate: 24000,
+    channels: 1
+  }]);
+  assert.deepEqual(toPlain(result.data), {
+    audioPath: path.join(outputDirectory, "Selected clip.wav"),
+    durationSeconds: 6.5,
+    sampleRate: 24000
+  });
+});
+
+test("runFfmpeg converts an absolute selection end into an output duration", async () => {
+  const service = new BilibiliSamplerService({ app: createTestApp() });
+  let command = null;
+  service.runFfmpegCommand = async (ffmpegPath, args) => { command = { ffmpegPath, args }; };
+
+  await service.runFfmpeg({
+    ffmpegPath: "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    inputPath: "C:\\media\\source.mp4",
+    outputPath: "C:\\media\\clip.wav",
+    startSeconds: 10,
+    endSeconds: 18,
+    sampleRate: 24000,
+    channels: 1
+  });
+
+  assert.deepEqual(command, {
+    ffmpegPath: "C:\\ffmpeg\\bin\\ffmpeg.exe",
+    args: ["-y", "-ss", "10", "-i", "C:\\media\\source.mp4", "-t", "8", "-ac", "1", "-ar", "24000", "C:\\media\\clip.wav"]
+  });
+});
+
+test("video history keeps local paths in the main process and exposes only safe metadata", async () => {
+  const videoPath = path.join("D:", "downloads", "saved-video.mp4");
+  const fsMock = createFsMock({ [videoPath]: Buffer.from("mp4") });
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fs: fsMock,
+    createHistoryId: () => "history-1",
+    now: () => 1713657600000
+  });
+
+  await service.recordVideoHistory({
+    videoPath,
+    title: "Local Study",
+    itemTitle: "Episode 1",
+    videoQuality: { qn: 80, label: "1080P" }
+  });
+
+  assert.deepEqual(toPlain(service.listVideoHistory()), [{
+    id: "history-1",
+    title: "Local Study",
+    itemTitle: "Episode 1",
+    videoQuality: { qn: 80, label: "1080P" },
+    fileSizeBytes: 3,
+    downloadedAt: "2024-04-21T00:00:00.000Z",
+    exists: true
+  }]);
+  assert.equal(service.getVideoHistoryEntry("history-1").videoPath, videoPath);
 });

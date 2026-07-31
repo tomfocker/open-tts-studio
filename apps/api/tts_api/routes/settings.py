@@ -37,6 +37,10 @@ class SettingsBackupValues(BaseModel):
     indextts2_idle_timeout_seconds: int = Field(ge=30, le=86400)
     local_api_idle_timeout_seconds: int = Field(ge=30, le=86400)
     asr_backend: Literal["sensevoice", "qwen3"] = "sensevoice"
+    audio_enhancement_python: Path | None = None
+    audio_enhancement_device: Literal["auto", "cuda", "cpu"] = "auto"
+    deepfilternet3_root: Path | None = None
+    mossformer2_se_root: Path | None = None
     default_model_id: Literal["indextts2", "voxcpm2", "gptsovits", "doubao-web"] = "indextts2"
     prewarm_default_model_on_startup: bool = False
 
@@ -79,6 +83,10 @@ class SettingsUpdate(BaseModel):
     qwen_asr_capswriter_root: Path | None = None
     qwen_asr_model_dir: Path | None = None
     qwen_asr_device: Literal["auto", "cuda", "dml", "cpu"] | None = None
+    audio_enhancement_python: Path | None = None
+    audio_enhancement_device: Literal["auto", "cuda", "cpu"] | None = None
+    deepfilternet3_root: Path | None = None
+    mossformer2_se_root: Path | None = None
     alignment_device: Literal["auto", "cuda", "dml", "cpu"] | None = None
     voxcpm2_root: Path | None = None
     voxcpm2_api_host: str | None = None
@@ -119,6 +127,10 @@ def build_settings_backup(settings) -> SettingsBackup:
             indextts2_idle_timeout_seconds=settings.indextts2_idle_timeout_seconds,
             local_api_idle_timeout_seconds=settings.local_api_idle_timeout_seconds,
             asr_backend=settings.asr_backend,
+            audio_enhancement_python=settings.audio_enhancement_python,
+            audio_enhancement_device=settings.audio_enhancement_device,
+            deepfilternet3_root=settings.deepfilternet3_root,
+            mossformer2_se_root=settings.mossformer2_se_root,
             default_model_id=settings.default_model_id,
             prewarm_default_model_on_startup=settings.prewarm_default_model_on_startup,
         ),
@@ -172,6 +184,9 @@ def update_runtime_settings(update: SettingsUpdate) -> dict:
     get_settings.cache_clear()
     updated_settings = get_settings()
     get_transcription_runner(updated_settings)
+    from tts_api.enhancement import get_audio_enhancement_runner
+
+    get_audio_enhancement_runner(updated_settings)
     return serialize_settings(updated_settings)
 
 
@@ -196,6 +211,9 @@ def import_runtime_settings(backup: SettingsBackup) -> dict:
     get_settings.cache_clear()
     imported_settings = get_settings()
     get_transcription_runner(imported_settings)
+    from tts_api.enhancement import get_audio_enhancement_runner
+
+    get_audio_enhancement_runner(imported_settings)
     if backup.model_packages is not None:
         replace_model_packages(backup.model_packages, imported_settings)
     return serialize_settings(imported_settings)

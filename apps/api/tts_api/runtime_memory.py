@@ -11,7 +11,7 @@ from tts_api.config import Settings
 from tts_api.model_instances import apply_model_instance_to_settings, list_model_instances
 
 
-RUNTIME_MODEL_IDS = ("indextts2", "voxcpm2", "voxcpm2_streaming", "gptsovits", "sensevoice", "qwen3-asr")
+RUNTIME_MODEL_IDS = ("indextts2", "voxcpm2", "voxcpm2_streaming", "gptsovits", "sensevoice", "qwen3-asr", "audio_enhancement", "audio_separation")
 
 # Every local model service ultimately competes for the same GPU.  The regular
 # speech API and the realtime websocket intentionally share this lock so a

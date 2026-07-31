@@ -42,6 +42,10 @@ def _repair_hint(profile: ModelInstanceProfile, status: ModelInstanceStatus, che
         return "当前目录不像 VoxCPM2 懒人包，请重新选择包含 MWAI/python.exe 的目录。"
     if profile.model_id == "indextts2" and failed.id == "checkpoints":
         return "未找到 checkpoints，请选择完整的 IndexTTS2 目录。"
+    if profile.model_id == "deepfilternet3":
+        return "未找到 DeepFilterNet3 的 config.ini 或 checkpoints，请选择完整的模型目录。"
+    if profile.model_id == "mossformer2-se-48k":
+        return "未找到 MossFormer2_SE_48K 权重，请选择包含 last_best_checkpoint.pt 的目录。"
     return f"{failed.label}检查未通过，请重新选择模型目录。"
 
 
@@ -77,6 +81,24 @@ def _check_gptsovits(profile: ModelInstanceProfile) -> list[ModelHealthCheck]:
     ]
 
 
+def _check_deepfilternet3(profile: ModelInstanceProfile) -> list[ModelHealthCheck]:
+    root = profile.root_path
+    return [
+        _path_check("root", "模型目录", root, must_be_dir=True),
+        _path_check("config", "推理配置", root / "config.ini" if root else None),
+        _path_check("checkpoints", "权重目录", root / "checkpoints" if root else None, must_be_dir=True),
+    ]
+
+
+def _check_mossformer2_se(profile: ModelInstanceProfile) -> list[ModelHealthCheck]:
+    root = profile.root_path
+    return [
+        _path_check("root", "模型目录", root, must_be_dir=True),
+        _path_check("checkpoint_manifest", "最佳权重清单", root / "last_best_checkpoint" if root else None),
+        _path_check("checkpoint", "模型权重", root / "last_best_checkpoint.pt" if root else None),
+    ]
+
+
 def check_model_instance(profile: ModelInstanceProfile) -> ModelHealthResult:
     if not profile.enabled:
         return ModelHealthResult(
@@ -91,6 +113,10 @@ def check_model_instance(profile: ModelInstanceProfile) -> ModelHealthResult:
         checks = _check_voxcpm2(profile)
     elif profile.model_id == "gptsovits":
         checks = _check_gptsovits(profile)
+    elif profile.model_id == "deepfilternet3":
+        checks = _check_deepfilternet3(profile)
+    elif profile.model_id == "mossformer2-se-48k":
+        checks = _check_mossformer2_se(profile)
     else:
         checks = []
         return ModelHealthResult(

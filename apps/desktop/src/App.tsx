@@ -95,6 +95,9 @@ import {
   type GenerateSpeechOptions
 } from "./api";
 import { DoubaoWorkspace } from "./DoubaoWorkspace";
+import { EnhancementWorkspace } from "./EnhancementWorkspace";
+import { MediaSamplerWorkspace } from "./MediaSamplerWorkspace";
+import { SeparationWorkspace } from "./SeparationWorkspace";
 import { RealtimeWorkspace } from "./RealtimeWorkspace";
 import { TranscriptionWorkspace } from "./TranscriptionWorkspace";
 import type {
@@ -105,10 +108,13 @@ import type {
   BilibiliAudioOptionsResult,
   BilibiliDownloadVideoRequest,
   BilibiliDownloadVideoResult,
+  BilibiliExtractLocalSampleResult,
   BilibiliExtractSampleRequest,
   BilibiliExtractSampleResult,
   BilibiliLoginQrPayload,
   BilibiliLoginSession,
+  BilibiliMediaHistoryEntry,
+  BilibiliMediaHistoryItem,
   BilibiliParsedItem,
   BilibiliParsedLink,
   BilibiliPollLoginPayload,
@@ -147,9 +153,11 @@ declare global {
       openPath: (targetPath: string) => Promise<string>;
       revealInFolder: (targetPath: string) => Promise<void>;
       selectDirectory: () => Promise<string | null>;
+      selectPythonExecutable: () => Promise<string | null>;
       selectModelArchive: () => Promise<string | null>;
       selectReferenceAudio: () => Promise<string | null>;
       selectTranscriptionMedia: () => Promise<{ id: string; fileName: string; fileSizeBytes: number } | null>;
+      selectAudioEnhancementMedia: () => Promise<{ id: string; fileName: string; fileSizeBytes: number } | null>;
       saveTranscriptionExport: (content: string, defaultName: string, extension: "txt" | "srt") => Promise<string | null>;
       readSelectedAudio: (targetPath: string) => Promise<Uint8Array>;
       readManagedReferenceAudio: (targetPath: string) => Promise<Uint8Array>;
@@ -180,6 +188,11 @@ declare global {
       loadAudioOptions: (kind: BilibiliParsedLink["kind"], itemId: string, qn?: number) => Promise<IpcResponse<BilibiliAudioOptionsResult>>;
       extractSample: (request: BilibiliExtractSampleRequest) => Promise<IpcResponse<BilibiliExtractSampleResult>>;
       downloadVideo: (request: BilibiliDownloadVideoRequest) => Promise<IpcResponse<BilibiliDownloadVideoResult>>;
+      listHistory: () => Promise<IpcResponse<BilibiliMediaHistoryEntry[]>>;
+      getHistoryItem: (historyId: string) => Promise<IpcResponse<BilibiliMediaHistoryItem>>;
+      extractHistorySample: (historyId: string, request: BilibiliExtractSampleRequest) => Promise<IpcResponse<BilibiliExtractLocalSampleResult>>;
+      stageTranscription: (historyId: string) => Promise<IpcResponse<{ id: string; fileName: string; fileSizeBytes: number }>>;
+      removeHistory: (historyId: string) => Promise<IpcResponse>;
       cancelExtract: () => Promise<IpcResponse>;
       onStateChanged: (listener: (state: BilibiliSamplerState) => void) => () => void;
     };
@@ -283,6 +296,7 @@ type AudioWaveformProps = {
   editableSelection?: boolean;
   onSeekRatio?: (ratio: number) => void;
   onSelectionChange?: (boundary: "start" | "end", ratio: number) => void;
+  onSelectionMove?: (startRatio: number, endRatio: number) => void;
   ariaLabel: string;
   className?: string;
 };
@@ -315,6 +329,8 @@ type DrawSession = {
 
 const WAVEFORM_SAMPLE_COUNT = 360;
 const WAVEFORM_MAX_ANALYSIS_BYTES = 64 * 1024 * 1024;
+const VIDEO_WAVEFORM_MAX_ANALYSIS_BYTES = 128 * 1024 * 1024;
+const SAMPLER_MIN_CLIP_SECONDS = 0.1;
 
 function clampWaveformRatio(value: number | undefined, fallback: number) {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -345,9 +361,9 @@ function buildWaveformPeaks(audioBuffer: AudioBuffer, peakCount = WAVEFORM_SAMPL
   return largestPeak > 0 ? peaks.map((peak) => peak / largestPeak) : peaks;
 }
 
-async function decodeWaveformPeaks(audioData: ArrayBuffer) {
-  if (audioData.byteLength > WAVEFORM_MAX_ANALYSIS_BYTES) {
-    throw new Error("参考音频较大，已跳过波形分析");
+async function decodeWaveformPeaks(audioData: ArrayBuffer, maximumBytes = WAVEFORM_MAX_ANALYSIS_BYTES) {
+  if (audioData.byteLength > maximumBytes) {
+    throw new Error("媒体文件较大，已跳过波形分析");
   }
   if (!window.AudioContext) {
     throw new Error("当前环境不支持音频波形分析");
@@ -371,15 +387,19 @@ function AudioWaveform({
   editableSelection = false,
   onSeekRatio,
   onSelectionChange,
+  onSelectionMove,
   ariaLabel,
   className
 }: AudioWaveformProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const dragBoundaryRef = useRef<"start" | "end" | null>(null);
+  const dragBoundaryRef = useRef<"start" | "end" | "selection" | null>(null);
+  const dragStartRatioRef = useRef(0);
+  const dragSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  const selectionMovedRef = useRef(false);
   const startRatio = clampWaveformRatio(selectionStartRatio, 0);
   const endRatio = Math.max(startRatio, clampWaveformRatio(selectionEndRatio, 1));
   const currentRatio = clampWaveformRatio(progressRatio, 0);
-  const interactive = Boolean(onSeekRatio || onSelectionChange);
+  const interactive = Boolean(onSeekRatio || onSelectionChange || onSelectionMove);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -485,7 +505,10 @@ function AudioWaveform({
         dragBoundaryRef.current = "end";
         onSelectionChange("end", ratio);
       } else {
-        onSeekRatio?.(ratio);
+        dragBoundaryRef.current = "selection";
+        dragStartRatioRef.current = ratio;
+        dragSelectionRef.current = { start: startRatio, end: endRatio };
+        selectionMovedRef.current = false;
       }
     } else {
       onSeekRatio?.(ratio);
@@ -495,14 +518,36 @@ function AudioWaveform({
 
   const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const boundary = dragBoundaryRef.current;
-    if (!boundary || !onSelectionChange) {
+    if (!boundary) {
+      return;
+    }
+    if (boundary === "selection") {
+      const selection = dragSelectionRef.current;
+      if (!selection || !onSelectionMove) {
+        return;
+      }
+      const delta = getPointerRatio(event) - dragStartRatioRef.current;
+      const width = selection.end - selection.start;
+      const nextStart = Math.max(0, Math.min(1 - width, selection.start + delta));
+      onSelectionMove(nextStart, nextStart + width);
+      if (Math.abs(delta) > 0.002) {
+        selectionMovedRef.current = true;
+      }
+      return;
+    }
+    if (!onSelectionChange) {
       return;
     }
     onSelectionChange(boundary, getPointerRatio(event));
   };
 
   const endPointerDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (dragBoundaryRef.current === "selection" && !selectionMovedRef.current) {
+      onSeekRatio?.(getPointerRatio(event));
+    }
     dragBoundaryRef.current = null;
+    dragSelectionRef.current = null;
+    selectionMovedRef.current = false;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
@@ -549,6 +594,10 @@ type SettingsDraft = {
   indextts2_idle_timeout_seconds: number;
   local_api_idle_timeout_seconds: number;
   asr_backend: "sensevoice" | "qwen3";
+  audio_enhancement_python: string;
+  audio_enhancement_device: "auto" | "cuda" | "cpu";
+  deepfilternet3_root: string;
+  mossformer2_se_root: string;
   voxcpm2_root: string;
   voxcpm2_api_host: string;
   voxcpm2_api_port: number;
@@ -862,6 +911,10 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     indextts2_idle_timeout_seconds: idleTimeoutSeconds,
     local_api_idle_timeout_seconds: idleTimeoutSeconds,
     asr_backend: settings?.asr_backend ?? "sensevoice",
+    audio_enhancement_python: settings?.audio_enhancement_python ?? "",
+    audio_enhancement_device: settings?.audio_enhancement_device ?? "auto",
+    deepfilternet3_root: settings?.deepfilternet3_root ?? `${modelStoreRoot}\\DeepFilterNet3`,
+    mossformer2_se_root: settings?.mossformer2_se_root ?? `${modelStoreRoot}\\MossFormer2-SE-48K`,
     voxcpm2_root: settings?.voxcpm2_root ?? `${modelStoreRoot}\\VoxCPM2`,
     voxcpm2_api_host: settings?.voxcpm2_api_host ?? "127.0.0.1",
     voxcpm2_api_port: settings?.voxcpm2_api_port ?? 8000,
@@ -871,6 +924,10 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     default_model_id: settings?.default_model_id ?? "indextts2",
     prewarm_default_model_on_startup: settings?.prewarm_default_model_on_startup ?? false
   };
+}
+
+function formatSamplerClipSeconds(value: number) {
+  return Math.max(0, value).toFixed(1);
 }
 
 function qwenRuntimeLabel(resolution: QwenRuntimeResolution | undefined) {
@@ -1785,6 +1842,12 @@ export function App() {
   const [samplerOpen, setSamplerOpen] = useState(false);
   const [samplerState, setSamplerState] = useState<BilibiliSamplerState>(() => createDefaultBilibiliSamplerState());
   const [samplerMediaOptions, setSamplerMediaOptions] = useState<BilibiliAudioOptionsResult | null>(null);
+  const [samplerVideoPreview, setSamplerVideoPreview] = useState<BilibiliDownloadVideoResult | null>(null);
+  const [samplerVideoPreviewError, setSamplerVideoPreviewError] = useState<string | null>(null);
+  const [samplerVideoDuration, setSamplerVideoDuration] = useState(0);
+  const [samplerVideoCurrentTime, setSamplerVideoCurrentTime] = useState(0);
+  const [samplerVideoWaveformPeaks, setSamplerVideoWaveformPeaks] = useState<number[]>([]);
+  const [samplerVideoWaveformStatus, setSamplerVideoWaveformStatus] = useState<WaveformStatus>("idle");
   const [samplerLink, setSamplerLink] = useState("");
   const [samplerQrPayload, setSamplerQrPayload] = useState<BilibiliLoginQrPayload | null>(null);
   const [samplerQrCodeUrl, setSamplerQrCodeUrl] = useState<string | null>(null);
@@ -1797,6 +1860,9 @@ export function App() {
   const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch" | "realtime">("single");
   const [doubaoWorkspaceOpen, setDoubaoWorkspaceOpen] = useState(false);
   const [transcriptionWorkspaceOpen, setTranscriptionWorkspaceOpen] = useState(false);
+  const [mediaSamplerWorkspaceOpen, setMediaSamplerWorkspaceOpen] = useState(false);
+  const [enhancementWorkspaceOpen, setEnhancementWorkspaceOpen] = useState(false);
+  const [separationWorkspaceOpen, setSeparationWorkspaceOpen] = useState(false);
   const [doubaoStatus, setDoubaoStatus] = useState<DoubaoStatus | null>(null);
   const [doubaoVoices, setDoubaoVoices] = useState<DoubaoVoice[]>([]);
   const [doubaoStateError, setDoubaoStateError] = useState<string | null>(null);
@@ -1826,6 +1892,9 @@ export function App() {
   const drawMenuRef = useRef<HTMLDivElement | null>(null);
   const themeTransitionTimerRef = useRef<number | null>(null);
   const audioAssetRef = useRef<HTMLAudioElement | null>(null);
+  const samplerVideoPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const samplerVideoPreviewPanelRef = useRef<HTMLElement | null>(null);
+  const samplerVideoWaveformRequestRef = useRef(0);
   const referenceAudioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const referenceAudioPreviewUrlRef = useRef<string | null>(null);
   const referenceAudioWaveformRequestRef = useRef(0);
@@ -2013,6 +2082,12 @@ export function App() {
   );
   const samplerStartValue = parseOptionalSeconds(samplerStartSeconds);
   const samplerEndValue = parseOptionalSeconds(samplerEndSeconds);
+  const samplerSelectionStartSeconds = samplerVideoDuration > 0
+    ? Math.max(0, Math.min(samplerVideoDuration, Number.isFinite(samplerStartValue) ? samplerStartValue ?? 0 : 0))
+    : 0;
+  const samplerSelectionEndSeconds = samplerVideoDuration > 0
+    ? Math.max(samplerSelectionStartSeconds, Math.min(samplerVideoDuration, Number.isFinite(samplerEndValue) ? samplerEndValue ?? samplerVideoDuration : samplerVideoDuration))
+    : 0;
   const samplerClipError =
     Number.isNaN(samplerStartValue)
       ? "开始时间必须是数字"
@@ -2020,6 +2095,10 @@ export function App() {
         ? "结束时间必须是数字"
         : samplerStartValue !== null && samplerStartValue < 0
           ? "开始时间不能小于 0"
+          : samplerVideoDuration > 0 && samplerStartValue !== null && samplerStartValue > samplerVideoDuration
+            ? "开始时间不能超过视频总时长"
+            : samplerVideoDuration > 0 && samplerEndValue !== null && samplerEndValue > samplerVideoDuration
+              ? "结束时间不能超过视频总时长"
           : samplerEndValue !== null && samplerEndValue <= (samplerStartValue ?? 0)
             ? "结束时间必须大于开始时间"
             : null;
@@ -3527,6 +3606,12 @@ export function App() {
         error: null
       }));
       setSamplerMediaOptions(null);
+      setSamplerVideoPreview(null);
+      setSamplerVideoPreviewError(null);
+      setSamplerVideoDuration(0);
+      setSamplerVideoCurrentTime(0);
+      setSamplerVideoWaveformPeaks([]);
+      setSamplerVideoWaveformStatus("idle");
 
       const audioResponse = await sampler.loadAudioOptions(parsedLink.kind, parsedLink.selectedItemId);
       if (!audioResponse.success || !audioResponse.data) {
@@ -3644,6 +3729,27 @@ export function App() {
     }
   }
 
+  async function onMediaSamplerCreateVoice(input: { audioPath: string; name: string; durationSeconds: number }) {
+    const voice = await createVoice({
+      name: input.name,
+      reference_audio: input.audioPath,
+      authorization_status: "source_bilibili_authorized",
+      source_type: "bilibili"
+    });
+    const preset = createImportedVoicePreset(voice);
+    if (!preset) {
+      throw new Error("片段已提取，但音色库没有返回可用的参考音频");
+    }
+    setCustomVoices((voices) => [...voices.filter((item) => item.id !== preset.id), preset]);
+    selectedVoiceRef.current = preset.id;
+    setSelectedVoice(preset.id);
+    setReferenceText(preset.referenceText ?? "");
+    setVoiceMessage(`已从本地媒体片段加入音色库：${preset.name}`);
+    void loadVoices();
+    startAutomaticVoiceRecognition(voice);
+    return preset.name;
+  }
+
   async function onSamplerSelectVideoQuality(qn: number) {
     const sampler = requireSamplerBridge();
     const parsedLink = samplerState.parsedLink;
@@ -3699,6 +3805,8 @@ export function App() {
       if (!response.success || !response.data) {
         throw new Error(response.error ?? "下载 MP4 失败");
       }
+      setSamplerVideoPreview(response.data);
+      setSamplerVideoPreviewError(response.data.previewUrl ? null : "当前桌面运行时不支持软件内视频预览，请重启软件后重试。");
       const quality = response.data.videoQuality ? `（${formatSamplerVideoQuality(response.data.videoQuality)}）` : "";
       setSamplerMessage(`MP4 已保存${quality}：${response.data.videoPath}`);
     } catch (err) {
@@ -3708,8 +3816,95 @@ export function App() {
     }
   }
 
+  async function onSamplerOpenDownloadedVideo() {
+    const videoPath = samplerVideoPreview?.videoPath;
+    if (!videoPath || !window.desktopFiles?.openPath) {
+      setSamplerVideoPreviewError("请在桌面软件中打开本地视频文件");
+      return;
+    }
+    try {
+      const errorMessage = await window.desktopFiles.openPath(videoPath);
+      if (errorMessage) {
+        throw new Error(errorMessage);
+      }
+    } catch (err) {
+      setSamplerVideoPreviewError(err instanceof Error ? err.message : "打开本地视频失败");
+    }
+  }
+
+  async function onSamplerRevealDownloadedVideo() {
+    const videoPath = samplerVideoPreview?.videoPath;
+    if (!videoPath || !window.desktopFiles?.revealInFolder) {
+      setSamplerVideoPreviewError("请在桌面软件中定位本地视频文件");
+      return;
+    }
+    try {
+      await window.desktopFiles.revealInFolder(videoPath);
+    } catch (err) {
+      setSamplerVideoPreviewError(err instanceof Error ? err.message : "定位本地视频失败");
+    }
+  }
+
+  function onSamplerVideoMetadataLoaded(durationSeconds: number) {
+    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
+      setSamplerVideoPreviewError("无法读取视频总时长，暂时不能使用波形选区。");
+      return;
+    }
+    setSamplerVideoDuration(durationSeconds);
+    setSamplerVideoCurrentTime(0);
+    setSamplerStartSeconds((value) => {
+      const parsed = parseOptionalSeconds(value);
+      return parsed === null ? "0.0" : formatSamplerClipSeconds(Math.min(Math.max(0, parsed), durationSeconds));
+    });
+    setSamplerEndSeconds((value) => {
+      const parsed = parseOptionalSeconds(value);
+      return parsed === null ? formatSamplerClipSeconds(durationSeconds) : formatSamplerClipSeconds(Math.min(Math.max(0, parsed), durationSeconds));
+    });
+  }
+
+  function seekSamplerVideoPreview(ratio: number) {
+    const video = samplerVideoPreviewRef.current;
+    const duration = samplerVideoDuration || video?.duration || 0;
+    if (!video || !Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+    const nextTime = clampWaveformRatio(ratio, 0) * duration;
+    video.currentTime = nextTime;
+    setSamplerVideoCurrentTime(nextTime);
+    void video.play().catch(() => undefined);
+  }
+
+  function updateSamplerVideoSelection(boundary: "start" | "end", ratio: number) {
+    if (!Number.isFinite(samplerVideoDuration) || samplerVideoDuration <= 0) {
+      return;
+    }
+    const minimumClip = Math.min(SAMPLER_MIN_CLIP_SECONDS, samplerVideoDuration);
+    const requested = clampWaveformRatio(ratio, 0) * samplerVideoDuration;
+    const currentStart = samplerSelectionStartSeconds;
+    const currentEnd = samplerSelectionEndSeconds;
+    const nextStart = boundary === "start"
+      ? Math.min(Math.max(0, requested), Math.max(0, currentEnd - minimumClip))
+      : currentStart;
+    const nextEnd = boundary === "end"
+      ? Math.max(Math.min(samplerVideoDuration, requested), Math.min(samplerVideoDuration, currentStart + minimumClip))
+      : currentEnd;
+    setSamplerStartSeconds(formatSamplerClipSeconds(nextStart));
+    setSamplerEndSeconds(formatSamplerClipSeconds(nextEnd));
+  }
+
+  function moveSamplerVideoSelection(startRatio: number, endRatio: number) {
+    if (!Number.isFinite(samplerVideoDuration) || samplerVideoDuration <= 0) {
+      return;
+    }
+    const startSeconds = clampWaveformRatio(startRatio, 0) * samplerVideoDuration;
+    const endSeconds = clampWaveformRatio(endRatio, 1) * samplerVideoDuration;
+    setSamplerStartSeconds(formatSamplerClipSeconds(Math.min(startSeconds, endSeconds)));
+    setSamplerEndSeconds(formatSamplerClipSeconds(Math.max(startSeconds, endSeconds)));
+  }
+
   async function onSamplerCancel() {
     if (!samplerExtracting) {
+      samplerVideoPreviewRef.current?.pause();
       setSamplerOpen(false);
       return;
     }
@@ -3915,6 +4110,10 @@ export function App() {
         indextts2_idle_timeout_seconds: Number(settingsDraft.indextts2_idle_timeout_seconds),
         local_api_idle_timeout_seconds: Number(settingsDraft.local_api_idle_timeout_seconds),
         asr_backend: settingsDraft.asr_backend,
+        audio_enhancement_python: settingsDraft.audio_enhancement_python.trim(),
+        audio_enhancement_device: settingsDraft.audio_enhancement_device,
+        deepfilternet3_root: settingsDraft.deepfilternet3_root.trim(),
+        mossformer2_se_root: settingsDraft.mossformer2_se_root.trim(),
         default_model_id: settingsDraft.default_model_id,
         prewarm_default_model_on_startup: settingsDraft.prewarm_default_model_on_startup
       });
@@ -4004,7 +4203,7 @@ export function App() {
     }
   }
 
-  async function chooseDirectoryForSetting(field: "indextts2_root" | "voxcpm2_root" | "gptsovits_root" | "output_dir") {
+  async function chooseDirectoryForSetting(field: "indextts2_root" | "voxcpm2_root" | "gptsovits_root" | "output_dir" | "deepfilternet3_root" | "mossformer2_se_root") {
     if (!window.desktopFiles?.selectDirectory) {
       setSettingsError("当前预览环境不支持选择目录");
       return;
@@ -4303,6 +4502,22 @@ export function App() {
     // another resident worker, while an equally consequential preheat could
     // start without any explanation.
     setPendingModelSwitch({ targetModelId, loadedModelIds });
+  }
+
+  async function chooseAudioEnhancementPython() {
+    if (!window.desktopFiles?.selectPythonExecutable) {
+      setSettingsError("当前预览环境不支持选择 Python 运行时");
+      return;
+    }
+    setSettingsError(null);
+    try {
+      const pythonPath = await window.desktopFiles.selectPythonExecutable();
+      if (pythonPath) {
+        setSettingsDraft((draft) => ({ ...draft, audio_enhancement_python: pythonPath }));
+      }
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "选择 Python 运行时失败");
+    }
   }
 
   function confirmModelSwitch() {
@@ -4918,6 +5133,62 @@ export function App() {
       setSamplerState(state);
     });
   }, []);
+
+  useEffect(() => {
+    if (!samplerVideoPreview) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      samplerVideoPreviewPanelRef.current?.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "center"
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [samplerVideoPreview]);
+
+  useEffect(() => {
+    const previewUrl = samplerVideoPreview?.previewUrl;
+    const requestId = samplerVideoWaveformRequestRef.current + 1;
+    samplerVideoWaveformRequestRef.current = requestId;
+    setSamplerVideoWaveformPeaks([]);
+    if (!previewUrl) {
+      setSamplerVideoWaveformStatus("idle");
+      return;
+    }
+
+    let disposed = false;
+    setSamplerVideoWaveformStatus("loading");
+    void fetch(previewUrl)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`视频读取失败：${response.status}`);
+        }
+        const contentLength = Number(response.headers.get("content-length"));
+        if (Number.isFinite(contentLength) && contentLength > VIDEO_WAVEFORM_MAX_ANALYSIS_BYTES) {
+          throw new Error("媒体文件较大，已跳过波形分析");
+        }
+        return decodeWaveformPeaks(await response.arrayBuffer(), VIDEO_WAVEFORM_MAX_ANALYSIS_BYTES);
+      })
+      .then((peaks) => {
+        if (disposed || samplerVideoWaveformRequestRef.current !== requestId) {
+          return;
+        }
+        setSamplerVideoWaveformPeaks(peaks);
+        setSamplerVideoWaveformStatus(peaks.length > 0 ? "ready" : "unavailable");
+      })
+      .catch(() => {
+        if (disposed || samplerVideoWaveformRequestRef.current !== requestId) {
+          return;
+        }
+        setSamplerVideoWaveformPeaks([]);
+        setSamplerVideoWaveformStatus("unavailable");
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [samplerVideoPreview?.previewUrl]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -5561,6 +5832,15 @@ export function App() {
             </button>
             <button className="toolButton" title="音视频转写" onClick={() => setTranscriptionWorkspaceOpen(true)}>
               <FileText size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton" title="媒体取样" onClick={() => setMediaSamplerWorkspaceOpen(true)}>
+              <Film size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton" title="语音增强对比" onClick={() => setEnhancementWorkspaceOpen(true)}>
+              <Wand2 size={17} strokeWidth={1.9} />
+            </button>
+            <button className="toolButton" title="人声伴奏分轨" onClick={() => setSeparationWorkspaceOpen(true)}>
+              <Waves size={17} strokeWidth={1.9} />
             </button>
             <button
               className={`toolButton themeToggleButton ${theme === "dark" ? "isDark" : "isLight"}${themeTransitioning ? " isTransitioning" : ""}`}
@@ -6919,6 +7199,9 @@ export function App() {
       }} />}
 
       {transcriptionWorkspaceOpen && <TranscriptionWorkspace onClose={() => setTranscriptionWorkspaceOpen(false)} />}
+      {mediaSamplerWorkspaceOpen && <MediaSamplerWorkspace onClose={() => setMediaSamplerWorkspaceOpen(false)} onCreateVoiceFromSample={onMediaSamplerCreateVoice} />}
+      {enhancementWorkspaceOpen && <EnhancementWorkspace onClose={() => setEnhancementWorkspaceOpen(false)} />}
+      {separationWorkspaceOpen && <SeparationWorkspace onClose={() => setSeparationWorkspaceOpen(false)} />}
 
       {audioLibraryOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="音频资产库">
@@ -7425,29 +7708,108 @@ export function App() {
                     </div>
                   )}
 
-                  <div className="samplerClipGrid">
-                    <label className="settingsField samplerField">
-                      <span>开始秒</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.1"
-                        value={samplerStartSeconds}
-                        placeholder="留空"
-                        onChange={(event) => setSamplerStartSeconds(event.target.value)}
-                      />
-                    </label>
-                    <label className="settingsField samplerField">
-                      <span>结束秒</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.1"
-                        value={samplerEndSeconds}
-                        placeholder="留空"
-                        onChange={(event) => setSamplerEndSeconds(event.target.value)}
-                      />
-                    </label>
+                  {samplerVideoPreview && (
+                    <section ref={samplerVideoPreviewPanelRef} className="samplerVideoPreview" aria-label="已下载视频预览">
+                      <div className="samplerVideoPreviewHeading">
+                        <div>
+                          <strong>已下载视频</strong>
+                          <span>{samplerVideoPreview.videoQuality ? formatSamplerVideoQuality(samplerVideoPreview.videoQuality) : "MP4"}</span>
+                        </div>
+                        <span className="samplerVideoPreviewTag">本地预览</span>
+                      </div>
+                      <div className="samplerVideoStage">
+                        {samplerVideoPreview.previewUrl ? (
+                          <video
+                            ref={samplerVideoPreviewRef}
+                            controls
+                            preload="metadata"
+                            src={samplerVideoPreview.previewUrl}
+                            onLoadedMetadata={(event) => onSamplerVideoMetadataLoaded(event.currentTarget.duration)}
+                            onTimeUpdate={(event) => setSamplerVideoCurrentTime(event.currentTarget.currentTime)}
+                            onError={() => setSamplerVideoPreviewError("视频无法在软件内解码；文件已保存，可用“打开文件”交给系统播放器。")}
+                          />
+                        ) : (
+                          <div className="samplerVideoUnavailable">当前运行时未提供本地视频预览。</div>
+                        )}
+                      </div>
+                      <section className="samplerClipEditor" aria-label="音频波形选区">
+                        <div className="samplerClipEditorHeading">
+                          <div>
+                            <strong>音频波形选区</strong>
+                            <span>拖动两端绿线调整范围；拖动选区可整体平移，点击波形即可定位试听</span>
+                          </div>
+                          <span className="samplerClipSelectionLength">
+                            {samplerVideoDuration > 0 ? `选中 ${formatSamplerClipSeconds(samplerSelectionEndSeconds - samplerSelectionStartSeconds)} 秒` : "读取时长中"}
+                          </span>
+                        </div>
+                        <AudioWaveform
+                          className="samplerClipWaveform"
+                          peaks={samplerVideoWaveformPeaks}
+                          status={samplerVideoWaveformStatus}
+                          theme={theme}
+                          progressRatio={samplerVideoDuration > 0 ? samplerVideoCurrentTime / samplerVideoDuration : 0}
+                          selectionStartRatio={samplerVideoDuration > 0 ? samplerSelectionStartSeconds / samplerVideoDuration : 0}
+                          selectionEndRatio={samplerVideoDuration > 0 ? samplerSelectionEndSeconds / samplerVideoDuration : 1}
+                          editableSelection={samplerVideoDuration > 0}
+                          onSeekRatio={seekSamplerVideoPreview}
+                          onSelectionChange={updateSamplerVideoSelection}
+                          onSelectionMove={moveSamplerVideoSelection}
+                          ariaLabel="B 站视频真实音频波形；拖动两端调整范围，拖动选区整体移动，点击波形定位并试听"
+                        />
+                        {samplerVideoDuration > 0 && (
+                          <div className="samplerClipRangeReadout" aria-live="polite">
+                            <span>{formatSamplerClipSeconds(samplerSelectionStartSeconds)} 秒</span>
+                            <span>至</span>
+                            <span>{formatSamplerClipSeconds(samplerSelectionEndSeconds)} 秒</span>
+                            <span>／视频总长 {formatSamplerClipSeconds(samplerVideoDuration)} 秒</span>
+                          </div>
+                        )}
+                      </section>
+                      <div className="samplerVideoPreviewFooter">
+                        <span title={samplerVideoPreview.videoPath}>{samplerVideoPreview.itemTitle ?? samplerVideoPreview.title ?? "B 站视频"}</span>
+                        <div>
+                          <button className="samplerVideoPreviewAction" type="button" onClick={() => void onSamplerOpenDownloadedVideo()}>
+                            <Play size={14} strokeWidth={1.9} />
+                            <span>打开文件</span>
+                          </button>
+                          <button className="samplerVideoPreviewAction" type="button" onClick={() => void onSamplerRevealDownloadedVideo()}>
+                            <FolderOpen size={14} strokeWidth={1.9} />
+                            <span>文件位置</span>
+                          </button>
+                        </div>
+                      </div>
+                      {samplerVideoPreviewError && <p className="samplerVideoPreviewError">{samplerVideoPreviewError}</p>}
+                    </section>
+                  )}
+
+                  <div className="samplerClipFineTune">
+                    {samplerVideoPreview && <p>精确微调（秒）</p>}
+                    <div className="samplerClipGrid">
+                      <label className="settingsField samplerField">
+                        <span>开始秒</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={samplerVideoDuration > 0 ? Math.max(0, samplerSelectionEndSeconds - SAMPLER_MIN_CLIP_SECONDS) : undefined}
+                          step="0.1"
+                          value={samplerStartSeconds}
+                          placeholder="留空"
+                          onChange={(event) => setSamplerStartSeconds(event.target.value)}
+                        />
+                      </label>
+                      <label className="settingsField samplerField">
+                        <span>结束秒</span>
+                        <input
+                          type="number"
+                          min={samplerVideoDuration > 0 ? Math.min(samplerVideoDuration, samplerSelectionStartSeconds + SAMPLER_MIN_CLIP_SECONDS) : 0}
+                          max={samplerVideoDuration > 0 ? samplerVideoDuration : undefined}
+                          step="0.1"
+                          value={samplerEndSeconds}
+                          placeholder="留空"
+                          onChange={(event) => setSamplerEndSeconds(event.target.value)}
+                        />
+                      </label>
+                    </div>
                   </div>
 
                   <label className="settingsField samplerField">
@@ -7661,6 +8023,75 @@ export function App() {
                   </small>
                   <small>转写运行模式：{qwenRuntimeLabel(appSettings?.qwen_runtime?.asr)}；旁白逐词对齐：{qwenRuntimeLabel(appSettings?.qwen_runtime?.alignment)}。</small>
                 </label>
+                <div className="enhancementSettingsSummary">
+                  <div>
+                    <strong>语音增强（本地）</strong>
+                    <span>DeepFilterNet3 与 MossFormer2_SE_48K 会依次运行，不会与 TTS、ASR 同时争抢显存。</span>
+                  </div>
+                  <span className={appSettings?.audio_enhancement_ready ? "enhancementReadiness ready" : "enhancementReadiness incomplete"}>
+                    {appSettings?.audio_enhancement_ready ? "双模型已就绪" : "需要配置"}
+                  </span>
+                </div>
+                <div className="enhancementSettingsGrid">
+                  <label className="settingsField enhancementWideField">
+                    <span>专用 Python 运行时</span>
+                    <div className="settingsPathInput">
+                      <input
+                        value={settingsDraft.audio_enhancement_python}
+                        placeholder="…\\audio-enhancement-runtime\\python.exe"
+                        onChange={(event) => setSettingsDraft((draft) => ({ ...draft, audio_enhancement_python: event.target.value }))}
+                      />
+                      <button className="pathPickButton" type="button" onClick={() => void chooseAudioEnhancementPython()}>
+                        <FolderOpen size={15} strokeWidth={1.9} />
+                        <span>选择</span>
+                      </button>
+                    </div>
+                    <small>{appSettings?.audio_enhancement_runtime_installed ? "运行时文件已找到；仍会在首次执行时检查模型依赖。" : "请选择已安装 PyTorch、DeepFilterNet 与 ClearVoice 的 python.exe。"}</small>
+                  </label>
+                  <label className="settingsField">
+                    <span>处理设备</span>
+                    <select
+                      value={settingsDraft.audio_enhancement_device}
+                      onChange={(event) => setSettingsDraft((draft) => ({
+                        ...draft,
+                        audio_enhancement_device: event.target.value as SettingsDraft["audio_enhancement_device"]
+                      }))}
+                    >
+                      <option value="auto">自动选择（推荐）</option>
+                      <option value="cuda">NVIDIA CUDA</option>
+                      <option value="cpu">CPU</option>
+                    </select>
+                    <small>自动优先使用可用 CUDA；CPU 适合兼容性排查，但处理较慢。</small>
+                  </label>
+                  <label className="settingsField enhancementWideField">
+                    <span>DeepFilterNet3 模型目录</span>
+                    <div className="settingsPathInput">
+                      <input
+                        value={settingsDraft.deepfilternet3_root}
+                        onChange={(event) => setSettingsDraft((draft) => ({ ...draft, deepfilternet3_root: event.target.value }))}
+                      />
+                      <button className="pathPickButton" type="button" onClick={() => void chooseDirectoryForSetting("deepfilternet3_root")}>
+                        <FolderOpen size={15} strokeWidth={1.9} />
+                        <span>选择</span>
+                      </button>
+                    </div>
+                    <small className={appSettings?.deepfilternet3_model_installed ? "settingCheck ready" : "settingCheck"}>{appSettings?.deepfilternet3_model_installed ? "已找到 config.ini 与 checkpoints。" : "目录需要包含 config.ini 与 checkpoints。"}</small>
+                  </label>
+                  <label className="settingsField enhancementWideField">
+                    <span>MossFormer2_SE_48K 权重目录</span>
+                    <div className="settingsPathInput">
+                      <input
+                        value={settingsDraft.mossformer2_se_root}
+                        onChange={(event) => setSettingsDraft((draft) => ({ ...draft, mossformer2_se_root: event.target.value }))}
+                      />
+                      <button className="pathPickButton" type="button" onClick={() => void chooseDirectoryForSetting("mossformer2_se_root")}>
+                        <FolderOpen size={15} strokeWidth={1.9} />
+                        <span>选择</span>
+                      </button>
+                    </div>
+                    <small className={appSettings?.mossformer2_se_model_installed ? "settingCheck ready" : "settingCheck"}>{appSettings?.mossformer2_se_model_installed ? "已找到 last_best_checkpoint 与 .pt 权重。" : "目录需要包含 last_best_checkpoint 与 last_best_checkpoint.pt。"}</small>
+                  </label>
+                </div>
                 <details className="settingsAdvancedDetails">
                   <summary>
                     <span className="settingsAdvancedIcon"><Settings size={16} strokeWidth={1.9} /></span>

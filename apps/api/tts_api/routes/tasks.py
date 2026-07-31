@@ -5,6 +5,8 @@ from tts_api.jobs import get_job_store
 from tts_api.projects import get_project_store
 from tts_api.schemas import TaskEvent, TaskSummary
 from tts_api.transcription import get_transcription_store
+from tts_api.enhancement import get_audio_enhancement_store
+from tts_api.separation import get_audio_separation_store
 
 
 router = APIRouter()
@@ -118,5 +120,43 @@ def list_tasks() -> dict:
         )
         for job in get_transcription_store().list()
     ]
-    tasks = sorted([*speech_tasks, *alignment_tasks, *batch_tasks, *transcription_tasks], key=lambda task: task.updated_at, reverse=True)
+    enhancement_tasks = [
+        TaskSummary(
+            id=f"audio-enhancement:{job.id}",
+            source="audio_enhancement",
+            title=f"语音增强 · {job.source_file_name}",
+            status=job.status,
+            stage=job.stage,
+            progress_percent=job.progress_percent,
+            created_at=job.created_at,
+            updated_at=job.completed_at or job.started_at or job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            error=job.error,
+            retryable=job.status.value in {"failed", "cancelled"},
+            cancelable=job.status.value in {"queued", "running"},
+            events=[],
+        )
+        for job in get_audio_enhancement_store().list()
+    ]
+    separation_tasks = [
+        TaskSummary(
+            id=f"audio-separation:{job.id}",
+            source="audio_separation",
+            title=f"人声伴奏分轨 · {job.source_file_name}",
+            status=job.status,
+            stage=job.stage,
+            progress_percent=job.progress_percent,
+            created_at=job.created_at,
+            updated_at=job.completed_at or job.started_at or job.created_at,
+            started_at=job.started_at,
+            completed_at=job.completed_at,
+            error=job.error,
+            retryable=job.status.value in {"failed", "cancelled"},
+            cancelable=job.status.value in {"queued", "running"},
+            events=[],
+        )
+        for job in get_audio_separation_store().list()
+    ]
+    tasks = sorted([*speech_tasks, *alignment_tasks, *batch_tasks, *transcription_tasks, *enhancement_tasks, *separation_tasks], key=lambda task: task.updated_at, reverse=True)
     return {"tasks": [task.model_dump(mode="json") for task in tasks]}

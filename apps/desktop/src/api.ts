@@ -1,4 +1,10 @@
 import type {
+  AudioEnhancementInputInfo,
+  AudioEnhancementJob,
+  AudioEnhancementJobRequest,
+  AudioSeparationInputInfo,
+  AudioSeparationJob,
+  AudioSeparationJobRequest,
   AudioAsset,
   AppSettings,
   AppSettingsUpdate,
@@ -398,6 +404,70 @@ export async function fetchTranscriptionExport(jobId: string, format: "txt" | "s
     throw new Error(payload?.detail ?? `导出失败：${response.status}`);
   }
   return response.text();
+}
+
+export async function uploadAudioEnhancementInput(file: File): Promise<AudioEnhancementInputInfo> {
+  const formData = new FormData();
+  formData.set("file", file, file.name);
+  const response = await fetchWithTimeout(`${getApiBase()}/v1/audio-enhancements/uploads`, { method: "POST", body: formData }, 15 * 60_000);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `媒体导入失败：${response.status}`);
+  }
+  return response.json();
+}
+
+export function createAudioEnhancementJob(request: AudioEnhancementJobRequest): Promise<AudioEnhancementJob> {
+  return jobRequest<AudioEnhancementJob>("/v1/audio-enhancements", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
+export function fetchAudioEnhancementJobs(): Promise<AudioEnhancementJob[]> {
+  return jobRequest<AudioEnhancementJob[]>("/v1/audio-enhancements");
+}
+
+export function cancelAudioEnhancementJob(jobId: string, force = false): Promise<AudioEnhancementJob> {
+  const suffix = force ? "?force=true" : "";
+  return jobRequest<AudioEnhancementJob>(`/v1/audio-enhancements/${jobId}/cancel${suffix}`, { method: "POST" });
+}
+
+export function retryAudioEnhancementJob(jobId: string): Promise<AudioEnhancementJob> {
+  return jobRequest<AudioEnhancementJob>(`/v1/audio-enhancements/${jobId}/retry`, { method: "POST" });
+}
+
+export async function uploadAudioSeparationInput(file: File): Promise<AudioSeparationInputInfo> {
+  const formData = new FormData();
+  formData.set("file", file, file.name);
+  const response = await fetchWithTimeout(`${getApiBase()}/v1/audio-separations/uploads`, { method: "POST", body: formData }, 15 * 60_000);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `媒体导入失败：${response.status}`);
+  }
+  return response.json();
+}
+
+export function createAudioSeparationJob(request: AudioSeparationJobRequest): Promise<AudioSeparationJob> {
+  return jobRequest<AudioSeparationJob>("/v1/audio-separations", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+}
+
+export function fetchAudioSeparationJobs(): Promise<AudioSeparationJob[]> {
+  return jobRequest<AudioSeparationJob[]>("/v1/audio-separations");
+}
+
+export function cancelAudioSeparationJob(jobId: string, force = false): Promise<AudioSeparationJob> {
+  const suffix = force ? "?force=true" : "";
+  return jobRequest<AudioSeparationJob>(`/v1/audio-separations/${jobId}/cancel${suffix}`, { method: "POST" });
+}
+
+export function retryAudioSeparationJob(jobId: string): Promise<AudioSeparationJob> {
+  return jobRequest<AudioSeparationJob>(`/v1/audio-separations/${jobId}/retry`, { method: "POST" });
 }
 
 export function clearSpeechJobHistory(): Promise<{

@@ -24,6 +24,8 @@ DEFAULT_CAPSWRITER_ROOT = MODEL_STORE_ROOT / "CapsWriter-Offline"
 DEFAULT_QWEN_RUNTIME_ROOT = MODEL_STORE_ROOT / "Qwen3-runtime"
 DEFAULT_QWEN_CUDA_RUNTIME_ROOT = MODEL_STORE_ROOT / "Qwen3-runtime-cuda"
 DEFAULT_QWEN_CUDA_BACKEND_DIR = DEFAULT_CAPSWRITER_ROOT / ".open-tts-backends" / "cuda"
+DEFAULT_DEEPFILTERNET3_ROOT = MODEL_STORE_ROOT / "DeepFilterNet3"
+DEFAULT_MOSSFORMER2_SE_ROOT = MODEL_STORE_ROOT / "MossFormer2-SE-48K"
 DEFAULT_SETTINGS_FILE = WORKSPACE_ROOT / "data" / "config" / "user-settings.json"
 
 
@@ -110,6 +112,35 @@ def _default_transcription_input_dir() -> Path:
     if explicit_path:
         return Path(explicit_path)
     return WORKSPACE_ROOT / "data" / "transcriptions" / "inputs"
+
+
+def _default_audio_enhancement_jobs_file() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_AUDIO_ENHANCEMENT_JOBS_FILE")
+    if explicit_path:
+        return Path(explicit_path)
+    configured_settings = os.environ.get("OPEN_TTS_SETTINGS_FILE")
+    if configured_settings:
+        return Path(configured_settings).parent / "audio-enhancements.json"
+    return WORKSPACE_ROOT / "data" / "config" / "audio-enhancements.json"
+
+
+def _default_audio_enhancement_input_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_AUDIO_ENHANCEMENT_INPUT_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    return WORKSPACE_ROOT / "data" / "audio-enhancements" / "inputs"
+
+
+def _default_audio_enhancement_work_dir() -> Path:
+    explicit_path = os.environ.get("OPEN_TTS_AUDIO_ENHANCEMENT_WORK_DIR")
+    if explicit_path:
+        return Path(explicit_path)
+    return WORKSPACE_ROOT / "data" / "audio-enhancements" / "work"
+
+
+def _default_audio_enhancement_python() -> Path:
+    configured = os.environ.get("OPEN_TTS_AUDIO_ENHANCEMENT_PYTHON")
+    return Path(configured) if configured else Path(sys.executable)
 
 
 def _default_qwen_asr_python() -> Path:
@@ -274,6 +305,10 @@ USER_SETTING_KEYS = {
     "sensevoice_api_port",
     "sensevoice_device",
     "sensevoice_idle_timeout_seconds",
+    "audio_enhancement_python",
+    "audio_enhancement_device",
+    "deepfilternet3_root",
+    "mossformer2_se_root",
     "model_instances",
 }
 RESTART_REQUIRED_FIELDS = ["api_host", "api_port"]
@@ -337,6 +372,22 @@ class Settings(BaseModel):
     transcription_max_input_bytes: int = Field(
         default_factory=lambda: int(os.environ.get("OPEN_TTS_TRANSCRIPTION_MAX_INPUT_BYTES", str(8 * 1024 * 1024 * 1024))),
         ge=1,
+    )
+    # Audio enhancement is intentionally an optional local runtime.  It does
+    # not bloat the core desktop Python bundle: users point this at a Python
+    # environment containing PyTorch + the two selected enhancement packages.
+    audio_enhancement_jobs_file: Path = Field(default_factory=_default_audio_enhancement_jobs_file)
+    audio_enhancement_input_dir: Path = Field(default_factory=_default_audio_enhancement_input_dir)
+    audio_enhancement_work_dir: Path = Field(default_factory=_default_audio_enhancement_work_dir)
+    audio_enhancement_python: Path = Field(default_factory=_default_audio_enhancement_python)
+    audio_enhancement_device: Literal["auto", "cuda", "cpu"] = Field(
+        default_factory=lambda: os.environ.get("OPEN_TTS_AUDIO_ENHANCEMENT_DEVICE", "auto")
+    )
+    deepfilternet3_root: Path = Field(
+        default_factory=lambda: Path(os.environ.get("OPEN_TTS_DEEPFILTERNET3_ROOT", str(DEFAULT_DEEPFILTERNET3_ROOT)))
+    )
+    mossformer2_se_root: Path = Field(
+        default_factory=lambda: Path(os.environ.get("OPEN_TTS_MOSSFORMER2_SE_ROOT", str(DEFAULT_MOSSFORMER2_SE_ROOT)))
     )
     indextts2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_INDEXTTS2_ROOT", str(DEFAULT_INDEXTTS2_ROOT))))
     indextts2_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_INDEXTTS2_IDLE_SECONDS", "600")))
@@ -421,6 +472,16 @@ def serialize_settings(settings: Settings) -> dict:
     # Local import avoids a module cycle: qwen_runtime reads the Settings type.
     from tts_api.qwen_runtime import runtime_status as qwen_runtime_status
 
+    audio_enhancement_runtime_installed = settings.audio_enhancement_python.is_file()
+    deepfilternet3_model_installed = (
+        (settings.deepfilternet3_root / "config.ini").is_file()
+        and (settings.deepfilternet3_root / "checkpoints").is_dir()
+    )
+    mossformer2_se_model_installed = (
+        (settings.mossformer2_se_root / "last_best_checkpoint").is_file()
+        and (settings.mossformer2_se_root / "last_best_checkpoint.pt").is_file()
+    )
+
     return {
         "api_host": settings.api_host,
         "api_port": settings.api_port,
@@ -456,6 +517,18 @@ def serialize_settings(settings: Settings) -> dict:
         "doubao_data_dir": str(settings.doubao_data_dir),
         "ffmpeg_path": settings.ffmpeg_path,
         "asr_backend": settings.asr_backend,
+        "audio_enhancement_python": str(settings.audio_enhancement_python),
+        "audio_enhancement_runtime_installed": audio_enhancement_runtime_installed,
+        "audio_enhancement_device": settings.audio_enhancement_device,
+        "deepfilternet3_root": str(settings.deepfilternet3_root),
+        "deepfilternet3_model_installed": deepfilternet3_model_installed,
+        "mossformer2_se_root": str(settings.mossformer2_se_root),
+        "mossformer2_se_model_installed": mossformer2_se_model_installed,
+        "audio_enhancement_ready": (
+            audio_enhancement_runtime_installed
+            and deepfilternet3_model_installed
+            and mossformer2_se_model_installed
+        ),
         "qwen_asr_python": str(settings.qwen_asr_python),
         "qwen_cuda_python": str(settings.qwen_cuda_python),
         "qwen_cuda_backend_dir": str(settings.qwen_cuda_backend_dir),

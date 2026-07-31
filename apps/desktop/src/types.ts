@@ -76,6 +76,93 @@ export type TranscriptionJob = {
   retry_of?: string | null;
 };
 
+export type AudioEnhancementBackend = "deepfilternet3" | "mossformer2-se-48k";
+export type AudioEnhancementPreset = "light" | "standard" | "strong";
+export type AudioEnhancementJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export type AudioEnhancementInputInfo = {
+  id: string;
+  file_name: string;
+  file_size_bytes: number;
+};
+
+export type AudioEnhancementOutput = {
+  backend: AudioEnhancementBackend;
+  model: string;
+  audio_url: string;
+  file_path: string;
+  sample_rate: number;
+  duration_seconds: number;
+};
+
+export type AudioEnhancementJobRequest = {
+  input_id: string;
+  source_file_name: string;
+  backends: AudioEnhancementBackend[];
+  preset: AudioEnhancementPreset;
+};
+
+export type AudioEnhancementJob = {
+  id: string;
+  status: AudioEnhancementJobStatus;
+  input_id: string;
+  source_file_name: string;
+  source_file_size_bytes: number;
+  backends: AudioEnhancementBackend[];
+  preset: AudioEnhancementPreset;
+  stage: string;
+  progress_percent: number;
+  outputs: AudioEnhancementOutput[];
+  warnings: string[];
+  error?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  retry_of?: string | null;
+};
+
+export type AudioSeparationModel = "mdx-vocals" | "mdx-karaoke" | "mdx23c-instvoc-hq";
+export type AudioSeparationJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export type AudioSeparationInputInfo = {
+  id: string;
+  file_name: string;
+  file_size_bytes: number;
+};
+
+export type AudioSeparationOutput = {
+  stem: "vocals" | "instrumental";
+  audio_url: string;
+  file_path: string;
+  sample_rate: number;
+  duration_seconds: number;
+};
+
+export type AudioSeparationJobRequest = {
+  input_id: string;
+  source_file_name: string;
+  model: AudioSeparationModel;
+};
+
+export type AudioSeparationJob = {
+  id: string;
+  status: AudioSeparationJobStatus;
+  input_id: string;
+  source_file_name: string;
+  source_file_size_bytes: number;
+  model: AudioSeparationModel;
+  model_display_name: string;
+  stage: string;
+  progress_percent: number;
+  outputs: AudioSeparationOutput[];
+  warnings: string[];
+  error?: string | null;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  retry_of?: string | null;
+};
+
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 
 export type AppUpdateStatus = "unavailable" | "idle" | "checking" | "available" | "up-to-date" | "downloading" | "downloaded" | "installing" | "error";
@@ -502,6 +589,12 @@ export type BilibiliExtractSampleResult = {
   itemTitle: string | null;
 };
 
+export type BilibiliExtractLocalSampleResult = {
+  audioPath: string;
+  durationSeconds: number;
+  sampleRate: number;
+};
+
 export type BilibiliDownloadVideoRequest = {
   fileName?: string;
 };
@@ -511,6 +604,21 @@ export type BilibiliDownloadVideoResult = {
   title: string | null;
   itemTitle: string | null;
   videoQuality: BilibiliVideoQuality | null;
+  previewUrl?: string | null;
+};
+
+export type BilibiliMediaHistoryEntry = {
+  id: string;
+  title: string | null;
+  itemTitle: string | null;
+  videoQuality: BilibiliVideoQuality | null;
+  fileSizeBytes: number;
+  downloadedAt: string;
+  exists: boolean;
+};
+
+export type BilibiliMediaHistoryItem = BilibiliMediaHistoryEntry & {
+  previewUrl: string;
 };
 
 export type WorkerStatus = {
@@ -650,6 +758,14 @@ export type AppSettings = {
     alignment: QwenRuntimeResolution;
   };
   alignment_ready: boolean;
+  audio_enhancement_python: string;
+  audio_enhancement_runtime_installed: boolean;
+  audio_enhancement_device: "auto" | "cuda" | "cpu";
+  deepfilternet3_root: string;
+  deepfilternet3_model_installed: boolean;
+  mossformer2_se_root: string;
+  mossformer2_se_model_installed: boolean;
+  audio_enhancement_ready: boolean;
   voxcpm2_root: string;
   voxcpm2_api_host: string;
   voxcpm2_api_port: number;
@@ -679,6 +795,10 @@ export type AppSettingsUpdate = Partial<
     | "indextts2_idle_timeout_seconds"
     | "local_api_idle_timeout_seconds"
     | "asr_backend"
+    | "audio_enhancement_python"
+    | "audio_enhancement_device"
+    | "deepfilternet3_root"
+    | "mossformer2_se_root"
     | "voxcpm2_root"
     | "voxcpm2_api_host"
     | "voxcpm2_api_port"
@@ -711,6 +831,10 @@ export type SettingsBackup = {
     | "indextts2_idle_timeout_seconds"
     | "local_api_idle_timeout_seconds"
     | "asr_backend"
+    | "audio_enhancement_python"
+    | "audio_enhancement_device"
+    | "deepfilternet3_root"
+    | "mossformer2_se_root"
     | "default_model_id"
     | "prewarm_default_model_on_startup"
   >;

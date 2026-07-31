@@ -37,3 +37,24 @@ def test_settings_does_not_mark_model_only_sensevoice_as_ready(tmp_path):
     assert payload["sensevoice_model_installed"] is True
     assert payload["sensevoice_runtime_installed"] is False
     assert payload["sensevoice_ready"] is False
+
+
+def test_settings_reports_audio_enhancement_prerequisites_independently(tmp_path):
+    deepfilter_root = tmp_path / "DeepFilterNet3"
+    (deepfilter_root / "checkpoints").mkdir(parents=True)
+    (deepfilter_root / "config.ini").write_text("[df]\n", encoding="utf-8")
+    mossformer_root = tmp_path / "MossFormer2-SE-48K"
+    mossformer_root.mkdir()
+    (mossformer_root / "last_best_checkpoint").write_text("last_best_checkpoint.pt\n", encoding="utf-8")
+    (mossformer_root / "last_best_checkpoint.pt").write_bytes(b"weights")
+
+    payload = serialize_settings(Settings(
+        audio_enhancement_python=tmp_path / "missing-python.exe",
+        deepfilternet3_root=deepfilter_root,
+        mossformer2_se_root=mossformer_root,
+    ))
+
+    assert payload["audio_enhancement_runtime_installed"] is False
+    assert payload["deepfilternet3_model_installed"] is True
+    assert payload["mossformer2_se_model_installed"] is True
+    assert payload["audio_enhancement_ready"] is False

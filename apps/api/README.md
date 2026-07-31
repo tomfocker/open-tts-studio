@@ -68,6 +68,48 @@ Qwen DML 路径中，ONNX encoder 使用 DirectML，GGUF LLM 由本地 CapsWrite
 
 任务状态、失败原因、取消、强制取消和重试位于 `/v1/transcriptions`。任务记录只保存导入文件名、大小、模型、输出文本和时间轴；不保存原始文件路径、角色参考音频、参考文本、密钥或临时模型请求。
 
+## 本地语音增强对比
+
+桌面端顶部工具栏的“语音增强对比”提供两个独立本地后端：
+
+- `DeepFilterNet3`：速度和保真度更均衡，适合大多数普通噪声、通话底噪和参考音频清理。
+- `MossFormer2_SE_48K`：48 kHz 语音增强模型，较积极地改善噪声和混响；建议始终和原音、DeepFilterNet3 结果并排试听后再选用。
+
+二者不会放入桌面主运行时或安装包。请为它们准备单独的 Python 环境，避免为普通 TTS/ASR 用户增加 PyTorch 和模型权重体积。运行任务时不会上传媒体或自动下载模型。
+
+```powershell
+# 在一个独立目录创建运行时；请按显卡/CUDA 版本先从 PyTorch 官方安装页选择 torch 安装命令。
+py -3.11 -m venv D:\OpenTTS-runtimes\audio-enhancement
+D:\OpenTTS-runtimes\audio-enhancement\Scripts\python.exe -m pip install --upgrade pip
+D:\OpenTTS-runtimes\audio-enhancement\Scripts\python.exe -m pip install clearvoice
+```
+
+Windows 上，DeepFilterNet 的 Python 扩展没有官方预编译包。本软件会优先使用上游发布的 `deep-filter.exe` 和 DeepFilterNet3 ONNX 模型档；把它们放到 DeepFilterNet3 模型目录即可，不需要安装 Rust 或 `deepfilternet`：
+
+```text
+models/DeepFilterNet3/
+  config.ini
+  checkpoints/
+  deep-filter.exe
+  DeepFilterNet3_onnx.tar.gz
+```
+
+Linux/macOS 仍可安装 `deepfilternet`，软件会在没有上述 Windows 二进制档时自动使用 Python 后端。
+
+模型目录必须完整保留，不要只选择单个 `.pt` 文件：
+
+```text
+models/DeepFilterNet3/
+  config.ini
+  checkpoints/
+
+models/MossFormer2-SE-48K/
+  last_best_checkpoint
+  last_best_checkpoint.pt
+```
+
+然后打开“设置 → 生成偏好 → 语音增强（本地）”，分别选择该环境的 `python.exe`、两个模型目录，并按电脑情况选择“自动 / NVIDIA CUDA / CPU”。状态显示“**双模型已就绪**”表示模型目录与运行时文件检查已经通过；首次处理会验证 ClearVoice/Torch 依赖（Windows 的 DeepFilterNet3 由上游二进制执行）。任务会将输入规范化成 48 kHz 单声道 WAV，两个模型串行运行，并保留原始媒体不覆盖。
+
 Doubao status and voice catalog:
 
 ```powershell

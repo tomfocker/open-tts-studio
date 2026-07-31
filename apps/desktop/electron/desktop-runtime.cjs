@@ -495,16 +495,23 @@ async function selectReferenceAudio(dialogImpl) {
   return result.filePaths[0];
 }
 
-async function selectTranscriptionMedia(dialogImpl, fsPromises, inputDirectory, idFactory = randomUUID) {
+async function selectManagedMedia(dialogImpl, fsPromises, inputDirectory, title, idFactory = randomUUID) {
   const result = await dialogImpl.showOpenDialog({
-    title: "选择要转写的音频或视频",
+    title,
     properties: ["openFile"],
     filters: [{ name: "Audio and video", extensions: TRANSCRIPTION_MEDIA_EXTENSIONS }]
   });
   if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
     return null;
   }
-  const selectedPath = result.filePaths[0];
+  return stageManagedMediaFile(fsPromises, result.filePaths[0], inputDirectory, idFactory);
+}
+
+async function stageManagedMediaFile(fsPromises, sourcePath, inputDirectory, idFactory = randomUUID) {
+  const selectedPath = typeof sourcePath === "string" ? sourcePath.trim() : "";
+  if (!selectedPath) {
+    throw new Error("媒体文件路径无效");
+  }
   const info = await fsPromises.stat(selectedPath);
   if (!info.isFile() || info.size <= 0 || info.size > MAX_TRANSCRIPTION_MEDIA_BYTES) {
     throw new Error("媒体文件无效、为空或超过 8 GB");
@@ -525,6 +532,14 @@ async function selectTranscriptionMedia(dialogImpl, fsPromises, inputDirectory, 
     fileName: path.basename(selectedPath),
     fileSizeBytes: info.size
   };
+}
+
+async function selectTranscriptionMedia(dialogImpl, fsPromises, inputDirectory, idFactory = randomUUID) {
+  return selectManagedMedia(dialogImpl, fsPromises, inputDirectory, "选择要转写的音频或视频", idFactory);
+}
+
+async function selectAudioEnhancementMedia(dialogImpl, fsPromises, inputDirectory, idFactory = randomUUID) {
+  return selectManagedMedia(dialogImpl, fsPromises, inputDirectory, "选择要降噪或增强的音频或视频", idFactory);
 }
 
 async function saveTranscriptionExport(dialogImpl, fsPromises, content, defaultName, extension) {
@@ -577,6 +592,18 @@ async function selectDirectory(dialogImpl) {
   const result = await dialogImpl.showOpenDialog({
     title: "选择目录",
     properties: ["openDirectory"]
+  });
+  if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+}
+
+async function selectPythonExecutable(dialogImpl) {
+  const result = await dialogImpl.showOpenDialog({
+    title: "选择语音增强 Python 运行时",
+    properties: ["openFile"],
+    filters: [{ name: "Python executable", extensions: ["exe"] }]
   });
   if (result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) {
     return null;
@@ -659,12 +686,15 @@ module.exports = {
   saveSettingsBackup,
   saveTranscriptionExport,
   selectDirectory,
+  selectPythonExecutable,
   selectModelArchive,
   selectSettingsBackup,
+  selectAudioEnhancementMedia,
   selectTranscriptionMedia,
   selectReferenceAudio,
   selectVoicePackage,
   saveVoicePackage,
+  stageManagedMediaFile,
   spawnBackendProcess,
   terminateProcessTree,
   validateLegadoImportUrl,

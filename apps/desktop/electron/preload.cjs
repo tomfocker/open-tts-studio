@@ -18,9 +18,11 @@ contextBridge.exposeInMainWorld("desktopFiles", {
   openPath: (targetPath) => ipcRenderer.invoke("file:open-path", targetPath),
   revealInFolder: (targetPath) => ipcRenderer.invoke("file:reveal-in-folder", targetPath),
   selectDirectory: () => ipcRenderer.invoke("file:select-directory"),
+  selectPythonExecutable: () => ipcRenderer.invoke("file:select-python-executable"),
   selectModelArchive: () => ipcRenderer.invoke("file:select-model-archive"),
   selectReferenceAudio: () => ipcRenderer.invoke("file:select-reference-audio"),
   selectTranscriptionMedia: () => ipcRenderer.invoke("file:select-transcription-media"),
+  selectAudioEnhancementMedia: () => ipcRenderer.invoke("file:select-audio-enhancement-media"),
   saveTranscriptionExport: (content, defaultName, extension) => ipcRenderer.invoke("file:save-transcription-export", content, defaultName, extension),
   readSelectedAudio: (targetPath) => ipcRenderer.invoke("file:read-selected-audio", targetPath),
   readManagedReferenceAudio: (targetPath) => ipcRenderer.invoke("file:read-managed-reference-audio", targetPath),
@@ -60,6 +62,11 @@ contextBridge.exposeInMainWorld("desktopBilibiliSampler", {
   loadAudioOptions: (kind, itemId, qn) => ipcRenderer.invoke("bilibili-sampler:load-audio-options", { kind, itemId, qn }),
   extractSample: (request) => ipcRenderer.invoke("bilibili-sampler:extract-sample", request),
   downloadVideo: (request) => ipcRenderer.invoke("bilibili-sampler:download-video", request),
+  listHistory: () => ipcRenderer.invoke("bilibili-sampler:list-history"),
+  getHistoryItem: (historyId) => ipcRenderer.invoke("bilibili-sampler:get-history-item", historyId),
+  extractHistorySample: (historyId, payload) => ipcRenderer.invoke("bilibili-sampler:extract-history-sample", historyId, payload),
+  stageTranscription: (historyId) => ipcRenderer.invoke("bilibili-sampler:stage-transcription", historyId),
+  removeHistory: (historyId) => ipcRenderer.invoke("bilibili-sampler:remove-history", historyId),
   cancelExtract: () => ipcRenderer.invoke("bilibili-sampler:cancel-extract"),
   onStateChanged: (listener) => {
     const channel = "bilibili-sampler:state-changed";

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CommercialUse(StrEnum):
@@ -241,6 +241,77 @@ class TranscriptionJobInfo(BaseModel):
     text: str | None = None
     tokens: list[TranscriptionToken] = Field(default_factory=list)
     segments: list[TranscriptionSegment] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    retry_of: str | None = None
+
+
+class AudioEnhancementBackend(StrEnum):
+    deepfilternet3 = "deepfilternet3"
+    mossformer2_se_48k = "mossformer2-se-48k"
+
+
+class AudioEnhancementPreset(StrEnum):
+    light = "light"
+    standard = "standard"
+    strong = "strong"
+
+
+class AudioEnhancementJobStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class AudioEnhancementInputInfo(BaseModel):
+    """A managed local import used only by audio-enhancement jobs."""
+
+    id: str = Field(min_length=8, max_length=128)
+    file_name: str = Field(min_length=1, max_length=255)
+    file_size_bytes: int = Field(ge=0)
+
+
+class AudioEnhancementJobRequest(BaseModel):
+    input_id: str = Field(min_length=8, max_length=128)
+    source_file_name: str = Field(min_length=1, max_length=255)
+    backends: list[AudioEnhancementBackend] = Field(min_length=1, max_length=2)
+    preset: AudioEnhancementPreset = AudioEnhancementPreset.standard
+
+    @field_validator("backends")
+    @classmethod
+    def no_duplicate_backends(cls, value: list[AudioEnhancementBackend]) -> list[AudioEnhancementBackend]:
+        if len(set(value)) != len(value):
+            raise ValueError("每个语音增强模型只能选择一次。")
+        return value
+
+
+class AudioEnhancementOutput(BaseModel):
+    backend: AudioEnhancementBackend
+    model: str
+    audio_url: str
+    file_path: str
+    sample_rate: int = Field(ge=1)
+    duration_seconds: float = Field(ge=0)
+
+
+class AudioEnhancementJobInfo(BaseModel):
+    """Safe, persistent state for a local speech-enhancement comparison job."""
+
+    id: str
+    status: AudioEnhancementJobStatus
+    input_id: str
+    source_file_name: str
+    source_file_size_bytes: int = Field(ge=0)
+    backends: list[AudioEnhancementBackend]
+    preset: AudioEnhancementPreset
+    stage: str = "queued"
+    progress_percent: int = Field(default=0, ge=0, le=100)
+    outputs: list[AudioEnhancementOutput] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

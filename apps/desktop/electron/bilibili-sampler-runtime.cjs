@@ -1,4 +1,5 @@
 const childProcess = require("node:child_process");
+const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { URL } = require("node:url");
@@ -14,6 +15,9 @@ const DEFAULT_FNVAL = 4048;
 const BILIBILI_MEDIA_REFERER = "https://www.bilibili.com/";
 const BILIBILI_MEDIA_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const SESSION_FILE_NAME = "bilibili-sampler-session.json";
+const HISTORY_FILE_NAME = "bilibili-sampler-history.json";
+const HISTORY_VERSION = 1;
+const MAX_HISTORY_ENTRIES = 80;
 const TASK_ROOT_DIRECTORY_NAME = "bilibili-sampler";
 const TASKS_DIRECTORY_NAME = "tasks";
 const SOURCE_AUDIO_FILE_NAME = "source.audio";
@@ -391,6 +395,7 @@ class BilibiliSamplerService {
     this.fs = dependencies.fs ?? fs;
     this.fetchImpl = dependencies.fetch ?? (typeof fetch === "function" ? fetch.bind(globalThis) : null);
     this.now = dependencies.now ?? (() => Date.now());
+    this.createHistoryId = dependencies.createHistoryId ?? randomUUID;
     this.defaultOutputDirectory = dependencies.defaultOutputDirectory ?? null;
     this.downloadBinaryImpl = dependencies.downloadBinary ?? ((input) => this.downloadBinary(input));
     this.runFfmpegImpl = dependencies.runFfmpeg ?? ((input) => this.runFfmpeg(input));
@@ -722,6 +727,58 @@ class BilibiliSamplerService {
     }
   }
 
+  async extractLocalSample(request = {}) {
+    const inputPath = typeof request.inputPath === "string" ? request.inputPath.trim() : "";
+    const startSeconds = normalizeSeconds(request.startSeconds);
+    const endSeconds = normalizeSeconds(request.endSeconds);
+    if (!inputPath || !this.fs.existsSync(inputPath)) {
+      return { success: false, error: "本地视频文件已不存在，无法提取片段" };
+    }
+    if (startSeconds === null || startSeconds < 0 || endSeconds === null || endSeconds <= startSeconds) {
+      return { success: false, error: "请先选择一个有效的片段范围" };
+    }
+    const ffmpegPath = this.getFfmpegPathImpl();
+    if (!ffmpegPath) {
+      return { success: false, error: "未找到 FFmpeg，无法提取本地音频" };
+    }
+
+    const outputDirectory = request.outputDirectory || this.defaultOutputDirectory || this.app.getPath("downloads");
+    const sampleBaseName = sanitizeFileName(request.sampleName || this.getDefaultSampleName());
+    const outputPath = this.prepareLocalSampleOutputPath(outputDirectory, sampleBaseName);
+    this.fs.mkdirSync(outputDirectory, { recursive: true });
+
+    try {
+      this.updateState({ taskStage: "converting", error: null });
+      await this.runFfmpegImpl({
+        ffmpegPath,
+        inputPath,
+        outputPath,
+        startSeconds,
+        endSeconds,
+        sampleRate: DEFAULT_SAMPLE_RATE,
+        channels: DEFAULT_CHANNELS
+      });
+      this.assertOutputFile(outputPath);
+      const metadata = this.readWavMetadataImpl(outputPath);
+      if (!metadata.durationSeconds || metadata.durationSeconds <= 0) {
+        throw new Error("提取出的音频为空");
+      }
+      this.updateState({ taskStage: "completed", error: null });
+      return {
+        success: true,
+        data: {
+          audioPath: outputPath,
+          durationSeconds: metadata.durationSeconds,
+          sampleRate: metadata.sampleRate
+        }
+      };
+    } catch (error) {
+      const message = this.toErrorMessage(error);
+      this.updateState({ taskStage: "failed", error: message });
+      return { success: false, error: message };
+    }
+  }
+
   async downloadVideo(request = {}) {
     if (!this.state.parsedLink || !this.state.selection.itemId) {
       return { success: false, error: "Load Bilibili stream options before downloading video" };
@@ -753,7 +810,7 @@ class BilibiliSamplerService {
     const outputBaseName = sanitizeFileName(request.fileName || this.getDefaultSampleName());
     const videoTempPath = path.join(tempDirectory, `${SOURCE_VIDEO_FILE_NAME}${getExtensionFromUrl(videoUrl)}`);
     const audioTempPath = path.join(tempDirectory, `${SOURCE_AUDIO_FILE_NAME}${getExtensionFromUrl(audioUrl)}`);
-    const outputPath = path.join(outputDirectory, `${outputBaseName}.mp4`);
+    let outputPath = path.join(outputDirectory, `${outputBaseName}.mp4`);
 
     this.activeExtractTask = { controller, tempDirectory };
     this.fs.mkdirSync(tempDirectory, { recursive: true });
@@ -777,7 +834,7 @@ class BilibiliSamplerService {
       });
 
       this.updateState({ taskStage: "merging", error: null });
-      this.removeExistingFileIfPresent(outputPath);
+      outputPath = this.prepareVideoOutputPath(outputDirectory, outputBaseName);
       await this.mergeFfmpegImpl({
         ffmpegPath,
         videoPath: videoTempPath,
@@ -785,6 +842,12 @@ class BilibiliSamplerService {
         outputPath
       });
       this.assertOutputFile(outputPath);
+      await this.recordVideoHistory({
+        videoPath: outputPath,
+        title: this.state.parsedLink?.title ?? null,
+        itemTitle: this.getSelectedItem()?.title ?? null,
+        videoQuality: selectedVideo
+      });
       await this.cleanupTaskDirectory(tempDirectory);
 
       const selectedItem = this.getSelectedItem();
@@ -1096,6 +1159,89 @@ class BilibiliSamplerService {
     return path.join(this.app.getPath("userData"), SESSION_FILE_NAME);
   }
 
+  getHistoryPath() {
+    return path.join(this.app.getPath("userData"), HISTORY_FILE_NAME);
+  }
+
+  readVideoHistory() {
+    const historyPath = this.getHistoryPath();
+    if (!this.fs.existsSync(historyPath)) {
+      return [];
+    }
+    try {
+      const parsed = JSON.parse(this.fs.readFileSync(historyPath, "utf-8"));
+      const entries = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.entries) ? parsed.entries : [];
+      return entries.filter((entry) => (
+        entry &&
+        typeof entry.id === "string" && entry.id.trim() &&
+        typeof entry.videoPath === "string" && entry.videoPath.trim() &&
+        typeof entry.downloadedAt === "string" && entry.downloadedAt.trim()
+      ));
+    } catch {
+      return [];
+    }
+  }
+
+  async writeVideoHistory(entries) {
+    const historyPath = this.getHistoryPath();
+    this.fs.mkdirSync(path.dirname(historyPath), { recursive: true });
+    await this.fs.promises.writeFile(historyPath, JSON.stringify({
+      version: HISTORY_VERSION,
+      entries
+    }, null, 2));
+  }
+
+  async recordVideoHistory(input) {
+    const info = this.fs.statSync(input.videoPath);
+    const entry = {
+      id: String(this.createHistoryId()),
+      videoPath: input.videoPath,
+      title: normalizeText(input.title),
+      itemTitle: normalizeText(input.itemTitle),
+      videoQuality: input.videoQuality ?? null,
+      fileSizeBytes: info.size,
+      downloadedAt: new Date(this.now()).toISOString()
+    };
+    const entries = this.readVideoHistory().filter((item) => item.videoPath !== entry.videoPath);
+    await this.writeVideoHistory([entry, ...entries].slice(0, MAX_HISTORY_ENTRIES));
+    return clone(entry);
+  }
+
+  listVideoHistory() {
+    return this.readVideoHistory().map((entry) => ({
+      ...this.toPublicVideoHistoryEntry(entry),
+      exists: this.fs.existsSync(entry.videoPath)
+    }));
+  }
+
+  toPublicVideoHistoryEntry(entry) {
+    const { videoPath: _videoPath, ...publicEntry } = clone(entry);
+    return publicEntry;
+  }
+
+  getVideoHistoryEntry(historyId) {
+    const normalizedId = String(historyId ?? "").trim();
+    if (!normalizedId) {
+      return null;
+    }
+    const entry = this.readVideoHistory().find((item) => item.id === normalizedId);
+    return entry ? clone(entry) : null;
+  }
+
+  async removeVideoHistoryEntry(historyId) {
+    const normalizedId = String(historyId ?? "").trim();
+    if (!normalizedId) {
+      return false;
+    }
+    const entries = this.readVideoHistory();
+    const nextEntries = entries.filter((entry) => entry.id !== normalizedId);
+    if (nextEntries.length === entries.length) {
+      return false;
+    }
+    await this.writeVideoHistory(nextEntries);
+    return true;
+  }
+
   async persistSession(session) {
     const sessionPath = this.getSessionPath();
     this.fs.mkdirSync(path.dirname(sessionPath), { recursive: true });
@@ -1146,6 +1292,38 @@ class BilibiliSamplerService {
     }
   }
 
+  prepareVideoOutputPath(outputDirectory, outputBaseName) {
+    const preferredPath = path.join(outputDirectory, `${outputBaseName}.mp4`);
+    try {
+      this.removeExistingFileIfPresent(preferredPath);
+      return preferredPath;
+    } catch (error) {
+      const code = String(error?.code ?? "").toUpperCase();
+      if (code !== "EBUSY" && code !== "EPERM" && code !== "EACCES") {
+        throw error;
+      }
+    }
+
+    for (let index = 2; index <= 999; index += 1) {
+      const alternativePath = path.join(outputDirectory, `${outputBaseName} (${index}).mp4`);
+      if (!this.fs.existsSync(alternativePath)) {
+        return alternativePath;
+      }
+    }
+    throw new Error("Unable to choose an available MP4 output name");
+  }
+
+  prepareLocalSampleOutputPath(outputDirectory, outputBaseName) {
+    for (let index = 1; index <= 999; index += 1) {
+      const suffix = index === 1 ? "" : ` (${index})`;
+      const outputPath = path.join(outputDirectory, `${outputBaseName}${suffix}.wav`);
+      if (!this.fs.existsSync(outputPath)) {
+        return outputPath;
+      }
+    }
+    throw new Error("无法为提取的 WAV 选择可用文件名");
+  }
+
   moveFile(fromPath, toPath) {
     this.removeExistingFileIfPresent(toPath);
     this.fs.renameSync(fromPath, toPath);
@@ -1189,7 +1367,16 @@ class BilibiliSamplerService {
     }
     args.push("-i", input.inputPath);
     if (input.endSeconds !== null && typeof input.endSeconds !== "undefined") {
-      args.push("-to", String(input.endSeconds));
+      // -to after -i is interpreted against the source timeline.  Using it
+      // together with -ss therefore produces a clip that is too long.  The
+      // UI always supplies an absolute end position, so convert it to the
+      // requested output duration explicitly.
+      const startSeconds = input.startSeconds === null || typeof input.startSeconds === "undefined" ? 0 : Number(input.startSeconds);
+      const clipDuration = Number(input.endSeconds) - startSeconds;
+      if (!Number.isFinite(clipDuration) || clipDuration <= 0) {
+        throw new Error("End time must be greater than start time");
+      }
+      args.push("-t", String(clipDuration));
     }
     args.push("-ac", String(input.channels), "-ar", String(input.sampleRate), input.outputPath);
 

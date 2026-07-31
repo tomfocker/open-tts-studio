@@ -21,8 +21,10 @@ data/inputs/bilibili/*
 !data/inputs/bilibili/.gitkeep
 data/bilibili-login-test-user-data/
 data/bilibili-smoke-user-data/
+data/bilibili-preview-user-data/
 data/bilibili-audio-smoke/
 data/bilibili-video-smoke/
+data/bilibili-preview-*.png
 data/config/user-settings.json
 data/config/voices.json
 data/config/projects.json
@@ -37,6 +39,8 @@ data/doubao/
 data/alignments/
 data/asr/
 data/transcriptions/
+data/audio-enhancements/
+data/audio-separations/
 data/test-temp/
 *.wav
 *.mp3

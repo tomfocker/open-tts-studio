@@ -1,7 +1,9 @@
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const fsSync = require("node:fs");
 const { randomUUID } = require("node:crypto");
-const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require("electron");
+const { fileURLToPath } = require("node:url");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const {
   chooseFrontendTarget,
@@ -20,21 +22,37 @@ const {
   saveTranscriptionExport,
   saveVoicePackage,
   selectDirectory,
+  selectPythonExecutable,
   selectModelArchive,
   selectSettingsBackup,
+  selectAudioEnhancementMedia,
   selectTranscriptionMedia,
   selectReferenceAudio,
   selectVoicePackage,
   spawnBackendProcess,
+  stageManagedMediaFile,
   terminateProcessTree
 } = require("./desktop-runtime.cjs");
 const { BilibiliSamplerService } = require("./bilibili-sampler-runtime.cjs");
+const { LOCAL_MEDIA_SCHEME, createLocalMediaRegistry, parseByteRange } = require("./local-media-runtime.cjs");
 const { createUpdateService } = require("./updater-runtime.cjs");
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: LOCAL_MEDIA_SCHEME,
+  privileges: {
+    standard: true,
+    secure: true,
+    stream: true,
+    supportFetchAPI: true,
+    corsEnabled: true
+  }
+}]);
 
 let mainWindow;
 let backendProcess;
 let backendSupervisor;
 const selectedPreviewAudioPaths = new Set();
+const localMediaRegistry = createLocalMediaRegistry();
 const backendToken = app.isPackaged ? randomUUID() : null;
 const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
 const packagedDataRoot = app.isPackaged ? path.join(app.getPath("userData"), "data") : undefined;
@@ -125,6 +143,42 @@ app.whenReady().then(async () => {
     console.warn("OpenTTS managed-model migration skipped:", error instanceof Error ? error.message : String(error));
   }
   configureBackend();
+  protocol.handle(LOCAL_MEDIA_SCHEME, async (request) => {
+    const fileUrl = localMediaRegistry.resolve(request.url);
+    if (!fileUrl) {
+      return new Response("Preview media was not found", { status: 404 });
+    }
+    let totalBytes;
+    try {
+      totalBytes = (await fs.stat(fileURLToPath(fileUrl))).size;
+    } catch {
+      return new Response("Preview media was not found", { status: 404 });
+    }
+    const range = parseByteRange(request.headers.get("range"), totalBytes);
+    if (range?.unsatisfiable) {
+      return new Response(null, {
+        status: 416,
+        headers: {
+          "accept-ranges": "bytes",
+          "content-range": `bytes */${totalBytes}`
+        }
+      });
+    }
+    const source = await net.fetch(fileUrl, { headers: request.headers });
+    const headers = new Headers();
+    for (const name of ["content-type", "last-modified", "etag"]) {
+      const value = source.headers.get(name);
+      if (value) {
+        headers.set(name, value);
+      }
+    }
+    headers.set("accept-ranges", "bytes");
+    headers.set("content-length", String(range?.length ?? totalBytes));
+    if (range) {
+      headers.set("content-range", `bytes ${range.start}-${range.end}/${totalBytes}`);
+    }
+    return new Response(source.body, { status: range ? 206 : 200, headers });
+  });
   await createWindow();
   void ensureLocalBackend();
   if (app.isPackaged) {
@@ -169,6 +223,10 @@ ipcMain.handle("file:select-transcription-media", () => (
   selectTranscriptionMedia(dialog, fs, path.join(paths.dataRoot, "transcriptions", "inputs"))
 ));
 
+ipcMain.handle("file:select-audio-enhancement-media", () => (
+  selectAudioEnhancementMedia(dialog, fs, path.join(paths.dataRoot, "audio-enhancements", "inputs"))
+));
+
 ipcMain.handle("file:save-transcription-export", (_event, content, defaultName, extension) => (
   saveTranscriptionExport(dialog, fs, content, defaultName, extension)
 ));
@@ -211,6 +269,8 @@ ipcMain.handle("file:select-voice-package", () => selectVoicePackage(dialog));
 ipcMain.handle("file:save-voice-package", (_event, sourcePath, defaultName) => saveVoicePackage(dialog, fs, sourcePath, defaultName));
 
 ipcMain.handle("file:select-directory", () => selectDirectory(dialog));
+
+ipcMain.handle("file:select-python-executable", () => selectPythonExecutable(dialog));
 
 ipcMain.handle("file:select-model-archive", () => selectModelArchive(dialog));
 
@@ -268,9 +328,67 @@ ipcMain.handle("bilibili-sampler:extract-sample", (_event, payload) => {
   return bilibiliSamplerService.extractSample(payload);
 });
 
-ipcMain.handle("bilibili-sampler:download-video", (_event, payload) => {
-  return bilibiliSamplerService.downloadVideo(payload);
+ipcMain.handle("bilibili-sampler:download-video", async (_event, payload) => {
+  const result = await bilibiliSamplerService.downloadVideo(payload);
+  if (result.success && result.data?.videoPath) {
+    result.data.previewUrl = localMediaRegistry.register(result.data.videoPath);
+  }
+  return result;
 });
+
+ipcMain.handle("bilibili-sampler:list-history", () => ({
+  success: true,
+  data: bilibiliSamplerService.listVideoHistory()
+}));
+
+ipcMain.handle("bilibili-sampler:get-history-item", (_event, historyId) => {
+  const entry = bilibiliSamplerService.getVideoHistoryEntry(historyId);
+  if (!entry) {
+    return { success: false, error: "未找到这条本地下载记录" };
+  }
+  if (!fsSync.existsSync(entry.videoPath)) {
+    return { success: false, error: "原始视频文件已不存在，请从历史记录中移除后重新下载" };
+  }
+  return {
+    success: true,
+    data: {
+      ...bilibiliSamplerService.toPublicVideoHistoryEntry(entry),
+      exists: true,
+      previewUrl: localMediaRegistry.register(entry.videoPath)
+    }
+  };
+});
+
+ipcMain.handle("bilibili-sampler:extract-history-sample", async (_event, historyId, payload) => {
+  const entry = bilibiliSamplerService.getVideoHistoryEntry(historyId);
+  if (!entry || !fsSync.existsSync(entry.videoPath)) {
+    return { success: false, error: "原始视频文件已不存在，无法提取片段" };
+  }
+  return bilibiliSamplerService.extractLocalSample({
+    inputPath: entry.videoPath,
+    startSeconds: payload?.startSeconds,
+    endSeconds: payload?.endSeconds,
+    sampleName: payload?.sampleName,
+    outputDirectory: resolveBilibiliInputsDirectory(paths)
+  });
+});
+
+ipcMain.handle("bilibili-sampler:stage-transcription", async (_event, historyId) => {
+  const entry = bilibiliSamplerService.getVideoHistoryEntry(historyId);
+  if (!entry || !fsSync.existsSync(entry.videoPath)) {
+    return { success: false, error: "原始视频文件已不存在，无法创建转写任务" };
+  }
+  try {
+    const data = await stageManagedMediaFile(fs, entry.videoPath, path.join(paths.dataRoot, "transcriptions", "inputs"));
+    return { success: true, data };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : "无法准备本地转写媒体" };
+  }
+});
+
+ipcMain.handle("bilibili-sampler:remove-history", async (_event, historyId) => ({
+  success: await bilibiliSamplerService.removeVideoHistoryEntry(historyId)
+}));
 
 ipcMain.handle("bilibili-sampler:cancel-extract", () => bilibiliSamplerService.cancelExtract());
 
