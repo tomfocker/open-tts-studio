@@ -7,6 +7,7 @@ import {
   Cpu,
   Download,
   FileText,
+  Film,
   FolderOpen,
   Gauge,
   Library,
