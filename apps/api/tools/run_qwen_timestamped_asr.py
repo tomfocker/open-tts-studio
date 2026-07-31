@@ -173,20 +173,28 @@ def _run(request: dict) -> dict:
         raise WorkerFailure("本地字幕运行时、模型或受控媒体输入不可用。")
 
     sys.path.insert(0, str(capswriter_root.resolve()))
-    from core.server.engines.force_aligner_gguf.align_engine import QwenForceAligner
-    from core.server.engines.force_aligner_gguf.inference.schema import AlignerConfig
-    from core.server.engines.qwen_asr_gguf.asr_engine import QwenASREngine
-    from core.server.engines.qwen_asr_gguf.inference.schema import ASREngineConfig
-    from core.server.merger import merge_by_text, merge_tokens_by_sequence_matcher, process_tokens_safely, tokens_to_text
-
-    device = str(request.get("device") or "cpu")
-    provider, use_gpu = ("DML", True) if device == "dml" else ("CPU", False)
+    active_device = str(request.get("active_device") or request.get("device") or "cpu").lower()
+    provider = str(request.get("onnx_provider") or ("DML" if active_device == "dml" else "CUDA" if active_device == "cuda" else "CPU"))
+    use_gpu = bool(request.get("llm_use_gpu", active_device in {"cuda", "dml"}))
     samples = _load_audio(audio_path, str(request.get("ffmpeg_path") or "ffmpeg"))
     duration = float(len(samples) / 16000.0)
     chunk_size, chunk_overlap = _chunk_settings(request)
     recognizer = None
     aligner = None
     try:
+        from qwen_capswriter_backend import CapsWriterBackendError, configure_capswriter_backends
+
+        try:
+            configure_capswriter_backends(active_device=active_device, cuda_backend_dir=request.get("cuda_backend_dir"))
+        except CapsWriterBackendError as exc:
+            raise WorkerFailure(str(exc)) from exc
+        # CUDA must be configured before importing these engines: their llama
+        # wrappers bind native DLLs at module import time.
+        from core.server.engines.force_aligner_gguf.align_engine import QwenForceAligner
+        from core.server.engines.force_aligner_gguf.inference.schema import AlignerConfig
+        from core.server.engines.qwen_asr_gguf.asr_engine import QwenASREngine
+        from core.server.engines.qwen_asr_gguf.inference.schema import ASREngineConfig
+        from core.server.merger import merge_by_text, merge_tokens_by_sequence_matcher, process_tokens_safely, tokens_to_text
         asr_files = _asr_files(asr_model_dir)
         aligner_files = _aligner_files(aligner_model_dir)
         recognizer = QwenASREngine(

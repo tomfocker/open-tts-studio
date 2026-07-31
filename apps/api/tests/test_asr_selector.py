@@ -16,8 +16,8 @@ def test_asr_backend_selects_qwen_without_changing_tts_or_alignment():
     assert selected.model_name == "qwen3-asr-1.7b"
     assert selected.runtime_model_id == "qwen3-asr"
     assert settings.alignment_model_version == "qwen3-forced-aligner-0.6b"
-    assert settings.qwen_asr_device == "cpu"
-    assert settings.alignment_device == "cpu"
+    assert settings.qwen_asr_device == "auto"
+    assert settings.alignment_device == "auto"
 
 
 def test_transcription_endpoint_reports_selected_qwen_backend(tmp_path: Path, monkeypatch):

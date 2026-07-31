@@ -20,6 +20,7 @@ from typing import BinaryIO, Callable
 from uuid import uuid4
 
 from tts_api.config import Settings, get_settings
+from tts_api.qwen_runtime import QwenRuntimeError, ResolvedQwenRuntime, qwen_worker_environment, resolve_qwen_runtime
 
 
 QWEN_ASR_WORKER = Path(__file__).resolve().parents[2] / "tools" / "run_qwen_asr.py"
@@ -44,10 +45,20 @@ class QwenASRTranscriber:
     def __init__(self, settings: Settings | None = None):
         self.settings = settings or get_settings()
 
+    def _runtime(self) -> ResolvedQwenRuntime:
+        try:
+            return resolve_qwen_runtime(self.settings, self.settings.qwen_asr_device)
+        except QwenRuntimeError as exc:
+            raise RuntimeError(str(exc)) from exc
+
     def transcribe_path(self, audio_path: Path, language: str = "zh") -> str:
         if not audio_path.is_file():
             raise FileNotFoundError("本地音频不存在，无法使用 Qwen3-ASR 转写。")
-        self._validate_runtime()
+        # The child worker runs from ``apps/api/tools``.  Preserve the caller's
+        # media location rather than interpreting a relative path from there.
+        audio_path = audio_path.resolve()
+        runtime = self._runtime()
+        self._validate_runtime(runtime)
         self.settings.qwen_asr_work_dir.mkdir(parents=True, exist_ok=True)
         request_path = self.settings.qwen_asr_work_dir / f"{uuid4().hex}.request.json"
         response_path = self.settings.qwen_asr_work_dir / f"{uuid4().hex}.response.json"
@@ -58,7 +69,10 @@ class QwenASRTranscriber:
                     "language": language,
                     "capswriter_root": str(self.settings.qwen_asr_capswriter_root),
                     "model_dir": str(self.settings.qwen_asr_model_dir),
-                    "device": self.settings.qwen_asr_device,
+                    "active_device": runtime.active_device,
+                    "onnx_provider": runtime.onnx_provider,
+                    "llm_use_gpu": runtime.llm_use_gpu,
+                    "cuda_backend_dir": str(runtime.llama_backend_dir or ""),
                     "ffmpeg_path": self.settings.ffmpeg_path,
                 },
                 ensure_ascii=False,
@@ -68,14 +82,14 @@ class QwenASRTranscriber:
         try:
             try:
                 completed = subprocess.run(
-                    [str(self.settings.qwen_asr_python), str(QWEN_ASR_WORKER), "--request", str(request_path), "--output", str(response_path)],
+                    [str(runtime.python_executable), str(QWEN_ASR_WORKER), "--request", str(request_path), "--output", str(response_path)],
                     cwd=str(QWEN_ASR_WORKER.parent),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     check=False,
                     timeout=self.settings.qwen_asr_timeout_seconds,
-                    env=self._environment(),
+                    env=self._environment(runtime),
                 )
             except subprocess.TimeoutExpired as exc:
                 raise RuntimeError("本地 Qwen3-ASR 转写超时，已终止识别进程。") from exc
@@ -132,7 +146,9 @@ class QwenASRTranscriber:
 
         if not audio_path.is_file():
             raise FileNotFoundError("本地音视频不存在，无法生成真实字幕时间轴。")
-        self._validate_timestamped_runtime()
+        audio_path = audio_path.resolve()
+        runtime = self._runtime()
+        self._validate_timestamped_runtime(runtime)
         self.settings.qwen_asr_work_dir.mkdir(parents=True, exist_ok=True)
         request_path = self.settings.qwen_asr_work_dir / f"{uuid4().hex}.timestamped.request.json"
         response_path = self.settings.qwen_asr_work_dir / f"{uuid4().hex}.timestamped.response.json"
@@ -144,7 +160,10 @@ class QwenASRTranscriber:
                     "capswriter_root": str(self.settings.qwen_asr_capswriter_root),
                     "model_dir": str(self.settings.qwen_asr_model_dir),
                     "aligner_model_dir": str(self.settings.alignment_aligner_model_dir or ""),
-                    "device": self.settings.qwen_asr_device,
+                    "active_device": runtime.active_device,
+                    "onnx_provider": runtime.onnx_provider,
+                    "llm_use_gpu": runtime.llm_use_gpu,
+                    "cuda_backend_dir": str(runtime.llama_backend_dir or ""),
                     "ffmpeg_path": self.settings.ffmpeg_path,
                     "chunk_size": 60,
                     "chunk_overlap": 5,
@@ -157,12 +176,12 @@ class QwenASRTranscriber:
             process: subprocess.Popen | None = None
             try:
                 process = subprocess.Popen(
-                    [str(self.settings.qwen_asr_python), str(QWEN_TIMESTAMPED_ASR_WORKER), "--request", str(request_path), "--output", str(response_path)],
+                    [str(runtime.python_executable), str(QWEN_TIMESTAMPED_ASR_WORKER), "--request", str(request_path), "--output", str(response_path)],
                     cwd=str(QWEN_TIMESTAMPED_ASR_WORKER.parent),
                     stdin=subprocess.DEVNULL,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
-                    env=self._environment(),
+                    env=self._environment(runtime),
                 )
                 if on_process:
                     on_process(process)
@@ -219,9 +238,9 @@ class QwenASRTranscriber:
                 except OSError:
                     pass
 
-    def _validate_runtime(self) -> None:
-        if not self.settings.qwen_asr_python.is_file():
-            raise FileNotFoundError("Qwen3-ASR Python 运行时不存在；请配置 OPEN_TTS_QWEN_ASR_PYTHON。")
+    def _validate_runtime(self, runtime: ResolvedQwenRuntime) -> None:
+        if not runtime.python_executable.is_file():
+            raise FileNotFoundError("Qwen3-ASR Python 运行时不存在；请检查本地 Qwen 设备运行时。")
         if not self.settings.qwen_asr_capswriter_root or not self.settings.qwen_asr_capswriter_root.is_dir():
             raise FileNotFoundError("Qwen3-ASR 引擎目录未配置；请配置 OPEN_TTS_QWEN_ASR_CAPSWRITER_ROOT。")
         if not self.settings.qwen_asr_model_dir.is_dir():
@@ -229,14 +248,14 @@ class QwenASRTranscriber:
         if not QWEN_ASR_WORKER.is_file():
             raise FileNotFoundError("OpenTTS Qwen3-ASR 识别脚本不存在。")
 
-    def _validate_timestamped_runtime(self) -> None:
-        self._validate_runtime()
+    def _validate_timestamped_runtime(self, runtime: ResolvedQwenRuntime) -> None:
+        self._validate_runtime(runtime)
         if not self.settings.alignment_aligner_model_dir or not self.settings.alignment_aligner_model_dir.is_dir():
             raise FileNotFoundError("Qwen3-ForcedAligner 模型不存在；真实 SRT 需要先安装该本地模型。")
         if not QWEN_TIMESTAMPED_ASR_WORKER.is_file():
             raise FileNotFoundError("OpenTTS Qwen3 字幕时间轴脚本不存在。")
 
-    def _environment(self) -> dict[str, str]:
+    def _environment(self, runtime: ResolvedQwenRuntime) -> dict[str, str]:
         environment = os.environ.copy()
         environment.update(
             {
@@ -246,4 +265,4 @@ class QwenASRTranscriber:
                 "PYTHONUTF8": "1",
             }
         )
-        return environment
+        return qwen_worker_environment(runtime, environment)

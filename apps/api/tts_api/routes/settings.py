@@ -77,7 +77,8 @@ class SettingsUpdate(BaseModel):
     qwen_asr_python: Path | None = None
     qwen_asr_capswriter_root: Path | None = None
     qwen_asr_model_dir: Path | None = None
-    qwen_asr_device: Literal["auto", "dml", "cpu"] | None = None
+    qwen_asr_device: Literal["auto", "cuda", "dml", "cpu"] | None = None
+    alignment_device: Literal["auto", "cuda", "dml", "cpu"] | None = None
     voxcpm2_root: Path | None = None
     voxcpm2_api_host: str | None = None
     voxcpm2_api_port: int | None = Field(default=None, ge=1024, le=65535)

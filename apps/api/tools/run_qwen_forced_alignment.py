@@ -242,11 +242,9 @@ def _run(request: dict) -> dict:
     duration = float(request.get("duration_seconds") or 0)
     if duration <= 0:
         raise WorkerFailure("最终音频探测时长无效。")
-    device = str(request.get("device") or "auto")
-    # CapsWriter's DML route is opt-in. ``auto`` deliberately keeps the
-    # verified CPU path rather than risking an unbounded GPU driver/model
-    # initialization stall on a new machine.
-    provider, use_gpu = ("DML", True) if device == "dml" else ("CPU", False)
+    active_device = str(request.get("active_device") or request.get("device") or "cpu").lower()
+    provider = str(request.get("onnx_provider") or ("DML" if active_device == "dml" else "CUDA" if active_device == "cuda" else "CPU"))
+    use_gpu = bool(request.get("llm_use_gpu", active_device in {"cuda", "dml"}))
     samples = _load_audio(audio_path, str(request.get("ffmpeg_path") or "ffmpeg"))
     transcript = str(request.get("transcript") or "")
     if not transcript.strip():
@@ -254,6 +252,12 @@ def _run(request: dict) -> dict:
 
     warnings = ["token_confidence_unavailable: qwen3-forced-aligner exposes real boundaries but no calibrated per-token confidence"]
 
+    try:
+        from qwen_capswriter_backend import CapsWriterBackendError, configure_capswriter_backends
+
+        configure_capswriter_backends(active_device=active_device, cuda_backend_dir=request.get("cuda_backend_dir"))
+    except CapsWriterBackendError as exc:
+        raise WorkerFailure(str(exc)) from exc
     aligned = _align(samples, transcript, aligner_model_dir, provider, use_gpu, language)
     raw_items = list(getattr(aligned, "items", []) or [])
     tokens = _map_items_to_transcript(raw_items, transcript, duration)

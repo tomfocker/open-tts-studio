@@ -125,10 +125,18 @@ def _run(request: dict) -> dict:
     if not capswriter_root.is_dir() or not model_dir.is_dir() or not audio_path.is_file():
         raise WorkerFailure("本地 Qwen3-ASR 运行时、模型或音频不存在。")
     sys.path.insert(0, str(capswriter_root.resolve()))
-    device = str(request.get("device") or "auto")
-    # ``auto`` uses the verified CPU path; DirectML is an explicit opt-in.
-    provider, use_gpu = ("DML", True) if device == "dml" else ("CPU", False)
+    # Legacy requests sent one ``device`` field. New requests are resolved by
+    # the parent so a CUDA request cannot silently use DirectML or CPU.
+    active_device = str(request.get("active_device") or request.get("device") or "cpu").lower()
+    provider = str(request.get("onnx_provider") or ("DML" if active_device == "dml" else "CUDA" if active_device == "cuda" else "CPU"))
+    use_gpu = bool(request.get("llm_use_gpu", active_device in {"cuda", "dml"}))
     samples = _load_audio(audio_path, str(request.get("ffmpeg_path") or "ffmpeg"))
+    try:
+        from qwen_capswriter_backend import CapsWriterBackendError, configure_capswriter_backends
+
+        configure_capswriter_backends(active_device=active_device, cuda_backend_dir=request.get("cuda_backend_dir"))
+    except CapsWriterBackendError as exc:
+        raise WorkerFailure(str(exc)) from exc
     return {"text": _transcribe(samples, model_dir, provider, use_gpu, language), "language": "zh", "model": "qwen3-asr-1.7b"}
 
 

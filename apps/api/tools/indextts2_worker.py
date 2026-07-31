@@ -33,6 +33,54 @@ def require_file(path: Path, label: str) -> None:
         raise FileNotFoundError(f"{label} does not exist: {path}")
 
 
+def configure_bigvgan_cuda_kernel() -> None:
+    """Patch BigVGAN's upstream loader for the active Windows CUDA toolchain.
+
+    IndexTTS2 lives outside the desktop package as a user-managed model asset.
+    Keeping this small compatibility layer in the packaged worker makes fused
+    BigVGAN reproducible without modifying the model checkout.  It compiles a
+    cubin for the active GPU only, so Ada cards receive sm_89 rather than the
+    upstream loader's fixed sm_70/sm_80 images.
+    """
+    import pathlib
+
+    import torch
+    from torch.utils import cpp_extension
+    from indextts.s2mel.modules.bigvgan.alias_free_activation.cuda import load as upstream_loader
+
+    def load_for_active_gpu():
+        if not torch.cuda.is_available():
+            raise RuntimeError("BigVGAN fused kernel requires an NVIDIA CUDA device.")
+        major, minor = torch.cuda.get_device_capability()
+        architecture = f"{major}{minor}"
+        source_dir = pathlib.Path(upstream_loader.__file__).parent.resolve()
+        build_dir = source_dir / "build"
+        build_dir.mkdir(parents=True, exist_ok=True)
+        return cpp_extension.load(
+            name="anti_alias_activation_cuda",
+            sources=[source_dir / "anti_alias_activation.cpp", source_dir / "anti_alias_activation_cuda.cu"],
+            build_directory=build_dir,
+            extra_cflags=["/O2" if os.name == "nt" else "-O3"],
+            extra_cuda_cflags=[
+                "-O3",
+                "--use_fast_math",
+                # CUDA 12.1 predates the installed VS 2022 compiler and STL
+                # version checks.  The opt-outs are documented by both tools.
+                "--allow-unsupported-compiler",
+                "-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH",
+                "-U__CUDA_NO_HALF_OPERATORS__",
+                "-U__CUDA_NO_HALF_CONVERSIONS__",
+                "--expt-relaxed-constexpr",
+                "--expt-extended-lambda",
+                "-gencode",
+                f"arch=compute_{architecture},code=sm_{architecture}",
+            ],
+            verbose=True,
+        )
+
+    upstream_loader.load = load_for_active_gpu
+
+
 def load_model(args: argparse.Namespace):
     source_dir = Path(args.source_dir).resolve()
     model_dir = Path(args.model_dir).resolve()
@@ -46,6 +94,9 @@ def load_model(args: argparse.Namespace):
     sys.path.insert(0, str(source_dir))
     sys.path.insert(0, str(source_dir / "indextts"))
     os.chdir(source_dir)
+
+    if args.cuda_kernel:
+        configure_bigvgan_cuda_kernel()
 
     from indextts.infer_v2 import IndexTTS2
 

@@ -18,6 +18,8 @@ DEFAULT_QWEN_ASR_ROOT = MODEL_STORE_ROOT / "Qwen3-ASR-1.7B"
 DEFAULT_QWEN_ALIGNER_ROOT = MODEL_STORE_ROOT / "Qwen3-ForcedAligner-0.6B"
 DEFAULT_CAPSWRITER_ROOT = MODEL_STORE_ROOT / "CapsWriter-Offline"
 DEFAULT_QWEN_RUNTIME_ROOT = MODEL_STORE_ROOT / "Qwen3-runtime"
+DEFAULT_QWEN_CUDA_RUNTIME_ROOT = MODEL_STORE_ROOT / "Qwen3-runtime-cuda"
+DEFAULT_QWEN_CUDA_BACKEND_DIR = DEFAULT_CAPSWRITER_ROOT / ".open-tts-backends" / "cuda"
 DEFAULT_SETTINGS_FILE = WORKSPACE_ROOT / "data" / "config" / "user-settings.json"
 
 
@@ -114,6 +116,18 @@ def _default_qwen_asr_python() -> Path:
     if bundled.is_file():
         return bundled
     return Path(os.environ.get("OPEN_TTS_ALIGNMENT_PYTHON", sys.executable))
+
+
+def _default_qwen_cuda_python() -> Path:
+    configured = os.environ.get("OPEN_TTS_QWEN_CUDA_PYTHON")
+    if configured:
+        return Path(configured)
+    return DEFAULT_QWEN_CUDA_RUNTIME_ROOT / "python.exe"
+
+
+def _default_qwen_cuda_backend_dir() -> Path:
+    configured = os.environ.get("OPEN_TTS_QWEN_CUDA_BACKEND_DIR")
+    return Path(configured) if configured else DEFAULT_QWEN_CUDA_BACKEND_DIR
 
 
 def _default_qwen_asr_capswriter_root() -> Path | None:
@@ -287,8 +301,8 @@ class Settings(BaseModel):
     alignment_python: Path = Field(default_factory=_default_alignment_python)
     alignment_capswriter_root: Path | None = Field(default_factory=_default_alignment_capswriter_root)
     alignment_aligner_model_dir: Path | None = Field(default_factory=_default_alignment_aligner_model_dir)
-    alignment_device: Literal["auto", "dml", "cpu"] = Field(
-        default_factory=lambda: os.environ.get("OPEN_TTS_ALIGNMENT_DEVICE", "cpu")
+    alignment_device: Literal["auto", "cuda", "dml", "cpu"] = Field(
+        default_factory=lambda: os.environ.get("OPEN_TTS_ALIGNMENT_DEVICE", "auto")
     )
     alignment_model_version: str = "qwen3-forced-aligner-0.6b"
     alignment_worker_timeout_seconds: int = Field(
@@ -300,11 +314,13 @@ class Settings(BaseModel):
         default_factory=lambda: os.environ.get("OPEN_TTS_ASR_BACKEND", "sensevoice")
     )
     qwen_asr_python: Path = Field(default_factory=_default_qwen_asr_python)
+    qwen_cuda_python: Path = Field(default_factory=_default_qwen_cuda_python)
+    qwen_cuda_backend_dir: Path = Field(default_factory=_default_qwen_cuda_backend_dir)
     qwen_asr_capswriter_root: Path | None = Field(default_factory=_default_qwen_asr_capswriter_root)
     qwen_asr_model_dir: Path = Field(default_factory=_default_qwen_asr_model_dir)
     qwen_asr_work_dir: Path = Field(default_factory=_default_qwen_asr_work_dir)
-    qwen_asr_device: Literal["auto", "dml", "cpu"] = Field(
-        default_factory=lambda: os.environ.get("OPEN_TTS_QWEN_ASR_DEVICE", "cpu")
+    qwen_asr_device: Literal["auto", "cuda", "dml", "cpu"] = Field(
+        default_factory=lambda: os.environ.get("OPEN_TTS_QWEN_ASR_DEVICE", "auto")
     )
     qwen_asr_timeout_seconds: int = Field(
         default_factory=lambda: int(os.environ.get("OPEN_TTS_QWEN_ASR_TIMEOUT_SECONDS", "900")), ge=30, le=7200
@@ -398,6 +414,9 @@ def save_user_settings(settings_file: Path, values: dict) -> None:
 
 
 def serialize_settings(settings: Settings) -> dict:
+    # Local import avoids a module cycle: qwen_runtime reads the Settings type.
+    from tts_api.qwen_runtime import runtime_status as qwen_runtime_status
+
     return {
         "api_host": settings.api_host,
         "api_port": settings.api_port,
@@ -434,6 +453,8 @@ def serialize_settings(settings: Settings) -> dict:
         "ffmpeg_path": settings.ffmpeg_path,
         "asr_backend": settings.asr_backend,
         "qwen_asr_python": str(settings.qwen_asr_python),
+        "qwen_cuda_python": str(settings.qwen_cuda_python),
+        "qwen_cuda_backend_dir": str(settings.qwen_cuda_backend_dir),
         "qwen_asr_capswriter_root": str(settings.qwen_asr_capswriter_root) if settings.qwen_asr_capswriter_root else None,
         "qwen_asr_model_dir": str(settings.qwen_asr_model_dir),
         "qwen_asr_model_installed": bool(
@@ -443,6 +464,7 @@ def serialize_settings(settings: Settings) -> dict:
             and settings.qwen_asr_python.is_file()
         ),
         "qwen_asr_device": settings.qwen_asr_device,
+        "qwen_runtime": qwen_runtime_status(settings),
         "alignment_model_installed": bool(
             settings.alignment_aligner_model_dir
             and settings.alignment_aligner_model_dir.is_dir()

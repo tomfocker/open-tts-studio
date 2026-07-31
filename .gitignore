@@ -47,3 +47,4 @@ data/test-temp/
 
 # Local research checkouts
 .research/
+.cache/

@@ -211,6 +211,18 @@ Invoke-RestMethod -Method POST "http://127.0.0.1:8765/v1/audio/transcriptions" `
 
 该接口返回 `{ "text", "language", "model" }`，用于拿到上传音频的纯文本；它不会持久化上传文件、自动切句或生成 SRT，因此可继续作为轻量、OpenAI 风格的兼容接口使用。
 
+### Qwen NVIDIA CUDA 加速（可选）
+
+Qwen3-ASR 和 Qwen3-ForcedAligner 是独立的本地运行时，不会随 Vox 或其他 TTS 模型加载，也不共享其模型权重。默认设备 `auto` 会按 `NVIDIA CUDA → DirectML/Vulkan → CPU` 选择；显式 `cuda` 不会静默降级。首次安装只下载官方 llama.cpp 二进制和 NVIDIA Python Runtime DLL，不上传任何媒体或文本：
+
+```powershell
+.\apps\api\.venv\Scripts\python.exe .\apps\api\tools\install_qwen_cuda_runtime.py
+```
+
+安装后可通过 `GET /v1/settings` 的 `qwen_runtime.cuda_available` 确认就绪，并通过 `PATCH /v1/settings` 选择 `qwen_asr_device` / `alignment_device` 的 `auto`、`cuda`、`dml` 或 `cpu`。CUDA 运行时与 ASR、对齐器的原生解码器均使用独立 DLL 状态域，避免 ASR+对齐同时运行时互相污染；任务调度仍通过同一 GPU 锁与 TTS 串行执行。
+
+本机 RTX 4070 SUPER 的实测基准：66.12 秒中文音频的完整 ASR+真实 token 时间轴约 5.1 秒（RTF 约 0.08），单独最终音频强制对齐约 2.1 秒（RTF 约 0.03）。实际速度受显存占用、音频内容和首次加载影响；未安装 CUDA 时会保留原 DirectML/Vulkan 行为。
+
 ## 本地音视频转写与真实 SRT
 
 桌面端的“音视频转写”是独立的任务 API，适合较大的真实音频/视频文件。它不接收调用方文件路径：先上传到当前 OpenTTS 本地服务取得受控 `input_id`，再创建任务。所有文件、转写和模型推理均留在本机。

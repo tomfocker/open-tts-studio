@@ -23,13 +23,14 @@ class FakeProcess:
         return self.returncode
 
 
-def test_worker_client_builds_persistent_worker_command(tmp_path: Path):
+def test_worker_client_builds_persistent_worker_command(tmp_path: Path, monkeypatch):
     settings = Settings(
         workspace_root=Path("D:/code/tts"),
         output_dir=tmp_path,
         indextts2_root=Path("D:/AI/IndexTTS2"),
     )
     client = IndexTts2WorkerClient(settings=settings, python_executable="python")
+    monkeypatch.setattr(client, "cuda_kernel_available", lambda: True)
 
     command = client.build_command()
 
@@ -39,6 +40,7 @@ def test_worker_client_builds_persistent_worker_command(tmp_path: Path):
     assert "--source-dir" in command
     assert str(Path("D:/AI/IndexTTS2") / "Index-TTS") in command
     assert "--fp16" in command
+    assert "--cuda-kernel" in command
     assert client.build_environment()["PYTHONUNBUFFERED"] == "1"
 
 

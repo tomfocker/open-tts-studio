@@ -25,6 +25,7 @@ from uuid import uuid4
 
 from tts_api.audio import probe_audio_metadata
 from tts_api.config import Settings, get_settings
+from tts_api.qwen_runtime import QwenRuntimeError, qwen_worker_environment, resolve_qwen_runtime
 from tts_api.runtime_memory import local_gpu_generation_lock
 from tts_api.runtime_memory import release_idle_runtimes_for_alignment
 from tts_api.schemas import (
@@ -404,8 +405,16 @@ def run_alignment_worker(
 ) -> dict:
     """Run the isolated local Qwen aligner and return its JSON-only output."""
 
-    if not settings.alignment_python.is_file():
-        raise AlignmentWorkerError("本地对齐 Python 运行时不存在；请配置 OPEN_TTS_ALIGNMENT_PYTHON。")
+    try:
+        runtime = resolve_qwen_runtime(
+            settings,
+            settings.alignment_device,
+            fallback_python=settings.alignment_python,
+        )
+    except QwenRuntimeError as exc:
+        raise AlignmentWorkerError(str(exc)) from exc
+    if not runtime.python_executable.is_file():
+        raise AlignmentWorkerError("本地对齐 Python 运行时不存在；请检查本地 Qwen 设备运行时。")
     if not settings.alignment_capswriter_root or not settings.alignment_capswriter_root.is_dir():
         raise AlignmentWorkerError("本地 Qwen 对齐引擎目录未配置；请配置 OPEN_TTS_ALIGNMENT_CAPSWRITER_ROOT。")
     if not settings.alignment_aligner_model_dir or not settings.alignment_aligner_model_dir.is_dir():
@@ -426,7 +435,10 @@ def run_alignment_worker(
                 "capswriter_root": str(settings.alignment_capswriter_root or ""),
                 "aligner_model_dir": str(settings.alignment_aligner_model_dir or ""),
                 "model_version": settings.alignment_model_version,
-                "device": settings.alignment_device,
+                "active_device": runtime.active_device,
+                "onnx_provider": runtime.onnx_provider,
+                "llm_use_gpu": runtime.llm_use_gpu,
+                "cuda_backend_dir": str(runtime.llama_backend_dir or ""),
                 "ffmpeg_path": settings.ffmpeg_path,
             },
             ensure_ascii=False,
@@ -438,10 +450,11 @@ def run_alignment_worker(
     # files. Keep Hugging Face/Transformers offline as a defence in depth for
     # any incidental imports in the configured runtime.
     environment.update({"HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "PYTHONUTF8": "1"})
+    environment = qwen_worker_environment(runtime, environment)
     process: subprocess.Popen[str] | None = None
     try:
         process = subprocess.Popen(
-            [str(settings.alignment_python), str(ALIGNMENT_WORKER), "--request", str(request_path), "--output", str(response_path)],
+            [str(runtime.python_executable), str(ALIGNMENT_WORKER), "--request", str(request_path), "--output", str(response_path)],
             # CapsWriter/llama emits a large native-model diagnostic stream.
             # Never pipe it without continuously draining it: a full Windows
             # pipe deadlocks the child before its safe JSON result is written.

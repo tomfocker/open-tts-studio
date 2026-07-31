@@ -73,16 +73,86 @@ class IndexTts2WorkerClient:
         environment["TRANSFORMERS_OFFLINE"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         environment["PYTHONUNBUFFERED"] = "1"
+        cuda_home = self._find_cuda_toolkit(environment)
+        if cuda_home is not None:
+            # The wheel-bundled CUDA runtime is sufficient for normal inference,
+            # but BigVGAN's fused activation is a small C++/CUDA extension and
+            # needs the matching toolkit when its worker is first started.
+            environment["CUDA_HOME"] = str(cuda_home)
+            environment["CUDA_PATH"] = str(cuda_home)
         prepend_paths = [
             str(self.python_dir),
             str(self.python_dir / "Scripts"),
             str(self.ffmpeg_dir),
         ]
+        if cuda_home is not None:
+            prepend_paths.append(str(cuda_home / "bin"))
         environment["PATH"] = os.pathsep.join(prepend_paths + [environment.get("PATH", "")])
-        return environment
+        return self._with_msvc_build_environment(environment) if cuda_home is not None else environment
+
+    @staticmethod
+    def _find_cuda_toolkit(environment: dict[str, str]) -> Path | None:
+        """Return a CUDA toolkit suitable for compiling the BigVGAN extension."""
+        candidates = [
+            environment.get("CUDA_PATH_V12_1"),
+            environment.get("CUDA_PATH"),
+            environment.get("CUDA_HOME"),
+            r"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.1",
+        ]
+        for candidate in candidates:
+            if not candidate:
+                continue
+            path = Path(candidate)
+            if (path / "bin" / "nvcc.exe").is_file():
+                return path
+        return None
+
+    def cuda_kernel_available(self) -> bool:
+        """Only request fusion when its complete local build chain is present."""
+        return (
+            self._find_cuda_toolkit(os.environ) is not None
+            and (self.python_dir / "Scripts" / "ninja.exe").is_file()
+            and Path(
+                r"C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat"
+            ).is_file()
+        )
+
+    @staticmethod
+    def _with_msvc_build_environment(environment: dict[str, str]) -> dict[str, str]:
+        """Load MSVC's complete build environment without changing the API process."""
+        vcvars = Path(r"C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\VC\\Auxiliary\\Build\\vcvars64.bat")
+        if not vcvars.is_file():
+            return environment
+        try:
+            completed = subprocess.run(
+                # shell=True is deliberate here: cmd.exe must execute the .bat
+                # in its own process before ``set`` can print its exported env.
+                f'call "{vcvars}" >nul && set',
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+        except (OSError, subprocess.SubprocessError):
+            return environment
+        prepared = environment.copy()
+        for line in completed.stdout.splitlines():
+            key, separator, value = line.partition("=")
+            if separator and key:
+                # Keep the worker's Python, FFmpeg and CUDA directories ahead of
+                # vcvars' PATH while still adding cl.exe and the Windows SDK.
+                if key.upper() == "PATH":
+                    for existing_key in [name for name in prepared if name.upper() == "PATH"]:
+                        prepared.pop(existing_key)
+                    prepared["PATH"] = environment.get("PATH", "") + os.pathsep + value
+                else:
+                    prepared[key] = value
+        return prepared
 
     def build_command(self) -> list[str]:
-        return [
+        command = [
             self.python_executable,
             "-u",
             str(self.worker_script),
@@ -96,6 +166,9 @@ class IndexTts2WorkerClient:
             "120",
             "--fp16",
         ]
+        if self.cuda_kernel_available():
+            command.append("--cuda-kernel")
+        return command
 
     def start(self) -> None:
         if self.process is not None and self.process.poll() is None:
