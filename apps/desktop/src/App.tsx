@@ -59,6 +59,7 @@ import {
   createVoiceReference,
   createVoice,
   createBatchProject,
+  deleteAudioAsset,
   deleteVoice,
   deleteVoiceReference,
   exportVoicePackage,
@@ -629,7 +630,7 @@ type SettingsDraft = {
   gptsovits_root: string;
   gptsovits_api_host: string;
   gptsovits_api_port: number;
-  default_model_id: "indextts2" | "voxcpm2" | "gptsovits" | "doubao-web";
+  default_model_id: "indextts2" | "voxcpm2" | "gptsovits";
   prewarm_default_model_on_startup: boolean;
 };
 
@@ -946,7 +947,7 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     gptsovits_root: settings?.gptsovits_root ?? `${modelStoreRoot}\\GPT-SoVITS`,
     gptsovits_api_host: settings?.gptsovits_api_host ?? "127.0.0.1",
     gptsovits_api_port: settings?.gptsovits_api_port ?? 9880,
-    default_model_id: settings?.default_model_id ?? "indextts2",
+    default_model_id: localDefaultModelId(settings?.default_model_id),
     prewarm_default_model_on_startup: settings?.prewarm_default_model_on_startup ?? false
   };
 }
@@ -1137,6 +1138,14 @@ function formatUptime(seconds: number | null | undefined) {
 
 function isLocalApiModel(modelId: string) {
   return modelId === "voxcpm2" || modelId === "gptsovits";
+}
+
+function isLocalSynthesisModel(model: ModelInfo) {
+  return model.id !== "doubao-web" && model.adapter !== "doubao_web";
+}
+
+function localDefaultModelId(modelId: AppSettings["default_model_id"] | undefined): SettingsDraft["default_model_id"] {
+  return modelId === "doubao-web" || !modelId ? "indextts2" : modelId;
 }
 
 function isRuntimeControllable(modelId: string) {
@@ -1492,6 +1501,16 @@ function audioAssetSourceLabel(source: AudioAsset["source"]) {
     return "批量旁白";
   }
   return "输出目录文件";
+}
+
+function audioAssetOriginLabel(origin: AudioAsset["origin"]) {
+  if (origin === "local") {
+    return "本地合成";
+  }
+  if (origin === "cloud") {
+    return "云端合成";
+  }
+  return "监控目录";
 }
 
 function isModelInstanceUsable(instance: ModelInstanceProfile | undefined) {
@@ -1934,9 +1953,13 @@ export function App() {
   const pendingModelWarmupRef = useRef<string | null>(null);
   const drawSessionRef = useRef<DrawSession | null>(null);
 
+  const localModels = useMemo(
+    () => models.filter(isLocalSynthesisModel),
+    [models]
+  );
   const selectedModelInfo = useMemo(
-    () => models.find((model) => model.id === selectedModel),
-    [models, selectedModel]
+    () => localModels.find((model) => model.id === selectedModel),
+    [localModels, selectedModel]
   );
   const selectedModelInstance = useMemo(
     () => modelInstances.find((instance) => instance.model_id === selectedModel),
@@ -1963,8 +1986,8 @@ export function App() {
     [batchProjectDoubaoVoiceId, doubaoVoices]
   );
   const batchProjectModelInfo = useMemo(
-    () => models.find((model) => model.id === batchProjectModel),
-    [models, batchProjectModel]
+    () => localModels.find((model) => model.id === batchProjectModel),
+    [localModels, batchProjectModel]
   );
   const batchProjectVoices = useMemo(
     () => customVoices.filter((voice) => !voice.modelBinding || voice.modelBinding.modelId === batchProjectModel),
@@ -2015,14 +2038,14 @@ export function App() {
   const batchProjectReferenceText = batchProjectVoiceInfo?.referenceText?.trim() ?? "";
   const batchProjectHasReference = Boolean(batchProjectVoiceInfo?.referenceAudio);
   const batchProjectShowsControlPrompt = supportsControlPrompt(batchProjectModelInfo, cloneMode);
-  const batchProjectShowsSpeedControl = batchProjectModel === "doubao-web" || hasFeature(batchProjectModelInfo, "duration_control");
+  const batchProjectShowsSpeedControl = hasFeature(batchProjectModelInfo, "duration_control");
 
   const supportedCloneModes = useMemo(() => getSupportedCloneModes(selectedModelInfo), [selectedModelInfo]);
   const startupModelOptions = useMemo(() => {
     const enabledModelIds = new Set(modelInstances.filter((instance) => instance.enabled).map((instance) => instance.model_id));
-    const enabledModels = models.filter((model) => model.id === "doubao-web" || enabledModelIds.has(model.id));
-    return enabledModels.length > 0 ? enabledModels : models;
-  }, [modelInstances, models]);
+    const enabledModels = localModels.filter((model) => enabledModelIds.has(model.id));
+    return enabledModels.length > 0 ? enabledModels : localModels;
+  }, [localModels, modelInstances]);
   const supportedCloneModeKey = supportedCloneModes.join("|");
   const needsReferenceAudio = cloneModeNeedsVoice(cloneMode);
   const effectiveReferenceText = referenceText.trim() || selectedVoiceInfo.referenceText || "";
@@ -2038,13 +2061,13 @@ export function App() {
   // 不会把参考音频提交给 TTS，也仍应让用户看见、管理并预先选择已有音色。
   // 之前把整个列表随 needsReferenceAudio 隐藏，导致“1 个音色”与“没有
   // 可用音色”同时出现，误导用户认为导入数据丢失。
-  const showVoiceLibrary = !isDoubao;
+  const showVoiceLibrary = true;
   const showCfgSteps = selectedModel === "voxcpm2";
   const showIndexSampling = selectedModel === "indextts2";
-  const showSpeedControl = isDoubao || hasFeature(selectedModelInfo, "duration_control");
+  const showSpeedControl = hasFeature(selectedModelInfo, "duration_control");
   const showNormalizeToggle = selectedModel === "voxcpm2";
   const showDenoiseToggle = selectedModel === "voxcpm2";
-  const hasParameterControls = showCfgSteps || showIndexSampling || showSpeedControl || showNormalizeToggle || showDenoiseToggle || isDoubao;
+  const hasParameterControls = showCfgSteps || showIndexSampling || showSpeedControl || showNormalizeToggle || showDenoiseToggle;
   const hasActiveBatchGeneration = batchProjects.some((project) =>
     project.status === "queued" || project.status === "running" || project.status === "cancelling"
   );
@@ -2195,7 +2218,7 @@ export function App() {
   const visibleAudioAssets = useMemo(() => {
     const search = audioLibrarySearch.trim().toLocaleLowerCase();
     return audioAssets.filter((asset) => {
-      if (audioLibrarySource !== "all" && asset.source !== audioLibrarySource) {
+      if (audioLibrarySource !== "all" && asset.origin !== audioLibrarySource) {
         return false;
       }
       if (!search) {
@@ -2356,8 +2379,9 @@ export function App() {
     try {
       const loaded = await fetchModels();
       setModels(loaded);
-      const preferred = loaded.find((model) => model.id === "indextts2") ?? loaded[0];
-      if (preferred && !loaded.some((model) => model.id === selectedModel)) {
+      const availableLocalModels = loaded.filter(isLocalSynthesisModel);
+      const preferred = availableLocalModels.find((model) => model.id === "indextts2") ?? availableLocalModels[0];
+      if (preferred && !availableLocalModels.some((model) => model.id === selectedModel)) {
         setSelectedModel(preferred.id);
       }
     } catch (err) {
@@ -3094,9 +3118,6 @@ export function App() {
     setBatchProjectTitle(`配音项目 ${new Date().toLocaleDateString()}`);
     setBatchProjectModel(selectedModel);
     setBatchProjectVoiceId(selectedVoice);
-    setBatchProjectDoubaoVoiceId(selectedDoubaoVoice?.style_id ?? "");
-    setBatchProjectDoubaoPitch(doubaoPitch);
-    setBatchProjectDoubaoFormat(doubaoFormat);
     setBatchProjectSegments(parseBatchSegments(input));
     void loadBatchProjects();
   }
@@ -3174,6 +3195,11 @@ export function App() {
   }, [activeWorkspace]);
 
   function editBatchProject(project: BatchProject) {
+    if (project.model === "doubao-web") {
+      setBatchProjectError("旧版豆包批量项目只保留历史记录；云端语音请从顶部“云端语音合成”入口重新创建。");
+      setBatchProjectMessage(null);
+      return;
+    }
     setGenerationWorkspace("batch");
     setEditingBatchProjectId(project.id);
     setBatchProjectTitle(project.title);
@@ -3183,12 +3209,7 @@ export function App() {
       ? customVoices.find((voice) => voice.id === project.voice)
       : customVoices.find((voice) => voice.referenceAudio === project.reference_audio);
     setBatchProjectVoiceId(matchingVoice?.id ?? "");
-    if (project.model === "doubao-web") {
-      setBatchProjectDoubaoVoiceId(project.voice ?? doubaoVoices[0]?.style_id ?? "");
-      setBatchProjectDoubaoPitch(project.pitch ?? 0);
-      setBatchProjectDoubaoFormat(project.response_format === "wav" ? "wav" : "mp3");
-      setSpeed(project.speed ?? 1);
-    } else if (project.model === "voxcpm2") {
+    if (project.model === "voxcpm2") {
       setCfg(project.cfg ?? 2);
       setSteps(project.inference_steps ?? 10);
       setNormalizeText(project.normalize ?? true);
@@ -3244,15 +3265,7 @@ export function App() {
       setBatchProjectError("请至少保留一个文本片段");
       return;
     }
-    if (shouldRun && batchProjectModel === "doubao-web" && !doubaoUsable) {
-      setBatchProjectError("豆包当前没有可用账号，请先到豆包管理中心登录或添加 Cookie");
-      return;
-    }
-    if (batchProjectModel === "doubao-web" && !batchProjectDoubaoVoice) {
-      setBatchProjectError("请选择豆包预设音色");
-      return;
-    }
-    if (batchProjectModel !== "doubao-web" && !batchProjectHasReference) {
+    if (!batchProjectHasReference) {
       setBatchProjectError("请选择带参考音频的本地音色");
       return;
     }
@@ -3263,16 +3276,11 @@ export function App() {
         title: batchProjectTitle.trim(),
         model: batchProjectModel,
         segments: segments.map((text) => ({ text })),
-        voice: batchProjectModel === "doubao-web"
-          ? batchProjectDoubaoVoice?.style_id
-          : batchProjectModel === "gptsovits"
-            ? batchProjectVoiceInfo?.id
-            : undefined,
-        pitch: batchProjectModel === "doubao-web" ? batchProjectDoubaoPitch : undefined,
-        response_format: batchProjectModel === "doubao-web" ? batchProjectDoubaoFormat : "wav",
-        reference_audio: batchProjectModel === "doubao-web" ? undefined : batchProjectVoiceInfo?.referenceAudio,
-        reference_text: batchProjectModel === "doubao-web" ? undefined : batchProjectReferenceText || undefined,
-        emotion: batchProjectModel === "doubao-web" ? undefined : batchProjectShowsControlPrompt ? controlPrompt.trim() || undefined : undefined,
+        voice: batchProjectModel === "gptsovits" ? batchProjectVoiceInfo?.id : undefined,
+        response_format: "wav",
+        reference_audio: batchProjectVoiceInfo?.referenceAudio,
+        reference_text: batchProjectReferenceText || undefined,
+        emotion: batchProjectShowsControlPrompt ? controlPrompt.trim() || undefined : undefined,
         speed: batchProjectShowsSpeedControl ? speed : 1,
         cfg: batchProjectModel === "voxcpm2" ? cfg : undefined,
         inference_steps: batchProjectModel === "voxcpm2" ? steps : undefined,
@@ -3522,6 +3530,30 @@ export function App() {
     }
   }
 
+  async function onDeleteAudioAsset(asset: AudioAsset) {
+    const confirmed = window.confirm(
+      `删除“${asset.file_name}”？\n\n这会同时删除受监控输出目录中的本地实体文件，无法撤销。`
+    );
+    if (!confirmed) {
+      return;
+    }
+    setAudioLibraryAction(`delete-${asset.file_path}`);
+    setAudioLibraryError(null);
+    setAudioLibraryMessage(null);
+    try {
+      audioAssetRef.current?.pause();
+      await deleteAudioAsset(asset.asset_id);
+      setAudioAssets((current) => current.filter((item) => item.asset_id !== asset.asset_id));
+      setSelectedAudioAssetPath((current) => (current === asset.file_path ? null : current));
+      setAudioLibraryMessage(`已删除本地文件：${asset.file_name}`);
+      await loadAudioAssets();
+    } catch (err) {
+      setAudioLibraryError(err instanceof Error ? err.message : "删除本地音频文件失败");
+    } finally {
+      setAudioLibraryAction(null);
+    }
+  }
+
   async function onToggleAudioAssetPlayback() {
     const audio = audioAssetRef.current;
     if (!audio) {
@@ -3548,8 +3580,8 @@ export function App() {
       sourceVoiceName: getFileBaseName(asset.file_name),
       displayName: asset.file_name,
       durationSeconds: asset.duration_seconds ?? undefined,
-      authorizationStatus: asset.source === "untracked" ? "user_managed_output" : "generated_local",
-      sourceType: asset.source === "untracked" ? "local_output" : "generated"
+      authorizationStatus: asset.source === "untracked" ? "user_managed_output" : asset.origin === "cloud" ? "generated_cloud" : "generated_local",
+      sourceType: asset.source === "untracked" ? "local_output" : asset.origin === "cloud" ? "cloud_generated" : "generated"
     });
   }
 
@@ -4194,7 +4226,7 @@ export function App() {
       });
       setAppSettings(savedSettings);
       setSettingsDraft(createSettingsDraft(savedSettings));
-      if (models.some((model) => model.id === savedSettings.default_model_id)) {
+      if (localModels.some((model) => model.id === savedSettings.default_model_id)) {
         setSelectedModel(savedSettings.default_model_id);
       }
       setSettingsMessage("设置已保存");
@@ -4600,24 +4632,18 @@ export function App() {
       return;
     }
     selectModel(pendingModelSwitch.targetModelId);
-    if (pendingModelSwitch.targetModelId !== "doubao-web") {
-      queueModelWarmup(pendingModelSwitch.targetModelId);
-    } else {
-      setModelWarmupState(null);
-      void loadDoubaoState();
-    }
+    queueModelWarmup(pendingModelSwitch.targetModelId);
     setPendingModelSwitch(null);
   }
 
   function createCurrentSpeechOptions(): GenerateSpeechOptions {
     return {
-      voice: isDoubao ? selectedDoubaoVoice?.style_id : selectedModel === "gptsovits" ? selectedVoice : undefined,
+      voice: selectedModel === "gptsovits" ? selectedVoice : undefined,
       referenceAudio: needsReferenceAudio ? selectedVoiceInfo.referenceAudio : undefined,
       referenceText: needsExtremeReferenceText || selectedModel === "gptsovits" ? effectiveReferenceText.trim() || undefined : undefined,
       emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
       speed: showSpeedControl ? speed : 1,
-      pitch: isDoubao ? doubaoPitch : undefined,
-      responseFormat: isDoubao ? doubaoFormat : "wav",
+      responseFormat: "wav",
       cfg: showCfgSteps ? cfg : undefined,
       inferenceSteps: showCfgSteps ? steps : undefined,
       temperature: showIndexSampling ? indexTemperature : undefined,
@@ -5170,36 +5196,36 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (defaultModelAppliedRef.current || !appSettings || models.length === 0) {
+    if (defaultModelAppliedRef.current || !appSettings || localModels.length === 0) {
       return;
     }
-    const configuredModel = models.find((model) => model.id === appSettings.default_model_id);
+    const configuredModel = localModels.find((model) => model.id === appSettings.default_model_id)
+      ?? localModels.find((model) => model.id === "indextts2")
+      ?? localModels[0];
     if (configuredModel) {
       setSelectedModel(configuredModel.id);
     }
     defaultModelAppliedRef.current = true;
-  }, [appSettings, models]);
+  }, [appSettings, localModels]);
 
   useEffect(() => {
     if (
       startupPrewarmAttemptedRef.current ||
       !appSettings?.prewarm_default_model_on_startup ||
-      models.length === 0
+      localModels.length === 0
     ) {
       return;
     }
     if (appSettings.default_model_id === "doubao-web") {
       startupPrewarmAttemptedRef.current = true;
-      setSelectedModel("doubao-web");
-      setSettingsMessage("豆包是云端模型，无需加载权重；账号状态与预设音色已在后台检查。");
-      void loadDoubaoState();
+      setSettingsMessage("已将旧版“豆包默认模型”迁移为本地合成入口；云端合成请从顶部独立入口进入。");
       return;
     }
     if (modelInstances.length === 0) {
       return;
     }
     startupPrewarmAttemptedRef.current = true;
-    const model = models.find((candidate) => candidate.id === appSettings.default_model_id);
+    const model = localModels.find((candidate) => candidate.id === appSettings.default_model_id);
     const instance = modelInstances.find((candidate) => candidate.model_id === appSettings.default_model_id);
     if (!model || !instance || !isModelInstanceUsable(instance)) {
       setSettingsMessage("启动预热已跳过：默认模型未启用或尚不可用。");
@@ -5207,7 +5233,7 @@ export function App() {
     }
     setSelectedModel(model.id);
     void onStartModelRuntime(instance);
-  }, [appSettings, modelInstances, models]);
+  }, [appSettings, localModels, modelInstances]);
 
   useEffect(() => {
     if (!window.desktopBilibiliSampler?.onStateChanged) {
@@ -5391,6 +5417,17 @@ export function App() {
   }, [selectedAudioAsset?.file_path]);
 
   useEffect(() => {
+    if (!audioLibraryOpen || audioLibraryAction) {
+      return undefined;
+    }
+    // The library is a live view of the monitored output directory.  A short
+    // poll catches files created or removed outside this window without
+    // relying on an Electron file watcher or taking control of the desktop.
+    const timer = window.setInterval(() => void loadAudioAssets(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [audioLibraryAction, audioLibraryOpen]);
+
+  useEffect(() => {
     if (!audioUrl) {
       setResultWaveformPeaks([]);
       setResultWaveformStatus("idle");
@@ -5530,6 +5567,16 @@ export function App() {
   }, [samplerDefaultName]);
 
   useEffect(() => {
+    if (localModels.length === 0 || localModels.some((model) => model.id === selectedModel)) {
+      return;
+    }
+    const fallback = localModels.find((model) => model.id === "indextts2") ?? localModels[0];
+    if (fallback) {
+      setSelectedModel(fallback.id);
+    }
+  }, [localModels, selectedModel]);
+
+  useEffect(() => {
     if (!supportedCloneModes.includes(cloneMode)) {
       setCloneMode(supportedCloneModes[0]);
     }
@@ -5603,67 +5650,28 @@ export function App() {
                       ) ?? customVoices.find((voice) => !voice.modelBinding || voice.modelBinding.modelId === modelId);
                       setBatchProjectModel(modelId);
                       setBatchProjectVoiceId(compatibleVoice?.id ?? "");
-                      if (modelId === "doubao-web" && !batchProjectDoubaoVoiceId) {
-                        setBatchProjectDoubaoVoiceId(selectedDoubaoVoice?.style_id ?? doubaoVoices[0]?.style_id ?? "");
-                      }
                     }}
                   >
-                    {models.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}
+                    {localModels.map((model) => <option key={model.id} value={model.id}>{model.display_name}</option>)}
                   </select>
                 </label>
               </div>
 
-              {batchProjectModel === "doubao-web" ? (
-                <div className="batchDoubaoConfig">
-                  <label className="settingsField">
-                    <span>豆包预设音色</span>
-                    <select value={batchProjectDoubaoVoice?.style_id ?? ""} disabled={projectLocked} onChange={(event) => setBatchProjectDoubaoVoiceId(event.target.value)}>
-                      {doubaoVoices.map((voice) => <option key={voice.id} value={voice.style_id}>{voice.name} · {[voice.gender, voice.age].filter(Boolean).join(" ")}</option>)}
-                    </select>
-                  </label>
-                  <label className="settingsField">
-                    <span>音调</span>
-                    <input type="number" min={-12} max={12} value={batchProjectDoubaoPitch} disabled={projectLocked} onChange={(event) => setBatchProjectDoubaoPitch(Number(event.target.value))} />
-                  </label>
-                  <label className="settingsField">
-                    <span>语速倍率</span>
-                    <input type="number" min={0.5} max={2} step={0.05} value={speed} disabled={projectLocked} onChange={(event) => setSpeed(Number(event.target.value))} />
-                  </label>
-                  <label className="settingsField">
-                    <span>输出格式</span>
-                    <select value={batchProjectDoubaoFormat} disabled={projectLocked} onChange={(event) => setBatchProjectDoubaoFormat(event.target.value === "wav" ? "wav" : "mp3")}>
-                      <option value="mp3">MP3 · 体积小</option>
-                      <option value="wav">WAV · 无损 PCM</option>
-                    </select>
-                  </label>
-                </div>
-              ) : (
-                <>
-                  <label className="settingsField batchVoiceField">
-                    <span>项目音色</span>
-                    <select
-                      value={batchProjectVoiceInfo?.id ?? ""}
-                      disabled={projectLocked || batchProjectVoices.length === 0}
-                      onChange={(event) => setBatchProjectVoiceId(event.target.value)}
-                    >
-                      {batchProjectVoices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}{voice.referenceText ? " · 已有提示词" : ""}</option>)}
-                    </select>
-                  </label>
-                  <div className={batchProjectHasReference ? "batchProjectReference" : "batchProjectReference batchProjectReferenceWarning"}>
-                    <span>参考音频</span>
-                    <strong>{batchProjectVoiceInfo?.name ?? "未选择音色"}</strong>
-                    <em>{batchProjectHasReference ? (batchProjectReferenceText ? "参考提示词会随项目保存" : "未填写参考提示词，建议先在音色库识别或补充") : "请选择带参考音频的音色后再生成"}</em>
-                  </div>
-                </>
-              )}
-
-              {batchProjectModel === "doubao-web" && (
-                <div className={doubaoUsable ? "batchProjectReference doubaoReady" : "batchProjectReference doubaoWarning"}>
-                  <span>云端账号</span>
-                  <strong>{doubaoUsable ? `${doubaoStatus?.cookies.valid ?? 0} 个有效 Cookie` : "尚不可用"}</strong>
-                  <em>{doubaoUsable ? "批量片段会进入现有串行任务队列" : "草稿可保存，开始生成前需要登录"}</em>
-                </div>
-              )}
+              <label className="settingsField batchVoiceField">
+                <span>项目音色</span>
+                <select
+                  value={batchProjectVoiceInfo?.id ?? ""}
+                  disabled={projectLocked || batchProjectVoices.length === 0}
+                  onChange={(event) => setBatchProjectVoiceId(event.target.value)}
+                >
+                  {batchProjectVoices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}{voice.referenceText ? " · 已有提示词" : ""}</option>)}
+                </select>
+              </label>
+              <div className={batchProjectHasReference ? "batchProjectReference" : "batchProjectReference batchProjectReferenceWarning"}>
+                <span>参考音频</span>
+                <strong>{batchProjectVoiceInfo?.name ?? "未选择音色"}</strong>
+                <em>{batchProjectHasReference ? (batchProjectReferenceText ? "参考提示词会随项目保存" : "未填写参考提示词，建议先在音色库识别或补充") : "请选择带参考音频的音色后再生成"}</em>
+              </div>
             </div>
 
             <div className="batchWorkspaceSection batchSegmentsSection">
@@ -5895,11 +5903,11 @@ export function App() {
             <span className="workbenchNavIndicator" aria-hidden="true" />
             <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "creation"} onClick={() => selectWorkspace("creation")}>
               <Sparkles size={16} strokeWidth={1.9} />
-              <span>语音创作</span>
+              <span>本地语音合成</span>
             </button>
             <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "doubao"} onClick={() => selectWorkspace("doubao")}>
               <Cloud size={16} strokeWidth={1.9} />
-              <span>豆包管理</span>
+              <span>云端语音合成</span>
             </button>
             <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "transcription"} onClick={() => selectWorkspace("transcription")}>
               <FileText size={16} strokeWidth={1.9} />
@@ -6406,19 +6414,13 @@ export function App() {
                 </div>
               </div>
               <div className="modelScroller">
-                {models.map((model) => (
+                {localModels.map((model) => (
                   <button
                     key={model.id}
                     className={model.id === selectedModel ? "modelPill active" : "modelPill"}
                     aria-pressed={model.id === selectedModel}
                     onClick={() => requestModelSwitch(model.id)}
-                    title={
-                      model.id === "doubao-web"
-                        ? "切换到豆包云端模型；不会释放当前本地 GPU 模型"
-                        : modelSwitchLocked && model.id !== selectedModel
-                          ? modelSwitchLockMessage
-                          : model.display_name
-                    }
+                    title={modelSwitchLocked && model.id !== selectedModel ? modelSwitchLockMessage : model.display_name}
                     disabled={modelSwitchLocked && model.id !== selectedModel}
                   >
                     <span className="modelPillTitle">
@@ -6704,7 +6706,7 @@ export function App() {
           ) : (
             <section className="workspaceScreen" aria-live="polite">
               {activeWorkspace === "doubao" ? (
-                <DoubaoWorkspace initialTab="accounts" onClose={() => {
+                <DoubaoWorkspace initialTab="synthesis" onClose={() => {
                   selectWorkspace("creation");
                   void loadDoubaoState();
                 }} />
@@ -7331,7 +7333,7 @@ export function App() {
             <header className="settingsHeader">
               <div>
                 <strong>音频资产库</strong>
-                <span>输出目录 · 本地预览 · 任务可追溯</span>
+                <span>本地与云端成品 · 受监控输出目录 · 任务可追溯</span>
               </div>
               <button className="modalClose" title="关闭" onClick={() => setAudioLibraryOpen(false)}>
                 <X size={18} strokeWidth={2} />
@@ -7352,9 +7354,9 @@ export function App() {
                   <span>来源</span>
                   <select value={audioLibrarySource} onChange={(event) => setAudioLibrarySource(event.target.value)}>
                     <option value="all">全部来源</option>
-                    <option value="speech">单句生成</option>
-                    <option value="batch_project">批量旁白</option>
-                    <option value="untracked">输出目录文件</option>
+                    <option value="local">本地语音合成</option>
+                    <option value="cloud">云端语音合成</option>
+                    <option value="monitored">监控目录文件</option>
                   </select>
                 </label>
                 <button className="pathPickButton audioLibraryRefresh" disabled={audioLibraryLoading || audioLibraryAction !== null} onClick={() => void loadAudioAssets()}>
@@ -7364,8 +7366,8 @@ export function App() {
               </div>
 
               <div className="audioLibraryCount">
-                <span>显示 {visibleAudioAssets.length} / {audioAssets.length} 个 WAV 资产</span>
-                <span>只读扫描，不会移动或删除文件</span>
+                <span>显示 {visibleAudioAssets.length} / {audioAssets.length} 个音频资产</span>
+                <span>每 5 秒同步受监控目录；删除会移除实体文件</span>
               </div>
 
               {audioLibraryLoading && audioAssets.length === 0 ? (
@@ -7377,8 +7379,8 @@ export function App() {
               ) : visibleAudioAssets.length === 0 ? (
                 <div className="audioLibraryEmpty">
                   <Library size={22} strokeWidth={1.7} />
-                  <strong>{audioAssets.length === 0 ? "输出目录中暂无 WAV 音频" : "没有匹配的音频资产"}</strong>
-                  <span>{audioAssets.length === 0 ? "完成一次生成后，音频会自动出现在这里。" : "尝试调整搜索词或来源筛选。"}</span>
+                  <strong>{audioAssets.length === 0 ? "受监控目录中暂无音频" : "没有匹配的音频资产"}</strong>
+                  <span>{audioAssets.length === 0 ? "本地和云端完成一次生成后，音频会自动出现在这里。" : "尝试调整搜索词或来源筛选。"}</span>
                 </div>
               ) : (
                 <div className="audioLibraryLayout">
@@ -7393,7 +7395,7 @@ export function App() {
                           <strong>{asset.file_name}</strong>
                           <span>{asset.model ?? "未关联模型"} · {formatAssetSize(asset.file_size_bytes)} · {formatHistoryTime(asset.modified_at)}</span>
                         </div>
-                        <em className={asset.source}>{audioAssetSourceLabel(asset.source)}</em>
+                        <em className={`origin-${asset.origin}`}>{audioAssetOriginLabel(asset.origin)}</em>
                       </button>
                     ))}
                   </div>
@@ -7403,7 +7405,7 @@ export function App() {
                       <div className="audioAssetPreviewHeader">
                         <div>
                           <strong>{selectedAudioAsset.file_name}</strong>
-                          <span>{audioAssetSourceLabel(selectedAudioAsset.source)}</span>
+                          <span>{audioAssetOriginLabel(selectedAudioAsset.origin)} · {audioAssetSourceLabel(selectedAudioAsset.source)}</span>
                         </div>
                         <span>{selectedAudioAsset.duration_seconds ? formatDuration(selectedAudioAsset.duration_seconds) : formatAssetSize(selectedAudioAsset.file_size_bytes)}</span>
                       </div>
@@ -7426,7 +7428,8 @@ export function App() {
                       <div className="audioAssetMeta">
                         <span>模型</span><strong>{selectedAudioAsset.model ?? "未关联"}</strong>
                         <span>生成时间</span><strong>{formatHistoryTime(selectedAudioAsset.modified_at)}</strong>
-                        <span>来源</span><strong>{selectedAudioAsset.project_title ?? audioAssetSourceLabel(selectedAudioAsset.source)}</strong>
+                        <span>产出来源</span><strong>{audioAssetOriginLabel(selectedAudioAsset.origin)}</strong>
+                        <span>任务类型</span><strong>{selectedAudioAsset.project_title ?? audioAssetSourceLabel(selectedAudioAsset.source)}</strong>
                       </div>
                       <p className="audioAssetText">{selectedAudioAsset.text || "该文件不带任务文本记录。"}</p>
                       <div className="audioAssetActions">
@@ -7441,6 +7444,10 @@ export function App() {
                         <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onAddAudioAssetToVoiceLibrary(selectedAudioAsset)}>
                           {audioLibraryAction === `voice-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <Save size={15} strokeWidth={1.9} />}
                           <span>加入音色库</span>
+                        </button>
+                        <button className="pathPickButton audioAssetDeleteButton" disabled={audioLibraryAction !== null} onClick={() => void onDeleteAudioAsset(selectedAudioAsset)}>
+                          {audioLibraryAction === `delete-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
+                          <span>删除文件</span>
                         </button>
                       </div>
                     </aside>
@@ -8104,7 +8111,7 @@ export function App() {
                         setSettingsDraft((draft) => ({
                           ...draft,
                           default_model_id: modelId,
-                          prewarm_default_model_on_startup: modelId === "doubao-web" ? false : draft.prewarm_default_model_on_startup
+                          prewarm_default_model_on_startup: draft.prewarm_default_model_on_startup
                         }));
                       }}
                     >
@@ -8118,13 +8125,12 @@ export function App() {
                   <div className="startupPrewarmCard">
                     <div>
                       <strong>打开软件时预热默认模型</strong>
-                      <span>{settingsDraft.default_model_id === "doubao-web" ? "豆包是云端模型，不需要加载权重；启动时只会检查账号与音色状态。" : "后台加载模型权重，不会自动生成语音；会占用对应显存，并先处理其他本软件托管模型。"}</span>
+                      <span>后台加载本地模型权重，不会自动生成语音；会占用对应显存，并先处理其他本软件托管模型。</span>
                     </div>
                     <button
                       type="button"
                       className={settingsDraft.prewarm_default_model_on_startup ? "settingsPrewarmToggle active" : "settingsPrewarmToggle"}
                       aria-pressed={settingsDraft.prewarm_default_model_on_startup}
-                      disabled={settingsDraft.default_model_id === "doubao-web"}
                       onClick={() =>
                         setSettingsDraft((draft) => ({
                           ...draft,

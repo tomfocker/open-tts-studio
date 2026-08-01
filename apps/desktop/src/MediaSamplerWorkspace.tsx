@@ -142,6 +142,17 @@ function safeSampleName(value: string | null | undefined) {
   return cleaned || "B站片段";
 }
 
+function parsedLinkItems(parsed: BilibiliParsedLink | null): BilibiliParsedLink["items"] {
+  // The native bridge is an IPC boundary, so do not let a partial payload turn
+  // into a renderer exception. This keeps an invalid B 站 response visible as
+  // an actionable parse error instead of taking down the whole workspace.
+  return Array.isArray(parsed?.items) ? parsed.items : [];
+}
+
+function videoQualityOptions(options: BilibiliAudioOptionsResult | null) {
+  return Array.isArray(options?.qnOptions) ? options.qnOptions : [];
+}
+
 function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void; onDownloaded: () => Promise<void> }) {
   const [link, setLink] = useState("");
   const [session, setSession] = useState<BilibiliLoginSession | null>(null);
@@ -153,7 +164,9 @@ function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void;
   const [pending, setPending] = useState<"login" | "parse" | "load" | "download" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const selectedItem = useMemo(() => parsed?.items.find((item) => item.id === selectedItemId) ?? parsed?.items[0] ?? null, [parsed, selectedItemId]);
+  const items = useMemo(() => parsedLinkItems(parsed), [parsed]);
+  const qualityOptions = useMemo(() => videoQualityOptions(mediaOptions), [mediaOptions]);
+  const selectedItem = useMemo(() => items.find((item) => item.id === selectedItemId) ?? items[0] ?? null, [items, selectedItemId]);
 
   const refreshSession = async () => {
     const bridge = window.desktopBilibiliSampler;
@@ -169,6 +182,9 @@ function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void;
     try {
       const response = await bridge.loadAudioOptions(source.kind, itemId, qn);
       if (!response.success || !response.data) throw new Error(response.error ?? "无法读取该视频的音视频流");
+      if (!response.data.summary || typeof response.data.summary.hasAudio !== "boolean" || typeof response.data.summary.hasVideo !== "boolean") {
+        throw new Error("B 站返回的音视频信息不完整，请重新解析链接。");
+      }
       setMediaOptions(response.data);
       setSelectedItemId(response.data.itemId);
       setNotice(response.data.summary.hasVideo ? "音视频流已就绪，可下载为本地 MP4。" : response.data.summary.videoDisabledReason ?? "当前条目没有可用视频流。");
@@ -182,7 +198,10 @@ function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void;
       const response = await bridge.parseLink(link.trim());
       if (!response.success || !response.data) throw new Error(response.error ?? "解析 B 站链接失败");
       const source = response.data;
-      const itemId = source.selectedItemId ?? source.items[0]?.id;
+      const sourceItems = parsedLinkItems(source);
+      const itemId = source.selectedItemId && sourceItems.some((item) => item.id === source.selectedItemId)
+        ? source.selectedItemId
+        : sourceItems[0]?.id;
       if (!itemId) throw new Error("这个链接没有可下载的条目");
       setParsed(source); setSelectedItemId(itemId); setMediaOptions(null);
       await loadOptions(source, itemId);
@@ -245,7 +264,7 @@ function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void;
     <div className="mediaSamplerDownloaderHeading"><div><strong>添加 B 站视频</strong><span>{session?.isLoggedIn ? `已登录：${session.nickname ?? "B站账号"}` : "公开视频可直接解析；受限内容请扫码登录"}</span></div><button className="icon" type="button" onClick={onClose} aria-label="收起下载面板"><X size={16} /></button></div>
     <div className="mediaSamplerDownloadControls"><label><span>B 站链接</span><input value={link} placeholder="粘贴 bilibili.com 视频链接" onChange={(event) => setLink(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void parse(); }} /></label><button type="button" disabled={Boolean(pending) || !link.trim()} onClick={() => void parse()}>{pending === "parse" ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}解析</button><button type="button" className="quiet" disabled={Boolean(pending)} onClick={() => void startLogin()}>{pending === "login" ? <Loader2 className="spin" size={15} /> : <History size={15} />}{qrPayload ? "刷新二维码" : session?.isLoggedIn ? "重新登录" : "扫码登录"}</button></div>
     {qrPayload && <div className="mediaSamplerQr"><div>{qrCodeUrl ? <img src={qrCodeUrl} alt="B站登录二维码" /> : <Loader2 className="spin" size={18} />}</div><span>扫码后请在手机确认；Cookie 不会传出本机。</span></div>}
-    {parsed && <div className="mediaSamplerDownloadResult"><div><strong>{parsed.title ?? "B站视频"}</strong><small>{selectedItem?.title ?? "正在选择条目"}</small></div><label>条目<select value={selectedItemId ?? ""} disabled={Boolean(pending)} onChange={(event) => { const id = event.target.value; setSelectedItemId(id); setError(null); void loadOptions(parsed, id).catch((reason) => setError(reason instanceof Error ? reason.message : "无法读取视频流")); }}>{parsed.items.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>{mediaOptions?.videoOptions.length ? <label>清晰度<select value={mediaOptions.selectedVideo?.qn ?? ""} disabled={Boolean(pending)} onChange={(event) => { const qn = Number(event.target.value); if (selectedItemId) void loadOptions(parsed, selectedItemId, qn).catch((reason) => setError(reason instanceof Error ? reason.message : "无法切换清晰度")); }}>{mediaOptions.videoOptions.map((option) => <option key={option.qn} value={option.qn}>{option.label}{option.width && option.height ? ` · ${option.width}×${option.height}` : ""}</option>)}</select></label> : null}<button className="primary" type="button" disabled={Boolean(pending) || !mediaOptions?.summary.hasVideo} onClick={() => void download()}>{pending === "download" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}下载 MP4</button></div>}
+    {parsed && <div className="mediaSamplerDownloadResult"><div><strong>{parsed.title ?? "B站视频"}</strong><small>{selectedItem?.title ?? "正在选择条目"}</small></div><label>条目<select value={selectedItemId ?? ""} disabled={Boolean(pending)} onChange={(event) => { const id = event.target.value; setSelectedItemId(id); setError(null); void loadOptions(parsed, id).catch((reason) => setError(reason instanceof Error ? reason.message : "无法读取视频流")); }}>{items.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>{qualityOptions.length ? <label>清晰度<select value={mediaOptions?.selectedVideo?.qn ?? ""} disabled={Boolean(pending)} onChange={(event) => { const qn = Number(event.target.value); if (selectedItemId) void loadOptions(parsed, selectedItemId, qn).catch((reason) => setError(reason instanceof Error ? reason.message : "无法切换清晰度")); }}>{qualityOptions.map((option) => <option key={option.qn} value={option.qn}>{option.label}</option>)}</select></label> : null}<button className="primary" type="button" disabled={Boolean(pending) || !mediaOptions?.summary.hasVideo} onClick={() => void download()}>{pending === "download" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}下载 MP4</button></div>}
     {(notice || error) && <p className={error ? "error" : ""}>{error ?? notice}</p>}
   </section>;
 }

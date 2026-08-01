@@ -441,7 +441,9 @@ class Settings(BaseModel):
         le=50,
     )
     ffmpeg_path: str = Field(default_factory=lambda: os.environ.get("OPEN_TTS_FFMPEG_PATH", "ffmpeg"))
-    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits", "doubao-web"] = "indextts2"
+    # Cloud providers have their own workbench and must not be selected as the
+    # desktop application's local startup model.
+    default_model_id: Literal["indextts2", "voxcpm2", "gptsovits"] = "indextts2"
     prewarm_default_model_on_startup: bool = False
     model_instances: dict[str, dict] = Field(default_factory=dict)
 
@@ -455,7 +457,81 @@ def load_user_settings(settings_file: Path) -> dict:
         return {}
     if not isinstance(data, dict):
         return {}
-    return {key: value for key, value in data.items() if key in USER_SETTING_KEYS and value is not None}
+    values = {key: value for key, value in data.items() if key in USER_SETTING_KEYS and value is not None}
+    # v0.8 stored the cloud adapter as a local default model.  Keep existing
+    # installations bootable while moving that preference to a real local
+    # engine; cloud synthesis remains available from its separate workspace.
+    if values.get("default_model_id") == "doubao-web":
+        values["default_model_id"] = "indextts2"
+        values["prewarm_default_model_on_startup"] = False
+    return _recover_legacy_asr_companions(values)
+
+
+def _recover_legacy_asr_companions(values: dict) -> dict:
+    """Recover ASR siblings when an upgraded desktop keeps external models.
+
+    v0.8 moved mutable model files into the desktop user-data model store. A
+    number of earlier installations already have a valid external model root
+    recorded for a TTS or Qwen model, however.  Do not make those users enter
+    several hidden ASR paths after updating: when that same root contains the
+    companion assets, use it for the unset or stale ASR settings as well.
+    Explicit, existing paths always remain untouched.
+    """
+
+    roots: list[Path] = []
+    for key in (
+        "qwen_asr_model_dir",
+        "alignment_aligner_model_dir",
+        "qwen_asr_capswriter_root",
+        "alignment_capswriter_root",
+        "sensevoice_model_dir",
+        "indextts2_root",
+        "voxcpm2_root",
+        "gptsovits_root",
+    ):
+        raw_path = values.get(key)
+        if not raw_path:
+            continue
+        try:
+            root = Path(raw_path).expanduser().parent
+        except TypeError:
+            continue
+        if root not in roots and root.is_dir():
+            roots.append(root)
+
+    legacy_root = next(
+        (
+            root
+            for root in roots
+            if any((root / name).is_dir() for name in ("Qwen3-ASR-1.7B", "CapsWriter-Offline", "SenseVoiceSmall"))
+        ),
+        None,
+    )
+    if legacy_root is None:
+        return values
+
+    recovered = dict(values)
+
+    def use_existing(key: str, candidate: Path) -> None:
+        current = recovered.get(key)
+        try:
+            current_exists = bool(current) and Path(current).expanduser().exists()
+        except TypeError:
+            current_exists = False
+        if candidate.exists() and not current_exists:
+            recovered[key] = str(candidate)
+
+    use_existing("qwen_asr_model_dir", legacy_root / "Qwen3-ASR-1.7B")
+    use_existing("qwen_asr_capswriter_root", legacy_root / "CapsWriter-Offline")
+    use_existing("qwen_asr_python", legacy_root / "Qwen3-runtime" / "python.exe")
+    use_existing("qwen_cuda_python", legacy_root / "Qwen3-runtime-cuda" / "python.exe")
+    use_existing("qwen_cuda_backend_dir", legacy_root / "CapsWriter-Offline" / ".open-tts-backends" / "cuda")
+    use_existing("alignment_capswriter_root", legacy_root / "CapsWriter-Offline")
+    use_existing("alignment_aligner_model_dir", legacy_root / "Qwen3-ForcedAligner-0.6B")
+    use_existing("alignment_python", legacy_root / "Qwen3-runtime" / "python.exe")
+    use_existing("sensevoice_model_dir", legacy_root / "SenseVoiceSmall")
+    use_existing("sensevoice_python", legacy_root / "SenseVoiceSmall" / "runtime" / "python.exe")
+    return recovered
 
 
 def save_user_settings(settings_file: Path, values: dict) -> None:

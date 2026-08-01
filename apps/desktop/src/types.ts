@@ -200,12 +200,14 @@ export type SpeechJob = {
 };
 
 export type AudioAsset = {
+  asset_id: string;
   file_name: string;
   file_path: string;
   audio_url: string;
   file_size_bytes: number;
   modified_at: string;
   source: "speech" | "batch_project" | "untracked" | string;
+  origin: "local" | "cloud" | "monitored" | string;
   model?: string | null;
   text?: string | null;
   duration_seconds?: number | null;

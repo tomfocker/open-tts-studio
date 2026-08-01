@@ -299,7 +299,7 @@ function taskStatusLabel(status: string): string {
   }[status] || status;
 }
 
-export function DoubaoWorkspace({ onClose, initialTab = "accounts" }: DoubaoWorkspaceProps) {
+export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWorkspaceProps) {
   const [tab, setTab] = useState<WorkspaceTab>(initialTab);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -1025,12 +1025,12 @@ export function DoubaoWorkspace({ onClose, initialTab = "accounts" }: DoubaoWork
   const speechProgress = speechDuration > 0 ? Math.min((speechPlaybackTime / speechDuration) * 100, 100) : 0;
 
   return (
-    <section className="doubaoWorkspace" aria-label="豆包与阅读工作台">
+    <section className="doubaoWorkspace" aria-label="云端语音合成工作台">
       <header className="doubaoWorkspaceHeader">
         <div className="doubaoBrand">
           <span className="doubaoBrandIcon"><Cloud size={21} strokeWidth={1.9} /></span>
           <div>
-            <strong>豆包与阅读</strong>
+            <strong>云端语音合成</strong>
             <span>Doubao Web · maintained adapter</span>
           </div>
         </div>
@@ -1060,7 +1060,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "accounts" }: DoubaoWork
           <button className="doubaoIconButton" title="刷新" onClick={() => void runAction("refresh", loadOperationalState, "状态已刷新") }>
             {pendingAction === "refresh" ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
           </button>
-          <button className="doubaoIconButton close" title="返回主工作台" onClick={onClose}><X size={20} /></button>
+          <button className="doubaoIconButton close" title="返回本地语音合成" onClick={onClose}><X size={20} /></button>
         </div>
       </header>
 

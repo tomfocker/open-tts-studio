@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -34,6 +35,52 @@ def test_settings_endpoint_returns_runtime_defaults(tmp_path: Path, monkeypatch)
     assert body["prewarm_default_model_on_startup"] is False
     assert body["settings_file"] == str(settings_file)
     assert "api_port" in body["restart_required_fields"]
+
+
+def test_settings_migrate_legacy_doubao_default_to_local_model(tmp_path: Path, monkeypatch):
+    client, settings_file = make_settings_client(tmp_path, monkeypatch)
+    settings_file.write_text(
+        '{"default_model_id":"doubao-web","prewarm_default_model_on_startup":true}',
+        encoding="utf-8",
+    )
+    get_settings.cache_clear()
+
+    response = client.get("/v1/settings")
+
+    assert response.status_code == 200
+    assert response.json()["default_model_id"] == "indextts2"
+    assert response.json()["prewarm_default_model_on_startup"] is False
+
+
+def test_settings_recovers_asr_companions_from_an_existing_legacy_model_root(tmp_path: Path, monkeypatch):
+    _, settings_file = make_settings_client(tmp_path, monkeypatch)
+    legacy_root = tmp_path / "legacy-models"
+    for directory in (
+        legacy_root / "IndexTTS2",
+        legacy_root / "Qwen3-ASR-1.7B",
+        legacy_root / "Qwen3-ForcedAligner-0.6B",
+        legacy_root / "CapsWriter-Offline",
+        legacy_root / "SenseVoiceSmall",
+    ):
+        directory.mkdir(parents=True)
+    qwen_python = legacy_root / "Qwen3-runtime" / "python.exe"
+    sensevoice_python = legacy_root / "SenseVoiceSmall" / "runtime" / "python.exe"
+    qwen_python.parent.mkdir(parents=True)
+    sensevoice_python.parent.mkdir(parents=True)
+    qwen_python.touch()
+    sensevoice_python.touch()
+    settings_file.write_text(json.dumps({"indextts2_root": str(legacy_root / "IndexTTS2")}), encoding="utf-8")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+
+    assert settings.qwen_asr_model_dir == legacy_root / "Qwen3-ASR-1.7B"
+    assert settings.qwen_asr_capswriter_root == legacy_root / "CapsWriter-Offline"
+    assert settings.qwen_asr_python == qwen_python
+    assert settings.alignment_capswriter_root == legacy_root / "CapsWriter-Offline"
+    assert settings.alignment_aligner_model_dir == legacy_root / "Qwen3-ForcedAligner-0.6B"
+    assert settings.sensevoice_model_dir == legacy_root / "SenseVoiceSmall"
+    assert settings.sensevoice_python == sensevoice_python
 
 
 def test_settings_endpoint_persists_updates_and_refreshes_runtime(tmp_path: Path, monkeypatch):

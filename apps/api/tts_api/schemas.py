@@ -374,12 +374,16 @@ class TaskSummary(BaseModel):
 
 
 class AudioAsset(BaseModel):
+    asset_id: str
     file_name: str
     file_path: str
     audio_url: str
     file_size_bytes: int = Field(ge=0)
     modified_at: datetime
     source: str = "untracked"
+    # ``origin`` answers where the audio was produced, while ``source`` keeps
+    # the useful task granularity (single sentence / batch / directory file).
+    origin: str = "monitored"
     model: str | None = None
     text: str | None = None
     duration_seconds: float | None = Field(default=None, ge=0)

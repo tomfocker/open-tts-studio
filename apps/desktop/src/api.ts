@@ -488,6 +488,16 @@ export async function fetchAudioAssets(): Promise<AudioAsset[]> {
   return payload.assets;
 }
 
+export async function deleteAudioAsset(assetId: string): Promise<void> {
+  const response = await fetch(`${getApiBase()}/v1/audio-assets?asset_id=${encodeURIComponent(assetId)}`, {
+    method: "DELETE"
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `删除本地音频文件失败：${response.status}`);
+  }
+}
+
 async function projectRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${getApiBase()}${path}`, init);
   if (!response.ok) {

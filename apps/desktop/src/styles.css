@@ -5804,6 +5804,21 @@ audio {
   background: rgba(224, 238, 244, 0.86);
 }
 
+.audioAssetRow em.origin-local {
+  color: var(--accent-dark, #2f7a51);
+  background: color-mix(in srgb, var(--accent, #4b8c68) 13%, transparent);
+}
+
+.audioAssetRow em.origin-cloud {
+  color: #4b6693;
+  background: rgba(225, 233, 248, 0.9);
+}
+
+.audioAssetRow em.origin-monitored {
+  color: #647786;
+  background: rgba(228, 236, 242, 0.8);
+}
+
 .audioAssetPreview {
   min-width: 0;
   min-height: 300px;
@@ -6358,6 +6373,18 @@ audio {
   .workbenchNavScroll {
     display: grid;
   }
+}
+
+.audioAssetDeleteButton {
+  color: #a44242;
+  border-color: rgba(179, 71, 71, 0.28);
+  background: rgba(255, 243, 243, 0.84);
+}
+
+.audioAssetDeleteButton:hover:not(:disabled) {
+  color: #fff;
+  border-color: #a44242;
+  background: #a44242;
 }
 
 @media (max-width: 980px) {
@@ -7346,6 +7373,28 @@ audio {
   color: var(--muted);
   background: var(--surface-control);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.065), 0 2px 6px rgba(2, 8, 13, 0.16);
+}
+
+:root[data-theme="dark"] .audioAssetRow em.origin-cloud {
+  color: #b8c9ed;
+  background: rgba(63, 80, 116, 0.72);
+}
+
+:root[data-theme="dark"] .audioAssetRow em.origin-monitored {
+  color: #c2ccd5;
+  background: rgba(79, 91, 103, 0.62);
+}
+
+:root[data-theme="dark"] .audioAssetDeleteButton {
+  color: #ffb9b9;
+  border-color: rgba(226, 108, 108, 0.38);
+  background: rgba(114, 48, 52, 0.48);
+}
+
+:root[data-theme="dark"] .audioAssetDeleteButton:hover:not(:disabled) {
+  color: #fff;
+  border-color: #d76868;
+  background: #b55252;
 }
 
 :root[data-theme="dark"] .toolButton:hover,
