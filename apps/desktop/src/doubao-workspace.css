@@ -401,7 +401,7 @@
 .doubaoPrimaryButton {
   border: 0;
   color: white;
-  background: linear-gradient(145deg, #66c67f, #2d8a5d);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--dw-accent) 78%, white), var(--accent-deep));
   box-shadow: 0 12px 24px rgba(83, 102, 121, 0.16), var(--dw-inner);
 }
 
@@ -636,7 +636,7 @@
 }
 
 .doubaoAudioResult.ready {
-  border-color: rgba(79, 186, 111, 0.2);
+  border-color: color-mix(in srgb, var(--dw-accent) 20%, transparent);
 }
 
 .doubaoAudioPlayButton {
@@ -646,7 +646,7 @@
   place-items: center;
   border: 0;
   border-radius: 999px;
-  color: #4fac6b;
+  color: var(--dw-accent-strong);
   background: linear-gradient(145deg, #f9fcff, #d9e3eb);
   box-shadow: 0 12px 24px rgba(83, 102, 121, 0.18), var(--dw-inner);
   cursor: pointer;
@@ -728,7 +728,7 @@
   height: 6px;
   border-radius: 999px;
   background:
-    linear-gradient(90deg, rgba(79, 186, 111, 0.64) 0 var(--audio-progress), transparent var(--audio-progress)),
+    linear-gradient(90deg, color-mix(in srgb, var(--dw-accent) 64%, transparent) 0 var(--audio-progress), transparent var(--audio-progress)),
     repeating-linear-gradient(90deg, rgba(115, 129, 145, 0.2) 0 2px, transparent 2px 12px),
     rgba(211, 222, 231, 0.82);
   box-shadow: inset 2px 2px 5px rgba(126, 145, 164, 0.14), inset -2px -2px 5px rgba(255, 255, 255, 0.5);
@@ -2873,4 +2873,83 @@
     border: 0;
     border-radius: 0;
   }
+}
+
+/* Doubao owns a local material palette, so it needs an explicit dark counterpart. */
+:root[data-theme="dark"] .doubaoWorkspace {
+  --dw-bg: #0d1113;
+  --dw-bg-soft: #1b2227;
+  --dw-panel: rgba(25, 31, 36, 0.96);
+  --dw-panel-solid: #20272c;
+  --dw-panel-subtle: #171d21;
+  --dw-text: #edf1f3;
+  --dw-text-soft: #b5c0c7;
+  --dw-muted: #8998a2;
+  --dw-line: rgba(191, 202, 210, 0.15);
+  --dw-line-strong: rgba(191, 202, 210, 0.24);
+  --dw-accent: var(--accent);
+  --dw-accent-strong: var(--accent-dark);
+  --dw-accent-soft: var(--accent-soft);
+  --dw-info: #83b7d3;
+  --dw-info-soft: rgba(43, 78, 97, 0.52);
+  --dw-warn: #e5b66d;
+  --dw-warn-soft: rgba(104, 75, 34, 0.46);
+  --dw-danger: #eb9494;
+  --dw-danger-soft: rgba(111, 49, 49, 0.46);
+  --dw-shadow: 0 14px 30px rgba(0, 0, 0, 0.26);
+  --dw-shadow-soft: 0 8px 20px rgba(0, 0, 0, 0.2);
+  --dw-inner: inset 0 1px 0 rgba(255, 255, 255, 0.045), inset 0 -1px 0 rgba(0, 0, 0, 0.34);
+  background: radial-gradient(circle at 18% 0%, color-mix(in srgb, var(--dw-accent) 6%, transparent), transparent 32%), var(--dw-bg);
+}
+
+:root[data-theme="dark"] .doubaoWorkspaceHeader {
+  border-color: var(--dw-line);
+  background: #171d21;
+  box-shadow: var(--dw-shadow-soft), var(--dw-inner);
+}
+
+:root[data-theme="dark"] .doubaoBrandIcon,
+:root[data-theme="dark"] .doubaoIconButton,
+:root[data-theme="dark"] .doubaoAudioPlayButton {
+  color: var(--dw-accent-strong);
+  background: linear-gradient(145deg, #283137, #1b2227);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22), var(--dw-inner);
+}
+
+:root[data-theme="dark"] .doubaoSecondaryButton {
+  color: var(--dw-text-soft);
+  background: #222a2f;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18), var(--dw-inner);
+}
+
+:root[data-theme="dark"] .doubaoAudioResult {
+  border-color: var(--dw-line);
+  background: #1a2025;
+  box-shadow: var(--dw-inner);
+}
+
+:root[data-theme="dark"] .doubaoVoiceAvatar {
+  color: #b7d9e7;
+  background: #20333c;
+}
+
+:root[data-theme="dark"] .doubaoVoiceAvatar.female {
+  color: #edbdc8;
+  background: #36262c;
+}
+
+:root[data-theme="dark"] .mainStage.workspaceMainStage .doubaoWorkspace {
+  border-color: var(--dw-line);
+  background: linear-gradient(145deg, #151b1f, #0f1316);
+}
+
+:root[data-theme="dark"] .mainStage.workspaceMainStage .doubaoWorkspaceHeader {
+  border-color: var(--dw-line);
+  background: linear-gradient(100deg, color-mix(in srgb, var(--dw-accent) 8%, transparent), #1a2025 42%);
+}
+
+:root[data-theme="dark"] .mainStage.workspaceMainStage .doubaoPanel {
+  border-color: var(--dw-line);
+  background: #1a2025;
+  box-shadow: var(--dw-shadow-soft), var(--dw-inner);
 }

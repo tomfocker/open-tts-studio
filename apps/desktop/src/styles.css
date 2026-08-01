@@ -1160,7 +1160,11 @@ summary:focus-visible {
   overflow: hidden;
 }
 
-@media (min-width: 1840px) {
+/* Electron reports logical CSS pixels. On HiDPI desktops a visually wide window
+   can otherwise miss the old 1840px breakpoint and leave half the workspaces
+   inside an invisible horizontal scroller. Treat normal desktop widths as the
+   centred six-workspace layout instead. */
+@media (min-width: 1400px) {
   .desktopTopbar {
     grid-template-columns: minmax(280px, 1fr) auto auto;
   }
@@ -1184,61 +1188,17 @@ summary:focus-visible {
   }
 }
 
-.workspaceTransition-leaving {
-  pointer-events: none;
+.workspaceTransition-entering {
+  animation: workspaceStageFadeIn 180ms ease-out both;
 }
 
-.workspaceTransition-forward.workspaceTransition-leaving {
-  animation: workspaceStageLeaveForward 120ms ease-in both;
-}
-
-.workspaceTransition-backward.workspaceTransition-leaving {
-  animation: workspaceStageLeaveBackward 120ms ease-in both;
-}
-
-.workspaceTransition-forward.workspaceTransition-entering .workspaceScreen {
-  animation: workspaceStageEnterForward 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.workspaceTransition-backward.workspaceTransition-entering .workspaceScreen {
-  animation: workspaceStageEnterBackward 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-@keyframes workspaceStageLeaveForward {
-  to {
-    opacity: 0;
-    transform: translateX(-14px) scale(0.995);
-  }
-}
-
-@keyframes workspaceStageLeaveBackward {
-  to {
-    opacity: 0;
-    transform: translateX(14px) scale(0.995);
-  }
-}
-
-@keyframes workspaceStageEnterForward {
+@keyframes workspaceStageFadeIn {
   from {
     opacity: 0;
-    transform: translateX(18px) scale(0.995);
   }
 
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-
-@keyframes workspaceStageEnterBackward {
-  from {
-    opacity: 0;
-    transform: translateX(-18px) scale(0.995);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
   }
 }
 
@@ -3622,7 +3582,9 @@ audio {
   display: grid;
   place-items: center;
   padding: 24px;
-  z-index: 20;
+  /* Workbench screens may keep a full-canvas interaction layer at z-index 90.
+     Global dialogs must stay above it so their controls remain clickable. */
+  z-index: 120;
 }
 
 .settingsDialog {
@@ -6785,19 +6747,19 @@ audio {
 }
 
 :root[data-theme="dark"] .workbenchNav {
-  border-color: rgba(122, 146, 163, 0.2);
-  background: rgba(27, 38, 48, 0.7);
+  border-color: rgba(191, 202, 210, 0.16);
+  background: rgba(22, 27, 31, 0.88);
 }
 
 :root[data-theme="dark"] .workbenchNavButton,
 :root[data-theme="dark"] .workbenchNavScroll {
-  color: #b8c9d5;
+  color: #c0cbd1;
 }
 
 :root[data-theme="dark"] .workbenchNavButton:hover:not(:disabled),
 :root[data-theme="dark"] .workbenchNavScroll:hover:not(:disabled) {
-  color: #edf5f9;
-  background: rgba(70, 87, 100, 0.78);
+  color: #eef2f3;
+  background: rgba(53, 63, 69, 0.78);
 }
 
 :root[data-theme="dark"] .workbenchNavButton.active {
@@ -6807,13 +6769,13 @@ audio {
 }
 
 :root[data-theme="dark"] .workbenchNavIndicator {
-  border-color: rgba(116, 209, 150, 0.28);
-  background: linear-gradient(145deg, rgba(47, 102, 71, 0.84), rgba(30, 68, 49, 0.9));
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(206, 255, 222, 0.1);
+  border-color: rgba(126, 222, 161, 0.3);
+  background: linear-gradient(145deg, #24593c, #183d2b);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(206, 255, 222, 0.1);
 }
 
 :root[data-theme="dark"] .workbenchNavScroll {
-  background: rgba(56, 71, 83, 0.92);
+  background: #252d32;
 }
 
 :root[data-theme="dark"] .toolButton:hover,
@@ -7325,23 +7287,29 @@ audio {
 
 /* Dark mode 2.0: one slate material system, with green reserved for actionable state. */
 :root[data-theme="dark"] {
-  --app-bg: #111a22;
-  --surface-panel: #1a2630;
-  --surface-control: #24323e;
-  --surface-control-hover: #2b3c49;
-  --surface-well: #101923;
-  --surface-stage: #15212b;
-  --border-subtle: rgba(167, 190, 208, 0.16);
-  --border-strong: rgba(175, 206, 194, 0.38);
-  --text: #e7eef4;
-  --muted: #a9bac7;
-  --text-muted: #7e93a4;
-  --accent: #68cf8d;
-  --accent-dark: #9be5b6;
+  --app-bg: #101315;
+  --panel: #1b2024;
+  --panel-strong: #242b30;
+  --surface-panel: #171c20;
+  --surface-control: #20272c;
+  --surface-control-hover: #293238;
+  --surface-well: #0d1113;
+  --surface-stage: #14191d;
+  --line: rgba(191, 202, 210, 0.15);
+  --shadow: 0 18px 42px rgba(0, 0, 0, 0.42);
+  --shadow-soft: 0 9px 24px rgba(0, 0, 0, 0.28);
+  --inner: inset 0 1px 0 rgba(255, 255, 255, 0.045), inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+  --border-subtle: rgba(191, 202, 210, 0.15);
+  --border-strong: rgba(157, 218, 181, 0.38);
+  --text: #edf1f3;
+  --muted: #aab5bc;
+  --text-muted: #7e8c95;
+  --accent: #70d497;
+  --accent-dark: #9be6b8;
 }
 
 :root[data-theme="dark"] body {
-  background: linear-gradient(135deg, #17232d 0%, #111a22 46%, #0e171f 100%);
+  background: linear-gradient(135deg, #151a1d 0%, #101315 46%, #0b0e10 100%);
 }
 
 :root[data-theme="dark"] .desktopTopbar,
@@ -7498,5 +7466,656 @@ audio {
   .enhancementSettingsSummary {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+/* Accent themes are token-based so the workstation can change color without losing its material hierarchy. */
+:root {
+  --accent-deep: #2d8a5d;
+  --accent-soft: #e6f7ed;
+  --accent-muted: #bfe8cc;
+  --accent-contrast: #ffffff;
+  --accent-focus: color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+:root[data-accent="emerald"] {
+  --accent: #4fba6f;
+  --accent-dark: #327f55;
+  --accent-deep: #2d8a5d;
+  --accent-soft: #e6f7ed;
+  --accent-muted: #bfe8cc;
+  --accent-contrast: #ffffff;
+}
+
+:root[data-accent="azure"] {
+  --accent: #3b9fd3;
+  --accent-dark: #216f9c;
+  --accent-deep: #1b7cab;
+  --accent-soft: #e1f3fb;
+  --accent-muted: #bfe5f4;
+  --accent-contrast: #ffffff;
+}
+
+:root[data-accent="violet"] {
+  --accent: #8871d1;
+  --accent-dark: #5c489b;
+  --accent-deep: #6651ad;
+  --accent-soft: #eeeafa;
+  --accent-muted: #d8cff4;
+  --accent-contrast: #ffffff;
+}
+
+:root[data-accent="amber"] {
+  --accent: #d68a36;
+  --accent-dark: #98571a;
+  --accent-deep: #b96b1f;
+  --accent-soft: #fbf0df;
+  --accent-muted: #f1d19f;
+  --accent-contrast: #ffffff;
+}
+
+:root[data-accent="rose"] {
+  --accent: #d6647b;
+  --accent-dark: #9e3d55;
+  --accent-deep: #b94b66;
+  --accent-soft: #fbe8ed;
+  --accent-muted: #f2c5d0;
+  --accent-contrast: #ffffff;
+}
+
+:root[data-theme="dark"][data-accent="emerald"] {
+  --accent: #70d497;
+  --accent-dark: #a5ebc0;
+  --accent-deep: #3d8560;
+  --accent-soft: #27513d;
+  --accent-muted: #183d2b;
+  --accent-contrast: #effbf3;
+}
+
+:root[data-theme="dark"][data-accent="azure"] {
+  --accent: #6ec7f1;
+  --accent-dark: #b4e7fb;
+  --accent-deep: #2c718e;
+  --accent-soft: #1c4659;
+  --accent-muted: #143442;
+  --accent-contrast: #effaff;
+}
+
+:root[data-theme="dark"][data-accent="violet"] {
+  --accent: #ad99ed;
+  --accent-dark: #ded5ff;
+  --accent-deep: #6650a8;
+  --accent-soft: #403568;
+  --accent-muted: #2c254a;
+  --accent-contrast: #faf7ff;
+}
+
+:root[data-theme="dark"][data-accent="amber"] {
+  --accent: #edb260;
+  --accent-dark: #ffe0af;
+  --accent-deep: #9d6323;
+  --accent-soft: #60431f;
+  --accent-muted: #422f18;
+  --accent-contrast: #fffaf2;
+}
+
+:root[data-theme="dark"][data-accent="rose"] {
+  --accent: #ef97aa;
+  --accent-dark: #ffd3dc;
+  --accent-deep: #a95065;
+  --accent-soft: #673545;
+  --accent-muted: #482631;
+  --accent-contrast: #fff7f9;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible {
+  outline-color: var(--accent-focus);
+}
+
+.appearanceSettingsGroup .settingsGroupTitle em {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 680;
+}
+
+.accentThemeHeading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.accentThemeHeading > div {
+  display: grid;
+  gap: 4px;
+}
+
+.accentThemeHeading strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.accentThemeHeading > div > span {
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 12px;
+}
+
+.accentThemeCurrent {
+  flex: 0 0 auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent);
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.accentThemeOptions {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.accentThemeOption {
+  min-width: 0;
+  min-height: 64px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 9px;
+  padding: 9px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-strong) 70%, transparent);
+  box-shadow: var(--inner);
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  text-align: left;
+  transition: border-color 160ms ease, background-color 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.accentThemeOption:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent-option) 35%, var(--line));
+  transform: translateY(-1px);
+}
+
+.accentThemeOption.active {
+  border-color: color-mix(in srgb, var(--accent-option) 56%, var(--line));
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent-option) 10%, var(--panel-strong));
+  box-shadow: 0 7px 16px color-mix(in srgb, var(--accent-option) 12%, transparent), var(--inner);
+}
+
+.accentThemeSwatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent-option) 70%, white), var(--accent-option));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 2px 4px color-mix(in srgb, var(--accent-option) 25%, transparent);
+}
+
+.accentThemeOptionCopy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.accentThemeOptionCopy strong,
+.accentThemeOptionCopy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accentThemeOptionCopy strong {
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.accentThemeOptionCopy small {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.accentThemeCheck {
+  color: var(--accent-option);
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.accentThemeOption.active .accentThemeCheck {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Existing green actions and state signals are deliberately routed through the same accent tokens. */
+:root[data-accent] .workbenchNavButton.active,
+:root[data-accent] .generationWorkspaceTabs button.active,
+:root[data-accent] .generationWorkspaceTabs button.active span,
+:root[data-accent] .voiceImportDropdown button:hover:not(:disabled),
+:root[data-accent] .voiceReferenceHeading small,
+:root[data-accent] .voiceReferenceBadge,
+:root[data-accent] .voiceReferenceCardAction,
+:root[data-accent] .voiceNotice,
+:root[data-accent] .voiceToast,
+:root[data-accent] .cloneModeSummary strong,
+:root[data-accent] .pulseBadge,
+:root[data-accent] .phaseStep.done,
+:root[data-accent] .drawGeneratingSummary strong,
+:root[data-accent] .elapsedTimer b,
+:root[data-accent] .drawCandidatesHeader span,
+:root[data-accent] .drawCandidateCard > svg,
+:root[data-accent] .drawCandidateCard.active::after,
+:root[data-accent] .drawGenerateMenuHeader,
+:root[data-accent] .drawGenerateMenu > button:hover:not(:disabled),
+:root[data-accent] .drawGenerateMenu > button:focus-visible,
+:root[data-accent] .inlineHelp:hover,
+:root[data-accent] .iconTextButton:hover,
+:root[data-accent] .playButton,
+:root[data-accent] .resultVoiceSaveSourceIcon,
+:root[data-accent] .batchWorkspaceEyebrow,
+:root[data-accent] .modelWarmupStatus.ready,
+:root[data-accent] .modelPackageActivateButton:not(:disabled),
+:root[data-accent] .modelHistoryItem.ready strong,
+:root[data-accent] .taskCenterEmpty svg {
+  color: var(--accent-dark);
+}
+
+:root[data-accent] .voiceReferenceCard:hover,
+:root[data-accent] .voiceReferenceCard.selected,
+:root[data-accent] .doubaoVoiceCard.active,
+:root[data-accent] .voiceCard.active,
+:root[data-accent] .drawCandidateCard.active,
+:root[data-accent] .batchProjectRow.active,
+:root[data-accent] .promptPreset.active,
+:root[data-accent] .doubaoFormatToggle button.active,
+:root[data-accent] .toggle.active,
+:root[data-accent] .segment.active,
+:root[data-accent] .modelPill.active,
+:root[data-accent] .settingsPrewarmToggle.active {
+  color: var(--accent-dark);
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  background: color-mix(in srgb, var(--accent) 11%, var(--panel-strong));
+}
+
+:root[data-accent] .voiceReferenceCard.selected,
+:root[data-accent] .voiceCard.active,
+:root[data-accent] .doubaoVoiceCard.active {
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 12%, transparent), var(--inner);
+}
+
+:root[data-accent] .voiceCard.active .voiceAvatar,
+:root[data-accent] .voiceReferenceCard:focus-visible,
+:root[data-accent] .audioWaveform:focus-visible,
+:root[data-accent] .workbenchNavButton:focus-visible,
+:root[data-accent] .generationWorkspaceTabs button:focus-visible,
+:root[data-accent] .promptPreset:focus-visible,
+:root[data-accent] .samplerVideoPreviewAction:focus-visible,
+:root[data-accent] .batchSegmentItem textarea:focus,
+:root[data-accent] .samplerLinkRow input:focus,
+:root[data-accent] .settingsField input:focus,
+:root[data-accent] .settingsField select:focus {
+  outline-color: var(--accent-focus);
+  box-shadow: var(--inner), 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+:root[data-accent] .referenceAudioSliders input,
+:root[data-accent] .referenceAudioAsrOption input {
+  accent-color: var(--accent);
+}
+
+:root[data-accent] .referenceAudioAdvice,
+:root[data-accent] .referenceAudioAdvice strong,
+:root[data-accent] .voiceQualityDot.ready,
+:root[data-accent] .voiceQualityNotice.ready,
+:root[data-accent] .doubaoCloudStatus.ready,
+:root[data-accent] .doubaoAccountNote.ready,
+:root[data-accent] .enhancementReadiness.ready,
+:root[data-accent] .settingCheck.ready,
+:root[data-accent] .workerBadge.loaded,
+:root[data-accent] .modelPackageState.stable,
+:root[data-accent] .modelPackageAdapter.ready,
+:root[data-accent] .modelState.ready,
+:root[data-accent] .checkItem.passed,
+:root[data-accent] .modelRuntimeHeader strong.ready,
+:root[data-accent] .batchProjectReference.doubaoReady,
+:root[data-accent] .batchSegmentState.succeeded,
+:root[data-accent] .batchProjectSelect em.completed,
+:root[data-accent] .samplerAudioStatus.ready,
+:root[data-accent] .samplerVideoPreviewTag,
+:root[data-accent] .samplerClipSelectionLength,
+:root[data-accent] .samplerClipRangeReadout,
+:root[data-accent] .taskStateIcon.active,
+:root[data-accent] .audioAssetRow em.speech,
+:root[data-accent] .taskCenterStatus.running,
+:root[data-accent] .taskCenterStatus.succeeded,
+:root[data-accent] .settingsFeedback:not(.error) {
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+:root[data-accent] .voiceQualityDot.ready {
+  background: var(--accent);
+}
+
+:root[data-accent] .referenceAudioAdvice,
+:root[data-accent] .voiceNotice,
+:root[data-accent] .voiceToast,
+:root[data-accent] .pulseBadge,
+:root[data-accent] .phaseStep.done,
+:root[data-accent] .resultVoiceSaveSourceIcon,
+:root[data-accent] .batchWorkspaceEyebrow {
+  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong));
+}
+
+:root[data-accent] .updateVersionBadge {
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+:root[data-accent] .primaryAction,
+:root[data-accent] .editorGenerateButton,
+:root[data-accent] .generateMenuTrigger,
+:root[data-accent] .doubaoPrimaryButton,
+:root[data-accent] .phaseStep.active,
+:root[data-accent] .audioAssetPlayButton,
+:root[data-accent] .voiceSaveButton {
+  color: var(--accent-contrast);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 78%, white), var(--accent-deep));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 22%, transparent), var(--inner);
+}
+
+:root[data-accent] .generateMenuTrigger:hover:not(:disabled),
+:root[data-accent] .generateMenuTrigger[aria-expanded="true"],
+:root[data-accent] .primaryAction:hover:not(:disabled),
+:root[data-accent] .editorGenerateButton:hover:not(:disabled),
+:root[data-accent] .doubaoPrimaryButton:hover:not(:disabled),
+:root[data-accent] .audioAssetPlayButton:hover:not(:disabled),
+:root[data-accent] .voiceSaveButton:hover:not(:disabled) {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 92%, white), var(--accent-deep));
+}
+
+:root[data-accent] .statusDot.online,
+:root[data-accent] .toolStatusDot.online {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+:root[data-accent] .statusDot.online::after {
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+:root[data-accent] .workbenchNavIndicator {
+  border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 80%, white), var(--accent-deep));
+  box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 18%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+:root[data-accent] .generationWorkspaceThumb,
+:root[data-accent] .generationProgressBar span,
+:root[data-accent] .sideProgress span,
+:root[data-accent] .taskCenterProgress span,
+:root[data-accent] .appUpdateProgress span,
+:root[data-accent] .metricTrack span {
+  background: linear-gradient(90deg, var(--accent), var(--accent-deep));
+}
+
+:root[data-accent] .meter span,
+:root[data-accent] .waveBar,
+:root[data-accent] input[type="range"] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 78%, transparent), color-mix(in srgb, var(--accent) 22%, transparent));
+}
+
+:root[data-accent] .taskCenterItem.failed .taskCenterProgress span {
+  background: #d86f6f;
+}
+
+:root[data-accent] .taskCenterItem.cancelled .taskCenterProgress span {
+  background: #a8b5c1;
+}
+
+:root[data-theme="dark"][data-accent] .generationWorkspaceTabs button.active,
+:root[data-theme="dark"][data-accent] .generationWorkspaceTabs button.active span,
+:root[data-theme="dark"][data-accent] .modelPill.active,
+:root[data-theme="dark"][data-accent] .voiceCard.active,
+:root[data-theme="dark"][data-accent] .doubaoVoiceCard.active,
+:root[data-theme="dark"][data-accent] .toggle.active,
+:root[data-theme="dark"][data-accent] .segment.active,
+:root[data-theme="dark"][data-accent] .promptPreset.active,
+:root[data-theme="dark"][data-accent] .settingsPrewarmToggle.active {
+  color: var(--accent-contrast);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: var(--accent-soft);
+}
+
+:root[data-theme="dark"][data-accent] .modelPill.active small {
+  color: var(--accent-dark);
+}
+
+:root[data-theme="dark"][data-accent] .enhancementSettingsSummary {
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 18%, var(--surface-control)), var(--surface-control));
+}
+
+:root[data-theme="dark"][data-accent] .enhancementSettingsSummary strong,
+:root[data-theme="dark"][data-accent] .enhancementReadiness.ready,
+:root[data-theme="dark"][data-accent] .settingCheck.ready {
+  color: var(--accent-dark);
+}
+
+/* The settings sheet has more nested panels than the workspace, so compose its night material explicitly. */
+:root[data-theme="dark"] .settingsGroup {
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
+  box-shadow: var(--inner);
+}
+
+:root[data-theme="dark"] .appUpdateCard,
+:root[data-theme="dark"] .startupPrewarmCard,
+:root[data-theme="dark"] .settingsMigrationNotice,
+:root[data-theme="dark"] .settingsAdvancedDetails,
+:root[data-theme="dark"] .modelPackageCard,
+:root[data-theme="dark"] .modelRuntimeCard {
+  border-color: var(--border-subtle);
+  color: var(--text);
+  background: var(--surface-control);
+  box-shadow: var(--inner);
+}
+
+:root[data-theme="dark"] .settingsHeader strong,
+:root[data-theme="dark"] .settingsGroupTitle,
+:root[data-theme="dark"] .appUpdateSummary strong,
+:root[data-theme="dark"] .accentThemeHeading strong {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .settingsHeader span,
+:root[data-theme="dark"] .settingsField span,
+:root[data-theme="dark"] .appUpdateGroup .settingsGroupTitle em,
+:root[data-theme="dark"] .appearanceSettingsGroup .settingsGroupTitle em,
+:root[data-theme="dark"] .updateStatus,
+:root[data-theme="dark"] .accentThemeHeading > div > span {
+  color: var(--muted);
+}
+
+/* Accent is a hierarchy cue, not a second background. Keep navigation and modes quiet
+   so the primary action remains the only solid colour on the workspace. */
+:root[data-accent] .workbenchNavIndicator {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 13%, var(--panel-strong)),
+    color-mix(in srgb, var(--accent) 7%, var(--panel))
+  );
+  box-shadow:
+    0 5px 12px rgba(67, 86, 103, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+:root[data-accent] .generationWorkspaceThumb {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 12%, var(--panel-strong)),
+    color-mix(in srgb, var(--accent) 6%, var(--panel))
+  );
+  box-shadow:
+    0 4px 10px rgba(67, 86, 103, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+:root[data-accent] .segment.active {
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel-strong));
+  box-shadow:
+    0 6px 14px rgba(83, 102, 121, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+:root[data-accent] .primaryAction,
+:root[data-accent] .editorGenerateButton,
+:root[data-accent] .doubaoPrimaryButton,
+:root[data-accent] .audioAssetPlayButton,
+:root[data-accent] .voiceSaveButton {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 87%, white),
+    var(--accent-deep)
+  );
+  box-shadow:
+    0 8px 17px color-mix(in srgb, var(--accent) 14%, transparent),
+    0 2px 5px rgba(47, 66, 83, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    inset 0 -1px 0 rgba(24, 53, 38, 0.12);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease;
+}
+
+:root[data-accent] .generateMenuTrigger {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 64%, var(--accent-deep)),
+    color-mix(in srgb, var(--accent-deep) 90%, black)
+  );
+  box-shadow:
+    0 8px 17px color-mix(in srgb, var(--accent) 14%, transparent),
+    0 2px 5px rgba(47, 66, 83, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    inset 1px 0 0 rgba(255, 255, 255, 0.14);
+  transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease;
+}
+
+:root[data-accent] .primaryAction:hover:not(:disabled),
+:root[data-accent] .editorGenerateButton:hover:not(:disabled),
+:root[data-accent] .doubaoPrimaryButton:hover:not(:disabled),
+:root[data-accent] .audioAssetPlayButton:hover:not(:disabled),
+:root[data-accent] .voiceSaveButton:hover:not(:disabled) {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 87%, white),
+    var(--accent-deep)
+  );
+  transform: translateY(-1px);
+  box-shadow:
+    0 10px 20px color-mix(in srgb, var(--accent) 17%, transparent),
+    0 3px 7px rgba(47, 66, 83, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+:root[data-accent] .generateMenuTrigger:hover:not(:disabled),
+:root[data-accent] .generateMenuTrigger[aria-expanded="true"] {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 64%, var(--accent-deep)),
+    color-mix(in srgb, var(--accent-deep) 90%, black)
+  );
+  transform: translateY(-1px);
+  box-shadow:
+    0 10px 20px color-mix(in srgb, var(--accent) 17%, transparent),
+    0 3px 7px rgba(47, 66, 83, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+:root[data-theme="dark"][data-accent] .workbenchNavIndicator {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 18%, var(--panel-strong)),
+    color-mix(in srgb, var(--accent) 10%, var(--panel))
+  );
+  box-shadow:
+    0 5px 12px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.075),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme="dark"][data-accent] .generationWorkspaceThumb {
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 18%, var(--surface-control)),
+    color-mix(in srgb, var(--accent) 10%, var(--surface-well))
+  );
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22);
+}
+
+:root[data-theme="dark"][data-accent] .segment.active {
+  color: var(--accent-dark);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border-subtle));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-control));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.075),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.22);
+}
+
+:root[data-theme="dark"][data-accent] .primaryAction,
+:root[data-theme="dark"][data-accent] .editorGenerateButton,
+:root[data-theme="dark"][data-accent] .doubaoPrimaryButton,
+:root[data-theme="dark"][data-accent] .audioAssetPlayButton,
+:root[data-theme="dark"][data-accent] .voiceSaveButton {
+  color: var(--accent-contrast);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 83%, white),
+    var(--accent-deep)
+  );
+  box-shadow:
+    0 9px 18px rgba(0, 0, 0, 0.27),
+    0 2px 5px color-mix(in srgb, var(--accent) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.27),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.16);
+}
+
+:root[data-theme="dark"][data-accent] .generateMenuTrigger {
+  color: var(--accent-contrast);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent) 58%, var(--accent-deep)),
+    color-mix(in srgb, var(--accent-deep) 86%, black)
+  );
+}
+
+@media (max-width: 640px) {
+  .accentThemeHeading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .accentThemeOptions {
+    grid-template-columns: 1fr;
   }
 }

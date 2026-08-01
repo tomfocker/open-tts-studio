@@ -23,6 +23,7 @@ import {
   Minus,
   Info,
   Pause,
+  Palette,
   Play,
   Plus,
   RefreshCw,
@@ -143,8 +144,6 @@ import type {
 } from "./types";
 
 type PrimaryWorkspace = "creation" | "doubao" | "transcription" | "sampler" | "enhancement" | "separation";
-
-const primaryWorkspaceOrder: PrimaryWorkspace[] = ["creation", "doubao", "transcription", "sampler", "enhancement", "separation"];
 
 declare global {
   interface Window {
@@ -278,18 +277,37 @@ type ReferenceAudioEditorState = {
 type WaveformStatus = "idle" | "loading" | "ready" | "unavailable";
 
 type AppTheme = "light" | "dark";
+type AccentTheme = "emerald" | "azure" | "violet" | "amber" | "rose";
 
 type ThemeTransitionDocument = Document & {
   startViewTransition?: (updateCallback: () => void) => { ready: Promise<void> };
 };
 
 const APP_THEME_STORAGE_KEY = "open-tts-studio.theme";
+const APP_ACCENT_STORAGE_KEY = "open-tts-studio.accent";
+
+const accentThemeOptions: Array<{ id: AccentTheme; label: string; description: string; preview: string }> = [
+  { id: "emerald", label: "翡翠绿", description: "克制、清晰", preview: "#4fba6f" },
+  { id: "azure", label: "雾霭蓝", description: "冷静、专注", preview: "#3b9fd3" },
+  { id: "violet", label: "暮光紫", description: "沉稳、柔和", preview: "#8a72d4" },
+  { id: "amber", label: "琥珀橙", description: "温暖、有力", preview: "#d68a36" },
+  { id: "rose", label: "蔷薇红", description: "鲜明、克制", preview: "#d6647b" }
+];
 
 function readAppTheme(): AppTheme {
   try {
     return window.localStorage.getItem(APP_THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
   } catch {
     return "light";
+  }
+}
+
+function readAccentTheme(): AccentTheme {
+  try {
+    const storedAccent = window.localStorage.getItem(APP_ACCENT_STORAGE_KEY);
+    return accentThemeOptions.some((option) => option.id === storedAccent) ? storedAccent as AccentTheme : "emerald";
+  } catch {
+    return "emerald";
   }
 }
 
@@ -1739,6 +1757,7 @@ function getGenerationProgress(modelId: string, elapsedSeconds: number): Generat
 
 export function App() {
   const [theme, setTheme] = useState<AppTheme>(readAppTheme);
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>(readAccentTheme);
   const [themeTransitioning, setThemeTransitioning] = useState(false);
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState("indextts2");
@@ -1867,8 +1886,7 @@ export function App() {
   const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch" | "realtime">("single");
   const workbenchNavRef = useRef<HTMLDivElement>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<PrimaryWorkspace>("creation");
-  const [workspaceTransition, setWorkspaceTransition] = useState<"idle" | "leaving" | "entering">("idle");
-  const [workspaceTransitionDirection, setWorkspaceTransitionDirection] = useState<"forward" | "backward">("forward");
+  const [workspaceTransition, setWorkspaceTransition] = useState<"idle" | "entering">("idle");
   const workspaceTransitionTimersRef = useRef<number[]>([]);
   const [workbenchIndicator, setWorkbenchIndicator] = useState({ left: 4, width: 0, ready: false });
   const [doubaoStatus, setDoubaoStatus] = useState<DoubaoStatus | null>(null);
@@ -3109,22 +3127,18 @@ export function App() {
   function selectWorkspace(workbench: PrimaryWorkspace) {
     if (workbench === activeWorkspace) return;
     workspaceTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
-    const nextDirection = primaryWorkspaceOrder.indexOf(workbench) > primaryWorkspaceOrder.indexOf(activeWorkspace) ? "forward" : "backward";
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    setWorkspaceTransitionDirection(nextDirection);
     if (reduceMotion) {
       setActiveWorkspace(workbench);
       setWorkspaceTransition("idle");
       return;
     }
-    setWorkspaceTransition("leaving");
-    const replaceTimer = window.setTimeout(() => {
-      setActiveWorkspace(workbench);
-      setWorkspaceTransition("entering");
-      const settleTimer = window.setTimeout(() => setWorkspaceTransition("idle"), 260);
-      workspaceTransitionTimersRef.current = [settleTimer];
-    }, 120);
-    workspaceTransitionTimersRef.current = [replaceTimer];
+    // Swap at the beginning of the fade so grid changes never occur while the old view is translated.
+    // The prior two-stage slide made the main canvas appear to jump when its width changed.
+    setActiveWorkspace(workbench);
+    setWorkspaceTransition("entering");
+    const settleTimer = window.setTimeout(() => setWorkspaceTransition("idle"), 180);
+    workspaceTransitionTimersRef.current = [settleTimer];
   }
 
   function scrollWorkbenchNavigation(direction: -1 | 1) {
@@ -5089,6 +5103,15 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
+    document.documentElement.dataset.accent = accentTheme;
+    try {
+      window.localStorage.setItem(APP_ACCENT_STORAGE_KEY, accentTheme);
+    } catch {
+      // Accent persistence is optional when the host blocks local storage.
+    }
+  }, [accentTheme]);
+
+  useEffect(() => {
     return () => {
       if (themeTransitionTimerRef.current !== null) {
         window.clearTimeout(themeTransitionTimerRef.current);
@@ -6359,7 +6382,7 @@ export function App() {
           </section>
         </aside>
 
-        <section className={`mainStage${activeWorkspace === "creation" ? "" : " workspaceMainStage"} workspaceTransition-${workspaceTransition} workspaceTransition-${workspaceTransitionDirection}`}>
+        <section className={`mainStage${activeWorkspace === "creation" ? "" : " workspaceMainStage"} workspaceTransition-${workspaceTransition}`}>
           {activeWorkspace === "creation" ? (
             <>
           <section className={generationWorkspace === "batch" ? "softPanel canvasPanel batchCanvasPanel" : generationWorkspace === "realtime" ? "softPanel canvasPanel realtimeCanvasPanel" : "softPanel canvasPanel"}>
@@ -7973,6 +7996,45 @@ export function App() {
             </header>
 
             <div className="settingsBody">
+              <div className="settingsGroup appearanceSettingsGroup">
+                <div className="settingsGroupTitle">
+                  <Palette size={16} strokeWidth={1.9} />
+                  <span>界面外观</span>
+                  <em>{theme === "dark" ? "夜间材质" : "日间材质"}</em>
+                </div>
+                <div className="accentThemeHeading">
+                  <div>
+                    <strong>强调色</strong>
+                    <span>主操作、选中态、进度和已就绪提示会跟随此处统一切换。</span>
+                  </div>
+                  <span className="accentThemeCurrent" aria-live="polite">
+                    {accentThemeOptions.find((option) => option.id === accentTheme)?.label}
+                  </span>
+                </div>
+                <div className="accentThemeOptions" role="radiogroup" aria-label="选择强调色">
+                  {accentThemeOptions.map((option) => {
+                    const selected = option.id === accentTheme;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        className={selected ? "accentThemeOption active" : "accentThemeOption"}
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => setAccentTheme(option.id)}
+                      >
+                        <span className="accentThemeSwatch" style={{ "--accent-option": option.preview } as CSSProperties} aria-hidden="true" />
+                        <span className="accentThemeOptionCopy">
+                          <strong>{option.label}</strong>
+                          <small>{option.description}</small>
+                        </span>
+                        <CheckCircle2 className="accentThemeCheck" size={16} strokeWidth={2} aria-hidden="true" />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="settingsGroup appUpdateGroup">
                 <div className="settingsGroupTitle">
                   <RefreshCw size={16} strokeWidth={1.9} />
