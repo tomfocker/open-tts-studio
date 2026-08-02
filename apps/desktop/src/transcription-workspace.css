@@ -329,6 +329,14 @@
   color: var(--accent-dark);
 }
 
+.transcriptionBackendField small.transcriptionBackendUnavailable {
+  color: #ad4949;
+}
+
+.transcriptionBackendField small.transcriptionBackendUnavailable svg {
+  color: #ad4949;
+}
+
 .transcriptionPrimaryButton,
 .transcriptionActions button {
   min-height: 36px;

@@ -19,12 +19,14 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelTranscriptionJob,
   createTranscriptionJob,
+  fetchAppSettings,
   fetchTranscriptionExport,
   fetchTranscriptionJobs,
   retryTranscriptionJob,
   uploadTranscriptionInput
 } from "./api";
 import type {
+  AppSettings,
   TranscriptionBackend,
   TranscriptionInputInfo,
   TranscriptionJob,
@@ -86,6 +88,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [runtimeReadiness, setRuntimeReadiness] = useState<Pick<AppSettings, "sensevoice_ready" | "qwen_asr_model_installed"> | null>(null);
   const browserFileRef = useRef<HTMLInputElement | null>(null);
 
   const selectedJob = useMemo(
@@ -104,8 +107,23 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
     }
   };
 
+  const refreshRuntimeReadiness = async () => {
+    try {
+      const settings = await fetchAppSettings();
+      setRuntimeReadiness({
+        sensevoice_ready: settings.sensevoice_ready,
+        qwen_asr_model_installed: settings.qwen_asr_model_installed
+      });
+    } catch {
+      // The transcription endpoint remains the authoritative fallback for
+      // callers outside Electron. Avoid obscuring an otherwise usable page
+      // when the optional readiness request cannot be refreshed.
+    }
+  };
+
   useEffect(() => {
     void refreshJobs();
+    void refreshRuntimeReadiness();
     const timer = window.setInterval(() => void refreshJobs(true), 1800);
     return () => window.clearInterval(timer);
   }, []);
@@ -115,6 +133,15 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
       setBackend("qwen3");
     }
   }, [outputFormat]);
+
+  const selectedBackendReady = backend === "qwen3"
+    ? runtimeReadiness?.qwen_asr_model_installed
+    : runtimeReadiness?.sensevoice_ready;
+  const selectedJobHasLegacyQwenPathError = Boolean(
+    selectedJob?.backend === "qwen3"
+    && selectedJob.status === "failed"
+    && /Qwen3-ASR.*(?:目录不存在|MODEL_DIR)/i.test(selectedJob.error || "")
+  );
 
   const selectMedia = async () => {
     setError(null);
@@ -286,9 +313,10 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
                 <option value="qwen3">Qwen3-ASR · 本地高精度</option>
               </select>
               {outputFormat === "srt" ? <small><ShieldCheck size={13} />SRT 固定使用 Qwen3-ASR + ForcedAligner，不估算时间。</small> : <small>TXT 不会启动强制对齐模型。</small>}
+              {selectedBackendReady === false && <small className="transcriptionBackendUnavailable"><AlertCircle size={13} />{backend === "qwen3" ? "Qwen3-ASR 的本地模型、运行时或引擎尚未就绪，请先在设置中检查模型目录。" : "SenseVoiceSmall 的本地模型或运行时尚未就绪，请先在设置中检查模型目录。"}</small>}
             </label>
 
-            <button className="transcriptionPrimaryButton" type="button" disabled={!media || pendingAction === "start"} onClick={() => void start()}>
+            <button className="transcriptionPrimaryButton" type="button" disabled={!media || pendingAction === "start" || selectedBackendReady === false} onClick={() => void start()}>
               {pendingAction === "start" ? <Loader2 className="spin" size={17} /> : <FileAudio size={17} />}
               <span>{pendingAction === "start" ? "正在创建" : "开始本地转写"}</span>
             </button>
@@ -309,6 +337,9 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
                 </div>
                 {isActive(selectedJob) && <div className="transcriptionProgress"><span style={{ width: `${Math.max(8, selectedJob.progress_percent)}%` }} /></div>}
                 {selectedJob.error && <div className="transcriptionFeedback error"><AlertCircle size={15} /><span>{selectedJob.error}</span></div>}
+                {selectedJobHasLegacyQwenPathError && runtimeReadiness?.qwen_asr_model_installed && (
+                  <div className="transcriptionFeedback warning"><RefreshCw size={15} /><span>这是旧版本留下的 Qwen3 失败记录。当前本地 Qwen3 组件已就绪；若原媒体仍在本地暂存，可按当前配置重试。</span></div>
+                )}
                 {selectedJob.warnings.map((warning) => <div className="transcriptionFeedback warning" key={warning}><AlertCircle size={15} /><span>{warning}</span></div>)}
 
                 {selectedJob.status === "completed" ? (
@@ -327,7 +358,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
                 )}
                 <div className="transcriptionActions secondary">
                   {isActive(selectedJob) && <button type="button" className="danger" disabled={pendingAction === "cancel"} onClick={() => void cancel()}>{pendingAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Square size={14} />}取消任务</button>}
-                  {(selectedJob.status === "failed" || selectedJob.status === "cancelled") && <button type="button" disabled={pendingAction === "retry"} onClick={() => void retry()}>{pendingAction === "retry" ? <Loader2 className="spin" size={15} /> : <RotateCw size={15} />}重试</button>}
+                  {(selectedJob.status === "failed" || selectedJob.status === "cancelled") && <button type="button" disabled={pendingAction === "retry"} onClick={() => void retry()}>{pendingAction === "retry" ? <Loader2 className="spin" size={15} /> : <RotateCw size={15} />}{selectedJob.backend === "qwen3" ? "按当前 Qwen 配置重试" : "按当前配置重试"}</button>}
                 </div>
               </>
             ) : <div className="transcriptionEmptyState"><FileAudio size={30} /><strong>还没有转写任务</strong><span>选择真实音频或视频后即可在本机生成文本或字幕。</span></div>}

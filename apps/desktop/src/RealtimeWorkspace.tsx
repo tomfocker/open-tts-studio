@@ -525,7 +525,16 @@ export function RealtimeWorkspace() {
         <div className="realtimeMessageList" aria-live="polite">
           {!messages.length && (
             <div className="realtimeEmptyState">
-              <div><Mic size={25} strokeWidth={1.8} /></div>
+              <button
+                type="button"
+                className="realtimeEmptyStart"
+                onClick={() => void startMicrophone()}
+                disabled={connectionState === "connecting"}
+                aria-label="开启麦克风并开始实时对话"
+              >
+                <Mic size={25} strokeWidth={1.8} />
+                <span>{connectionState === "connecting" ? "正在连接…" : "开启麦克风"}</span>
+              </button>
               <h2>开始一段自然对话</h2>
               <p>先配置一个 OpenAI 兼容 LLM；开启麦克风后，停顿会自动送去识别，AI 回答时直接开口即可打断。</p>
             </div>

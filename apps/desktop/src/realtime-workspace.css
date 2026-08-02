@@ -1,5 +1,6 @@
 .realtimeWorkspace {
-  min-height: 650px;
+  min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-columns: minmax(258px, 0.3fr) minmax(0, 1fr);
   overflow: hidden;
@@ -8,12 +9,16 @@
 }
 
 .realtimeSettingsPanel {
+  min-height: 0;
   padding: 22px;
   border-right: 1px solid rgba(91, 118, 133, 0.16);
   background: linear-gradient(165deg, rgba(235, 247, 240, 0.92), rgba(241, 246, 249, 0.78));
   display: flex;
   flex-direction: column;
   gap: 13px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(116, 132, 148, 0.34) transparent;
 }
 
 .realtimePanelHeading { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
@@ -45,7 +50,7 @@
 .realtimeConnectButton { justify-content: center; min-height: 38px; }
 .realtimeDisconnect { border: 0; padding: 2px; color: #7c8b96; background: transparent; cursor: pointer; font: inherit; font-size: 12px; text-decoration: underline; }
 
-.realtimeConversationPanel { min-width: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; background: rgba(250, 253, 252, 0.62); }
+.realtimeConversationPanel { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; background: rgba(250, 253, 252, 0.62); }
 .realtimeConversationHeader { min-height: 74px; padding: 0 24px; border-bottom: 1px solid rgba(91, 118, 133, 0.14); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .realtimeConversationHeader > div:first-child { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; align-items: center; column-gap: 8px; }
 .realtimeConversationHeader strong { color: #3e5362; font-size: 15px; }
@@ -60,7 +65,11 @@
 .realtimeStatus { min-height: 38px; padding: 0 24px; display: flex; align-items: center; gap: 8px; color: #65807c; background: rgba(225, 243, 233, 0.54); font-size: 12px; }
 .realtimeMessageList { min-height: 0; padding: 22px 24px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 .realtimeEmptyState { max-width: 420px; margin: auto; color: #81929b; text-align: center; }
-.realtimeEmptyState > div { width: 53px; height: 53px; margin: 0 auto 13px; border-radius: 17px; color: #38855d; background: rgba(219, 243, 228, .86); display: grid; place-items: center; }
+.realtimeEmptyStart { min-width: 53px; min-height: 53px; margin: 0 auto 13px; padding: 8px 13px; border: 0; border-radius: 17px; color: #287750; background: rgba(219, 243, 228, .92); display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 760; transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease; }
+.realtimeEmptyStart:hover:not(:disabled) { background: rgba(198, 235, 212, .98); box-shadow: 0 8px 18px rgba(50, 135, 88, .18); transform: translateY(-1px); }
+.realtimeEmptyStart:active:not(:disabled) { transform: translateY(0); }
+.realtimeEmptyStart:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(55, 148, 95, .24); }
+.realtimeEmptyStart:disabled { cursor: wait; opacity: .76; }
 .realtimeEmptyState h2 { margin: 0; color: #4a5f6d; font-size: 18px; }
 .realtimeEmptyState p { margin: 9px 0 0; font-size: 13px; line-height: 1.65; }
 
@@ -85,7 +94,7 @@
 @keyframes realtimePulse { 50% { box-shadow: 0 0 0 7px rgba(63, 166, 109, 0.03); } }
 
 @media (max-width: 980px) {
-  .realtimeWorkspace { grid-template-columns: 1fr; overflow: visible; }
+  .realtimeWorkspace { height: auto; min-height: 0; grid-template-columns: 1fr; overflow: visible; }
   .realtimeSettingsPanel { border-right: 0; border-bottom: 1px solid rgba(91,118,133,.16); }
   .realtimeConnection { margin-top: 2px; }
   .realtimeConversationPanel { min-height: 610px; }
@@ -186,8 +195,12 @@
 }
 
 :root[data-theme="dark"] .realtimeMessage.assistant .realtimeMessageAvatar,
-:root[data-theme="dark"] .realtimeEmptyState > div {
+:root[data-theme="dark"] .realtimeEmptyStart {
   background: #264b39;
+}
+
+:root[data-theme="dark"] .realtimeEmptyStart {
+  color: #bae8ca;
 }
 
 :root[data-theme="dark"] .realtimeMessage > div {
