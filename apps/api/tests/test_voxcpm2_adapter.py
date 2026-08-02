@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from io import BytesIO
 import wave
@@ -30,6 +31,17 @@ def test_voxcpm2_adapter_builds_expected_command(tmp_path: Path):
     assert "--reference-audio" in command
     assert "D:/voices/ref.wav" in command
     assert output_path.suffix == ".wav"
+
+
+def test_voxcpm2_worker_uses_the_windows_safe_inductor_launcher(tmp_path: Path):
+    manager = VoxCpm2ServiceManager(settings=Settings(voxcpm2_root=tmp_path))
+
+    environment = manager.build_environment()
+
+    if os.name == "nt":
+        assert environment["TORCHINDUCTOR_USE_STATIC_CUDA_LAUNCHER"] == "0"
+    else:
+        assert "TORCHINDUCTOR_USE_STATIC_CUDA_LAUNCHER" not in environment
 
 
 def valid_wav_bytes(sample_rate: int = 48000) -> bytes:

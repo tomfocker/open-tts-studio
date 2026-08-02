@@ -650,6 +650,70 @@ export async function stopModelRuntime(modelId: string): Promise<ModelRuntimeAct
   return response.json();
 }
 
+export type RealtimeRuntimeReservation = {
+  reserved: boolean;
+  released_models?: string[];
+  released_worker?: boolean;
+  released_asr?: boolean;
+};
+
+export type RealtimeRuntimePrewarm = {
+  ready: boolean;
+  compile_enabled?: boolean;
+  compile_warmed?: boolean;
+  compile_seconds?: number | null;
+  worker?: {
+    loaded?: boolean;
+    state?: string;
+    managed?: boolean;
+    external?: boolean;
+  };
+  asr?: {
+    ready?: boolean;
+    device?: "auto" | "cuda" | "cpu";
+    cpu_fallback?: boolean;
+    worker?: {
+      loaded?: boolean;
+      state?: string;
+      managed?: boolean;
+      device?: string;
+    };
+  };
+};
+
+export async function reserveRealtimeRuntime(): Promise<RealtimeRuntimeReservation> {
+  const response = await fetch(`${getApiBase()}/v1/realtime/runtime/reserve`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to reserve realtime runtime: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function prewarmRealtimeRuntime(): Promise<RealtimeRuntimePrewarm> {
+  const response = await fetch(`${getApiBase()}/v1/realtime/runtime/prewarm`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to prewarm realtime runtime: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function releaseRealtimeRuntime(): Promise<RealtimeRuntimeReservation> {
+  const response = await fetch(`${getApiBase()}/v1/realtime/runtime/release`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `Failed to release realtime runtime: ${response.status}`);
+  }
+  return response.json();
+}
+
 export async function fetchSystemStatus(): Promise<SystemStatus> {
   const response = await fetchWithTimeout(`${getApiBase()}/v1/system/status`, undefined, 3_000);
   if (!response.ok) {

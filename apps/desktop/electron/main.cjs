@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const { randomUUID } = require("node:crypto");
 const { fileURLToPath } = require("node:url");
-const { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, safeStorage, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const {
   chooseFrontendTarget,
@@ -36,6 +36,7 @@ const {
 const { BilibiliSamplerService } = require("./bilibili-sampler-runtime.cjs");
 const { LOCAL_MEDIA_SCHEME, createLocalMediaRegistry, parseByteRange } = require("./local-media-runtime.cjs");
 const { createUpdateService } = require("./updater-runtime.cjs");
+const { createRealtimeSettingsStore } = require("./realtime-settings-runtime.cjs");
 
 protocol.registerSchemesAsPrivileged([{
   scheme: LOCAL_MEDIA_SCHEME,
@@ -78,6 +79,11 @@ const updateService = createUpdateService({
   app,
   autoUpdater,
   enabled: app.isPackaged && process.env.OPEN_TTS_DISABLE_AUTO_UPDATE !== "1"
+});
+const realtimeSettingsStore = createRealtimeSettingsStore({
+  fs,
+  safeStorage,
+  getUserDataPath: () => app.getPath("userData")
 });
 
 updateService.subscribe((state) => {
@@ -280,6 +286,10 @@ ipcMain.handle("file:save-settings-backup", (_event, content) => {
 });
 
 ipcMain.handle("file:select-settings-backup", () => selectSettingsBackup(dialog, fs));
+
+ipcMain.handle("realtime-settings:load", () => realtimeSettingsStore.load());
+
+ipcMain.handle("realtime-settings:save", (_event, settings) => realtimeSettingsStore.save(settings));
 
 ipcMain.handle("backend:ensure-online", async () => {
   const result = await ensureLocalBackend();

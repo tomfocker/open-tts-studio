@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from tts_api.adapters import sensevoice
 from tts_api.adapters.sensevoice import SenseVoiceTranscriber
 from tts_api.config import Settings, get_settings
 from tts_api.main import create_app
@@ -109,6 +110,16 @@ def test_sensevoice_defaults_do_not_discover_vox_assets():
     assert "VoxCPM2" not in str(settings.sensevoice_python)
 
 
+def test_sensevoice_service_managers_do_not_share_gpu_and_cpu_processes(monkeypatch):
+    monkeypatch.setattr(sensevoice, "_service_managers", {})
+    settings = Settings()
+
+    gpu_manager = sensevoice.get_sensevoice_service_manager(settings.model_copy(update={"sensevoice_device": "auto"}))
+    cpu_manager = sensevoice.get_sensevoice_service_manager(settings.model_copy(update={"sensevoice_device": "cpu"}))
+
+    assert gpu_manager is not cpu_manager
+
+
 def test_realtime_asr_uses_the_configured_independent_transcriber(tmp_path: Path, monkeypatch):
     audio = tmp_path / "turn.wav"
     audio.write_bytes(b"local-pcm")
@@ -125,8 +136,9 @@ def test_realtime_asr_uses_the_configured_independent_transcriber(tmp_path: Path
     monkeypatch.setattr(realtime, "_save_pcm16_wav", lambda _payload: audio)
     monkeypatch.setattr(realtime, "get_settings", lambda: settings)
     monkeypatch.setattr(realtime, "resolve_runtime_settings", lambda value: value)
+    monkeypatch.setattr(realtime, "get_realtime_asr_settings", lambda value: value)
     monkeypatch.setattr(realtime, "get_local_transcriber", lambda _settings: FakeTranscriber())
-    monkeypatch.setattr(realtime, "release_conflicting_runtimes", lambda model_id, _settings: calls.append(model_id))
+    monkeypatch.setattr(realtime, "release_conflicting_runtimes", lambda model_id, _settings, **_kwargs: calls.append(model_id))
 
     assert realtime._run_asr(b"pcm") == "实时识别文本"
     assert calls == ["sensevoice", (audio, "zh")]

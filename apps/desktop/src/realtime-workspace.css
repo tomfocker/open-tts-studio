@@ -50,7 +50,7 @@
 .realtimeConnectButton { justify-content: center; min-height: 38px; }
 .realtimeDisconnect { border: 0; padding: 2px; color: #7c8b96; background: transparent; cursor: pointer; font: inherit; font-size: 12px; text-decoration: underline; }
 
-.realtimeConversationPanel { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; background: rgba(250, 253, 252, 0.62); }
+.realtimeConversationPanel { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr) auto; background: rgba(250, 253, 252, 0.62); }
 .realtimeConversationHeader { min-height: 74px; padding: 0 24px; border-bottom: 1px solid rgba(91, 118, 133, 0.14); display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .realtimeConversationHeader > div:first-child { display: grid; grid-template-columns: auto auto; grid-template-rows: auto auto; align-items: center; column-gap: 8px; }
 .realtimeConversationHeader strong { color: #3e5362; font-size: 15px; }
@@ -63,6 +63,11 @@
 .realtimeIconButton.stop { color: #ba5e57; }
 
 .realtimeStatus { min-height: 38px; padding: 0 24px; display: flex; align-items: center; gap: 8px; color: #65807c; background: rgba(225, 243, 233, 0.54); font-size: 12px; }
+.realtimeActivityDock { min-height: 38px; padding: 0 24px; border-bottom: 1px solid rgba(91, 118, 133, 0.12); display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; color: #70838c; background: rgba(247, 251, 250, 0.74); font-size: 11px; font-weight: 680; }
+.realtimeActivityDock span { display: inline-flex; align-items: center; gap: 5px; }
+.realtimeActivityDock .active { color: #287750; }
+.realtimeActivityDock .busy { color: #8a7041; }
+.realtimeActivityDock .error { color: #a5514d; }
 .realtimeMessageList { min-height: 0; padding: 22px 24px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 .realtimeEmptyState { max-width: 420px; margin: auto; color: #81929b; text-align: center; }
 .realtimeEmptyStart { min-width: 53px; min-height: 53px; margin: 0 auto 13px; padding: 8px 13px; border: 0; border-radius: 17px; color: #287750; background: rgba(219, 243, 228, .92); display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 760; transition: transform 160ms ease, background 160ms ease, box-shadow 160ms ease; }
@@ -155,6 +160,16 @@
   color: var(--muted);
   background: #202e39;
 }
+
+:root[data-theme="dark"] .realtimeActivityDock {
+  border-color: var(--border-subtle);
+  color: var(--muted);
+  background: var(--surface-stage);
+}
+
+:root[data-theme="dark"] .realtimeActivityDock .active { color: #bae8ca; }
+:root[data-theme="dark"] .realtimeActivityDock .busy { color: #e8d9a2; }
+:root[data-theme="dark"] .realtimeActivityDock .error { color: #f0b7b2; }
 
 :root[data-theme="dark"] .realtimeConnection.ready,
 :root[data-theme="dark"] .realtimeStatus {

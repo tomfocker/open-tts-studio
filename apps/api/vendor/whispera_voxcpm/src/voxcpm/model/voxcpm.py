@@ -111,6 +111,7 @@ class VoxCPMModel(nn.Module):
         lora_config: LoRAConfig = None,
     ):
         super().__init__()
+        self.torch_compile_enabled = False
         self.config = config
         self.lora_config = lora_config
         self.feat_dim = config.feat_dim
@@ -228,12 +229,19 @@ class VoxCPMModel(nn.Module):
                 import triton
             except ImportError:
                 raise ValueError("triton is not installed")
-            self.base_lm.forward_step = torch.compile(self.base_lm.forward_step, mode="reduce-overhead", fullgraph=True)
-            self.residual_lm.forward_step = torch.compile(self.residual_lm.forward_step, mode="reduce-overhead", fullgraph=True)
+            # The Windows static CUDA launcher mishandles some 64-bit handles
+            # in PyTorch 2.8.  OpenTTS disables that launcher in the worker
+            # environment, which lets us retain CUDA graphs and avoids the
+            # substantial per-step overhead of Inductor's default mode.
+            compile_mode = "reduce-overhead"
+            self.base_lm.forward_step = torch.compile(self.base_lm.forward_step, mode=compile_mode, fullgraph=True)
+            self.residual_lm.forward_step = torch.compile(self.residual_lm.forward_step, mode=compile_mode, fullgraph=True)
             self._feat_encoder_raw = self.feat_encoder
-            self.feat_encoder = torch.compile(self.feat_encoder, mode="reduce-overhead", fullgraph=True)
-            self.feat_decoder.estimator = torch.compile(self.feat_decoder.estimator, mode="reduce-overhead", fullgraph=True)
+            self.feat_encoder = torch.compile(self.feat_encoder, mode=compile_mode, fullgraph=True)
+            self.feat_decoder.estimator = torch.compile(self.feat_decoder.estimator, mode=compile_mode, fullgraph=True)
+            self.torch_compile_enabled = True
         except Exception as e:
+            self.torch_compile_enabled = False
             print(f"Warning: torch.compile disabled - {e}", file=sys.stderr)
         return self
 

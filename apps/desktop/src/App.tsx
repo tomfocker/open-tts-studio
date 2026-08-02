@@ -81,7 +81,10 @@ import {
   importSettingsBackup,
   importVoicePackage,
   inspectModelPackage,
+  prewarmRealtimeRuntime,
   registerModelPackage,
+  releaseRealtimeRuntime,
+  reserveRealtimeRuntime,
   retryBatchProject,
   retrySpeechJob,
   recognizeVoiceReferenceClip,
@@ -1152,6 +1155,10 @@ function isRuntimeControllable(modelId: string) {
   return modelId === "indextts2" || isLocalApiModel(modelId);
 }
 
+function isRealtimeExclusiveTtsModel(modelId: string) {
+  return modelId === "indextts2" || modelId === "voxcpm2" || modelId === "gptsovits";
+}
+
 function getWorkerStatusForModel(systemStatus: SystemStatus | null, modelId: string) {
   if (modelId === "voxcpm2") {
     return systemStatus?.workers.voxcpm2;
@@ -1903,6 +1910,8 @@ export function App() {
   const [samplerReferenceText, setSamplerReferenceText] = useState("");
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
   const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch" | "realtime">("single");
+  const [realtimeRuntimeState, setRealtimeRuntimeState] = useState<"idle" | "reserving" | "ready" | "error">("idle");
+  const [realtimeRuntimeMessage, setRealtimeRuntimeMessage] = useState("");
   const workbenchNavRef = useRef<HTMLDivElement>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<PrimaryWorkspace>("creation");
   const [workspaceTransition, setWorkspaceTransition] = useState<"idle" | "entering">("idle");
@@ -1947,10 +1956,12 @@ export function App() {
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
   const lastSamplerDefaultNameRef = useRef("");
   const selectedModelRef = useRef(selectedModel);
+  const realtimeRuntimeSyncRef = useRef<Promise<void>>(Promise.resolve());
   const selectedVoiceRef = useRef(selectedVoice);
   const managedVoiceIdRef = useRef(managedVoiceId);
   const voiceRecognitionRequestsRef = useRef(new Map<string, Promise<void>>());
   const pendingModelWarmupRef = useRef<string | null>(null);
+  const modelWarmupEpochRef = useRef(0);
   const drawSessionRef = useRef<DrawSession | null>(null);
 
   const localModels = useMemo(
@@ -2072,6 +2083,7 @@ export function App() {
     project.status === "queued" || project.status === "running" || project.status === "cancelling"
   );
   const modelWarmupBusy = modelWarmupState?.status === "waiting" || modelWarmupState?.status === "warming";
+  const isRealtimeWorkspace = generationWorkspace === "realtime";
   const modelSwitchLocked = loading || hasActiveBatchGeneration || modelWarmupBusy;
   const modelSwitchLockMessage = loading
     ? "当前语音任务正在生成，模型切换已锁定。任务结束后才能切换。"
@@ -2102,8 +2114,19 @@ export function App() {
     ? ["校验账号", "等待队列", "云端合成", "保存音频"]
     : generationPhases;
   const apiBaseLabel = getApiBase().replace(/^https?:\/\//, "");
+  const realtimeVoxModelInfo = localModels.find((model) => model.id === "voxcpm2");
+  const realtimeVoxModelInstance = modelInstances.find((instance) => instance.model_id === "voxcpm2");
+  const inspectorModelInfo = isRealtimeWorkspace ? realtimeVoxModelInfo : selectedModelInfo;
+  const inspectorModelInstance = isRealtimeWorkspace ? realtimeVoxModelInstance : selectedModelInstance;
+  const realtimeEngineStatus = realtimeRuntimeState === "ready"
+    ? "ASR + Whispera 已预热，等待对话"
+    : realtimeRuntimeState === "reserving"
+      ? "正在预热引擎"
+      : realtimeRuntimeState === "error"
+        ? "预热异常"
+        : "等待进入实时模式";
   const workerStatus =
-    isDoubao
+    isRealtimeWorkspace || isDoubao
       ? undefined
       : selectedModel === "voxcpm2"
       ? systemStatus?.workers.voxcpm2
@@ -2275,23 +2298,23 @@ export function App() {
           </div>
           <div className="workerSummary">
             <div className="statusBadgeRow">
-              <span className={isDoubao ? (doubaoUsable ? "workerBadge loaded" : "workerBadge warning") : workerStatus?.loaded ? "workerBadge loaded" : "workerBadge"}>
-                {isDoubao ? (doubaoUsable ? "云端就绪" : "需要登录") : workerBadgeText(workerStatus, selectedModel)}
+              <span className={isRealtimeWorkspace ? (realtimeRuntimeState === "ready" ? "workerBadge loaded" : realtimeRuntimeState === "error" ? "workerBadge warning" : "workerBadge") : isDoubao ? (doubaoUsable ? "workerBadge loaded" : "workerBadge warning") : workerStatus?.loaded ? "workerBadge loaded" : "workerBadge"}>
+                {isRealtimeWorkspace ? (realtimeRuntimeState === "ready" ? "实时已预热" : realtimeRuntimeState === "reserving" ? "预热中" : realtimeRuntimeState === "error" ? "预热异常" : "待命") : isDoubao ? (doubaoUsable ? "云端就绪" : "需要登录") : workerBadgeText(workerStatus, selectedModel)}
               </span>
-              <strong>{workerReleaseText(workerStatus, selectedModel)}</strong>
+              <strong>{isRealtimeWorkspace ? realtimeEngineStatus : workerReleaseText(workerStatus, selectedModel)}</strong>
             </div>
             <span className="workerDetail">
-              {isDoubao && doubaoStateError ? doubaoStateError : workerDetailText(workerStatus, selectedModel)}
+              {isRealtimeWorkspace ? "实时对话同时保持 SenseVoice ASR 与 Whispera 流式 VoxCPM2；两者串行使用 GPU，普通模型预热已锁定。" : isDoubao && doubaoStateError ? doubaoStateError : workerDetailText(workerStatus, selectedModel)}
             </span>
           </div>
           <div className="inspectorRows">
             <div>
-              <span>当前模型</span>
-              <strong>{selectedModelInfo?.display_name ?? selectedModel}</strong>
+              <span>{isRealtimeWorkspace ? "实时引擎" : "当前模型"}</span>
+              <strong>{isRealtimeWorkspace ? "Whispera + VoxCPM2" : selectedModelInfo?.display_name ?? selectedModel}</strong>
             </div>
             <div>
               <span>模型健康</span>
-              <strong>{isDoubao ? (doubaoUsable ? "账号可用" : "等待账号") : modelInstanceStatusLabel(selectedModelInstance?.status)}</strong>
+              <strong>{isRealtimeWorkspace ? modelInstanceStatusLabel(inspectorModelInstance?.status) : isDoubao ? (doubaoUsable ? "账号可用" : "等待账号") : modelInstanceStatusLabel(selectedModelInstance?.status)}</strong>
             </div>
             <div>
               <span>后端运行</span>
@@ -2299,15 +2322,15 @@ export function App() {
             </div>
             <div>
               <span>显存建议</span>
-              <strong>{isDoubao ? "不占用本地显存" : selectedModelInfo ? `${selectedModelInfo.recommended_vram_gb} GB` : "-"}</strong>
+              <strong>{isDoubao && !isRealtimeWorkspace ? "不占用本地显存" : inspectorModelInfo ? `${inspectorModelInfo.recommended_vram_gb} GB` : "-"}</strong>
             </div>
             <div>
               <span>采样率</span>
-              <strong>{selectedModelInfo ? `${selectedModelInfo.native_sample_rate} Hz` : "-"}</strong>
+              <strong>{inspectorModelInfo ? `${inspectorModelInfo.native_sample_rate} Hz` : "-"}</strong>
             </div>
             <div>
               <span>商用状态</span>
-              <strong>{selectedModelInfo?.commercial_use ?? "-"}</strong>
+              <strong>{inspectorModelInfo?.commercial_use ?? "-"}</strong>
             </div>
           </div>
         </section>
@@ -3111,6 +3134,7 @@ export function App() {
   }
 
   function createBatchProjectWorkspace() {
+    releaseRealtimeRuntimeReservation();
     setGenerationWorkspace("batch");
     setBatchProjectError(null);
     setBatchProjectMessage(null);
@@ -3123,6 +3147,7 @@ export function App() {
   }
 
   function openBatchWorkspace() {
+    releaseRealtimeRuntimeReservation();
     const importedSegments = generationWorkspace !== "batch" && !editingBatchProjectId && batchProjectSegments.length === 0
       ? parseBatchSegments(input)
       : [];
@@ -3138,14 +3163,89 @@ export function App() {
   }
 
   function openSingleWorkspace() {
+    releaseRealtimeRuntimeReservation();
     setGenerationWorkspace("single");
   }
 
   function openRealtimeWorkspace() {
     setGenerationWorkspace("realtime");
+    // Whispera uses a dedicated VoxCPM worker. Reserve that model's GPU
+    // residency before a session can start so the normal HTTP worker cannot
+    // warm the same weights in parallel.
+    modelWarmupEpochRef.current += 1;
+    pendingModelWarmupRef.current = null;
+    setPendingModelSwitch(null);
+    setModelWarmupState(null);
+    reserveRealtimeRuntimeReservation();
+  }
+
+  function reserveRealtimeRuntimeReservation() {
+    setRealtimeRuntimeState("reserving");
+    setRealtimeRuntimeMessage("正在释放普通 VoxCPM2 服务并预约实时流式显存…");
+    realtimeRuntimeSyncRef.current = realtimeRuntimeSyncRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const result = await reserveRealtimeRuntime();
+        const releasedNames = (result.released_models ?? [])
+          .map((modelId) => models.find((model) => model.id === modelId)?.display_name ?? modelId)
+          .join("、");
+        setRealtimeRuntimeMessage(releasedNames
+          ? `已释放 ${releasedNames}，正在预热 Whispera 流式 VoxCPM2 与 CUDA 图…`
+          : "显存已预约，正在预热 Whispera 流式 VoxCPM2 与 CUDA 图…"
+        );
+        const prewarm = await prewarmRealtimeRuntime();
+        if (!prewarm.worker?.loaded || !prewarm.asr?.worker?.loaded) {
+          throw new Error("Whispera 流式 VoxCPM2 或 SenseVoice 未能完成预热。");
+        }
+        setRealtimeRuntimeState("ready");
+        setRealtimeRuntimeMessage(prewarm.worker.external
+          ? "已接入已运行的 Whispera 流式 VoxCPM2；SenseVoice 也已预热，普通模型仍会被锁定。"
+          : prewarm.asr?.cpu_fallback
+            ? "Whispera 已预热；SenseVoice 显存不足，已固定使用 CPU，首段会积攒约 1 秒防抖缓冲。"
+          : prewarm.compile_warmed
+            ? "Whispera、SenseVoice 与 CUDA 图已预热；首段会积攒约 1 秒防抖缓冲。"
+            : "Whispera 与 SenseVoice 已预热；首段会积攒约 1 秒防抖缓冲。"
+        );
+        await loadSystemStatus();
+      })
+      .catch(async (err) => {
+        const message = err instanceof Error ? err.message : "无法预约实时语音所需的 VoxCPM2 显存。";
+        await releaseRealtimeRuntime().catch(() => undefined);
+        setRealtimeRuntimeState("error");
+        setRealtimeRuntimeMessage(message);
+        setModelWarmupState({
+          modelId: "voxcpm2",
+          status: "failed",
+          message: `实时语音无法接管 VoxCPM2：${message}`
+        });
+      });
+  }
+
+  function releaseRealtimeRuntimeReservation() {
+    setRealtimeRuntimeState("idle");
+    setRealtimeRuntimeMessage("");
+    realtimeRuntimeSyncRef.current = realtimeRuntimeSyncRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await releaseRealtimeRuntime();
+        } finally {
+          void loadSystemStatus();
+        }
+      })
+      .catch(() => {
+        // Leaving realtime must never prevent navigation. The runtime will be
+        // released when the local API exits even if this best-effort request
+        // loses a connection during application shutdown.
+      });
   }
 
   function selectWorkspace(workbench: PrimaryWorkspace) {
+    if (workbench !== "creation") {
+      releaseRealtimeRuntimeReservation();
+    } else if (generationWorkspace === "realtime") {
+      reserveRealtimeRuntimeReservation();
+    }
     if (workbench === activeWorkspace) return;
     workspaceTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -3173,6 +3273,13 @@ export function App() {
 
   useEffect(() => () => {
     workspaceTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    // A renderer refresh must not leave the API believing that a no-longer
+    // visible realtime workspace still owns VoxCPM2. Chain behind a pending
+    // reservation so a late reserve response cannot win this final release.
+    void realtimeRuntimeSyncRef.current
+      .catch(() => undefined)
+      .then(() => releaseRealtimeRuntime())
+      .catch(() => undefined);
   }, []);
 
   useLayoutEffect(() => {
@@ -3200,6 +3307,7 @@ export function App() {
       setBatchProjectMessage(null);
       return;
     }
+    releaseRealtimeRuntimeReservation();
     setGenerationWorkspace("batch");
     setEditingBatchProjectId(project.id);
     setBatchProjectTitle(project.title);
@@ -4497,6 +4605,11 @@ export function App() {
   }
 
   async function runModelWarmup(modelId: string) {
+    const warmupEpoch = ++modelWarmupEpochRef.current;
+    if (generationWorkspace === "realtime" && isRealtimeExclusiveTtsModel(modelId)) {
+      pendingModelWarmupRef.current = null;
+      return;
+    }
     const model = models.find((candidate) => candidate.id === modelId);
     const instance = modelInstances.find((candidate) => candidate.model_id === modelId);
     const displayName = model?.display_name ?? instance?.display_name ?? modelId;
@@ -4512,12 +4625,14 @@ export function App() {
     setModelWarmupState({ modelId, status: "warming", message: `${displayName} 正在加载到显存…` });
     try {
       const result = await startModelRuntime(modelId);
+      if (warmupEpoch !== modelWarmupEpochRef.current) return;
       setSystemStatus((current) =>
         current ? { ...current, workers: { ...current.workers, [modelId]: result.worker } } : current
       );
       setModelWarmupState({ modelId, status: "ready", message: `${displayName} 已预热，可以直接开始生成。` });
       await loadSystemStatus();
     } catch (err) {
+      if (warmupEpoch !== modelWarmupEpochRef.current) return;
       setModelWarmupState({
         modelId,
         status: "failed",
@@ -4527,6 +4642,10 @@ export function App() {
   }
 
   function queueModelWarmup(modelId: string) {
+    if (generationWorkspace === "realtime" && isRealtimeExclusiveTtsModel(modelId)) {
+      pendingModelWarmupRef.current = null;
+      return;
+    }
     const displayName = models.find((candidate) => candidate.id === modelId)?.display_name ?? modelId;
     pendingModelWarmupRef.current = modelId;
     if (voiceRecognitionRequestsRef.current.size > 0) {
@@ -4592,6 +4711,9 @@ export function App() {
   }
 
   function requestModelSwitch(targetModelId: string) {
+    if (generationWorkspace === "realtime") {
+      return;
+    }
     if (targetModelId === selectedModel) {
       return;
     }
@@ -4628,7 +4750,8 @@ export function App() {
   }
 
   function confirmModelSwitch() {
-    if (!pendingModelSwitch || modelSwitchLocked) {
+    if (!pendingModelSwitch || modelSwitchLocked || generationWorkspace === "realtime") {
+      setPendingModelSwitch(null);
       return;
     }
     selectModel(pendingModelSwitch.targetModelId);
@@ -6390,47 +6513,65 @@ export function App() {
           </section>
         </aside>
 
-        <section className={`mainStage${activeWorkspace === "creation" ? "" : " workspaceMainStage"} workspaceTransition-${workspaceTransition}`}>
+        <section className={`mainStage${activeWorkspace === "creation" ? "" : " workspaceMainStage"}${generationWorkspace === "realtime" && activeWorkspace === "creation" ? " realtimeMainStage" : ""} workspaceTransition-${workspaceTransition}`}>
           {activeWorkspace === "creation" ? (
             <>
           <section className={generationWorkspace === "batch" ? "softPanel canvasPanel batchCanvasPanel" : generationWorkspace === "realtime" ? "softPanel canvasPanel realtimeCanvasPanel" : "softPanel canvasPanel"}>
-            <div className="engineStrip">
-              <div className="engineHeader">
-                <Cpu size={18} strokeWidth={1.9} />
-                <div>
-                  <span>模型引擎</span>
-                  {modelSwitchLocked && (
-                    <small className="modelSwitchLock" title={modelSwitchLockMessage}>
-                      <Lock size={12} strokeWidth={2} />
-                      {loading || hasActiveBatchGeneration ? "当前任务结束后可切换" : "当前模型准备完成后可切换"}
-                    </small>
-                  )}
-                  {modelWarmupState?.modelId === selectedModel && (
-                    <small className={`modelWarmupStatus ${modelWarmupState.status}`} title={modelWarmupState.message}>
-                      {(modelWarmupState.status === "waiting" || modelWarmupState.status === "warming") && <Loader2 className="spin" size={12} />}
-                      {modelWarmupState.message}
-                    </small>
-                  )}
-                </div>
-              </div>
-              <div className="modelScroller">
-                {localModels.map((model) => (
-                  <button
-                    key={model.id}
-                    className={model.id === selectedModel ? "modelPill active" : "modelPill"}
-                    aria-pressed={model.id === selectedModel}
-                    onClick={() => requestModelSwitch(model.id)}
-                    title={modelSwitchLocked && model.id !== selectedModel ? modelSwitchLockMessage : model.display_name}
-                    disabled={modelSwitchLocked && model.id !== selectedModel}
-                  >
-                    <span className="modelPillTitle">
-                      <span className="modelPillLabel">{model.display_name}</span>
-                      {model.id === selectedModel && <CheckCircle2 size={14} strokeWidth={2.1} aria-hidden="true" />}
-                    </span>
-                    <small>{modelBadge(model)}</small>
-                  </button>
-                ))}
-              </div>
+            <div className={generationWorkspace === "realtime" ? "engineStrip realtimeEngineStrip" : "engineStrip"}>
+              {generationWorkspace === "realtime" ? (
+                <>
+                  <div className="engineHeader realtimeEngineHeader">
+                    <Radio size={18} strokeWidth={1.9} />
+                    <div>
+                      <span>实时语音引擎</span>
+                      <small>当前会话锁定实时链路</small>
+                    </div>
+                  </div>
+                  <div className="realtimeEngineSummary" aria-label="当前实时语音引擎">
+                    <span className="realtimeEngineName"><Waves size={17} strokeWidth={1.9} /><strong>Whispera 流式 VoxCPM2</strong></span>
+                    <span className={`realtimeEngineState ${realtimeRuntimeState}`}>{realtimeEngineStatus}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="engineHeader">
+                    <Cpu size={18} strokeWidth={1.9} />
+                    <div>
+                      <span>模型引擎</span>
+                      {modelSwitchLocked && (
+                        <small className="modelSwitchLock" title={modelSwitchLockMessage}>
+                          <Lock size={12} strokeWidth={2} />
+                          {loading || hasActiveBatchGeneration ? "当前任务结束后可切换" : "当前模型准备完成后可切换"}
+                        </small>
+                      )}
+                      {modelWarmupState?.modelId === selectedModel && (
+                        <small className={`modelWarmupStatus ${modelWarmupState.status}`} title={modelWarmupState.message}>
+                          {(modelWarmupState.status === "waiting" || modelWarmupState.status === "warming") && <Loader2 className="spin" size={12} />}
+                          {modelWarmupState.message}
+                        </small>
+                      )}
+                    </div>
+                  </div>
+                  <div className="modelScroller">
+                    {localModels.map((model) => (
+                      <button
+                        key={model.id}
+                        className={model.id === selectedModel ? "modelPill active" : "modelPill"}
+                        aria-pressed={model.id === selectedModel}
+                        onClick={() => requestModelSwitch(model.id)}
+                        title={modelSwitchLocked && model.id !== selectedModel ? modelSwitchLockMessage : model.display_name}
+                        disabled={modelSwitchLocked && model.id !== selectedModel}
+                      >
+                        <span className="modelPillTitle">
+                          <span className="modelPillLabel">{model.display_name}</span>
+                          {model.id === selectedModel && <CheckCircle2 size={14} strokeWidth={2.1} aria-hidden="true" />}
+                        </span>
+                        <small>{modelBadge(model)}</small>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <div className={`generationWorkspaceTabs ${generationWorkspace}`} role="tablist" aria-label="生成工作模式">
                 <span className="generationWorkspaceThumb" aria-hidden="true" />
                 <button
@@ -6652,10 +6793,12 @@ export function App() {
               </div>
             </div>
               </>
-            ) : generationWorkspace === "realtime" ? <RealtimeWorkspace /> : renderBatchProjectWorkspace()}
+            ) : generationWorkspace === "realtime" ? (
+              <RealtimeWorkspace runtimeState={realtimeRuntimeState} runtimeMessage={realtimeRuntimeMessage} />
+            ) : renderBatchProjectWorkspace()}
           </section>
 
-          <section className="softPanel playerPanel">
+          {generationWorkspace !== "realtime" && <section className="softPanel playerPanel">
             <button className="playButton" disabled={!result} onClick={togglePlayback}>
               {isPlaying ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}
             </button>
@@ -6701,7 +6844,7 @@ export function App() {
               onTimeUpdate={(event) => setPlaybackTime(event.currentTarget.currentTime)}
               onEnded={() => setIsPlaying(false)}
             />
-          </section>
+          </section>}
             </>
           ) : (
             <section className="workspaceScreen" aria-live="polite">

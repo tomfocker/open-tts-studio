@@ -99,6 +99,16 @@ def test_speech_endpoint_reports_external_runtime_memory_conflict(monkeypatch):
     assert "外部启动" in response.json()["detail"]
 
 
+def test_speech_endpoint_rejects_regular_local_engine_while_realtime_owns_gpu(monkeypatch):
+    client = TestClient(app)
+    monkeypatch.setattr(speech, "is_realtime_runtime_reserved", lambda: True)
+
+    response = client.post("/v1/audio/speech", json={"model": "voxcpm2", "input": "不应切走实时模型"})
+
+    assert response.status_code == 409
+    assert "实时语音模式正在独占 GPU" in response.json()["detail"]
+
+
 def test_speech_endpoint_rejects_disabled_model_before_starting_runtime(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPEN_TTS_SETTINGS_FILE", str(tmp_path / "settings.json"))
     get_settings.cache_clear()

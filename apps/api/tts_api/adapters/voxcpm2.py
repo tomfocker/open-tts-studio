@@ -11,7 +11,7 @@ from tts_api.adapters.base import TtsAdapter
 from tts_api.audio import create_output_path, probe_audio_metadata, read_wav_metadata
 from tts_api.config import Settings, get_settings
 from tts_api.schemas import SpeechRequest, SpeechResult
-from tts_api.voxcpm2_patch import ensure_voxcpm2_asr_detached
+from tts_api.voxcpm2_patch import ensure_voxcpm2_asr_detached, ensure_voxcpm2_windows_compile_safe
 
 
 _DEFAULT_SERVICE_MANAGER = object()
@@ -76,6 +76,11 @@ class VoxCpm2ServiceManager:
         environment["TRANSFORMERS_OFFLINE"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         environment["OPEN_TTS_VOXCPM2_API_PORT"] = str(self.settings.voxcpm2_api_port)
+        # Keep the ordinary Vox path on the same Windows-safe TorchInductor
+        # launcher as the tested realtime worker. The upstream model still
+        # owns its compile and warm-up sequence.
+        if os.name == "nt":
+            environment["TORCHINDUCTOR_USE_STATIC_CUDA_LAUNCHER"] = "0"
         return environment
 
     def is_healthy(self, timeout_seconds: float = 2.0) -> bool:
@@ -107,6 +112,8 @@ class VoxCpm2ServiceManager:
         while time.monotonic() < deadline:
             if self.is_ready():
                 return
+            if self.process is None:
+                raise RuntimeError("VoxCPM2 服务在模型预热期间被释放。")
             if self.process is not None and self.process.poll() is not None:
                 raise RuntimeError("VoxCPM2 服务在模型预热期间异常退出。")
             self.sleep(0.8)
@@ -120,6 +127,7 @@ class VoxCpm2ServiceManager:
         if not self.api_script.exists():
             raise FileNotFoundError(f"VoxCPM2 API script not found: {self.api_script}")
         ensure_voxcpm2_asr_detached(self.settings.voxcpm2_root)
+        ensure_voxcpm2_windows_compile_safe(self.settings.voxcpm2_root)
 
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         self._close_process_log()

@@ -1274,14 +1274,22 @@ summary:focus-visible {
 }
 
 .realtimeCanvasPanel {
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
   overflow: hidden;
   grid-template-rows: auto minmax(0, 1fr);
 }
 
 .realtimeCanvasPanel > .realtimeWorkspace {
+  align-self: stretch;
   width: 100%;
   height: 100%;
   min-height: 0;
+}
+
+.mainStage.realtimeMainStage {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 @media (max-width: 980px) {
@@ -4528,6 +4536,58 @@ audio {
   white-space: nowrap;
 }
 
+.realtimeEngineHeader > div {
+  display: grid;
+  gap: 2px;
+}
+
+.realtimeEngineHeader small {
+  color: #748691;
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.realtimeEngineSummary {
+  min-width: 0;
+  min-height: 54px;
+  padding: 8px 12px;
+  border: 1px solid rgba(51, 141, 92, 0.3);
+  border-radius: 9px;
+  box-sizing: border-box;
+  color: #3d5a68;
+  background: rgba(236, 249, 241, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.realtimeEngineName {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #2d7651;
+}
+
+.realtimeEngineName strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.realtimeEngineState {
+  flex: 0 0 auto;
+  color: #647884;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.realtimeEngineState.ready { color: #287750; }
+.realtimeEngineState.reserving { color: #8a7041; }
+.realtimeEngineState.error { color: #a5514d; }
+
 .samplerVideoPreviewHeading strong {
   display: block;
   color: #33475a;
@@ -6899,6 +6959,13 @@ audio {
   gap: 12px;
 }
 
+/* The regular canvas reserves a third editor row. Realtime owns its composer
+   inside RealtimeWorkspace, so retaining that row leaves a large empty area. */
+.canvasPanel.realtimeCanvasPanel {
+  grid-template-rows: auto minmax(0, 1fr);
+  padding-bottom: 16px;
+}
+
 .settingsAdvancedDetails {
   min-width: 0;
   border-radius: 8px;
@@ -7476,6 +7543,21 @@ audio {
 :root[data-theme="dark"] .timeReadout {
   color: var(--text);
 }
+
+:root[data-theme="dark"] .realtimeEngineHeader small,
+:root[data-theme="dark"] .realtimeEngineState {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .realtimeEngineSummary {
+  border-color: #315341;
+  background: #1d3229;
+}
+
+:root[data-theme="dark"] .realtimeEngineName,
+:root[data-theme="dark"] .realtimeEngineState.ready { color: #bae8ca; }
+:root[data-theme="dark"] .realtimeEngineState.reserving { color: #e8d9a2; }
+:root[data-theme="dark"] .realtimeEngineState.error { color: #f0b7b2; }
 
 :root[data-theme="dark"] .cloneModeSummary span,
 :root[data-theme="dark"] .parameterHint,

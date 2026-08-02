@@ -32,21 +32,32 @@ from uuid import uuid4
 
 import httpx
 import numpy as np
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from tts_api.adapters.asr import get_local_transcriber
 from tts_api.adapters.voxcpm2 import VoxCpm2Adapter
 from tts_api.adapters.whispera_streaming import (
     WhisperaStreamingGenerationError,
     WhisperaStreamingUnavailable,
+    get_whispera_streaming_service_manager,
+    release_whispera_streaming_service,
     stream_whispera_tts,
 )
 from tts_api.config import Settings, get_settings
 from tts_api.model_health import check_model_instance
 from tts_api.model_instances import get_model_instance
-from tts_api.realtime_text_segmenter import StreamingTextSegmenter
 from tts_api.realtime_vad import RealtimeSession as WhisperaRealtimeSession
-from tts_api.runtime_memory import local_gpu_generation_lock, release_conflicting_runtimes, resolve_runtime_settings
+from tts_api.runtime_memory import (
+    is_realtime_runtime_reserved,
+    get_realtime_asr_settings,
+    local_gpu_generation_lock,
+    release_conflicting_runtimes,
+    release_realtime_asr,
+    release_realtime_runtime_reservation,
+    prewarm_realtime_asr,
+    reserve_realtime_runtime,
+    resolve_runtime_settings,
+)
 from tts_api.schemas import SpeechRequest
 from tts_api.voice_library import find_stored_voice
 
@@ -58,11 +69,71 @@ PCM_BYTES_PER_SAMPLE = 2
 PCM_CHUNK_FRAMES = 2_048
 MAX_PENDING_TURNS = 3
 MAX_QUEUED_TTS_SEGMENTS = 3
+# Keep a very small look-ahead window around each independently synthesised
+# sentence. It lets us discard model-added padding silence without waiting for
+# an entire sentence and without reintroducing per-chunk server pacing.
+SEAM_LEADING_LOOKAHEAD_SECONDS = 0.14
+SEAM_MAX_LEADING_SILENCE_SECONDS = 0.12
+SEAM_TAIL_HOLD_SECONDS = 0.28
+SEAM_EDGE_SECONDS = 0.025
+SEAM_SILENCE_THRESHOLD = 0.0025
 
 # Compatibility mode still calls the pre-existing whole-WAV HTTP adapter.
 # Keep it pinned to one worker; Whispera's model-level streaming route manages
 # its own isolated process and uses the same shared GPU lock instead.
 _tts_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="opentts-realtime-tts")
+
+
+@router.post("/v1/realtime/runtime/reserve")
+def reserve_realtime_runtime_worker() -> dict:
+    try:
+        released_models = reserve_realtime_runtime(resolve_runtime_settings(get_settings()))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"reserved": True, "released_models": released_models}
+
+
+@router.post("/v1/realtime/runtime/prewarm")
+def prewarm_realtime_runtime_worker() -> dict:
+    """Load the realtime Whispera + SenseVoice pair after GPU reservation."""
+    if not is_realtime_runtime_reserved():
+        raise HTTPException(status_code=409, detail="请先进入实时语音模式并预约 VoxCPM2 显存。")
+
+    settings = resolve_runtime_settings(get_settings())
+    manager = get_whispera_streaming_service_manager(settings)
+    try:
+        with local_gpu_generation_lock:
+            release_conflicting_runtimes("voxcpm2_streaming", settings)
+            warmup = manager.prewarm_model()
+            asr = prewarm_realtime_asr(settings)
+    except Exception as exc:
+        # A partially started worker must not remain resident after a failed
+        # prewarm; otherwise it can block normal mode after the user leaves.
+        with contextlib.suppress(Exception):
+            manager.shutdown(force=True)
+        with contextlib.suppress(Exception):
+            release_realtime_asr()
+        raise HTTPException(status_code=409, detail=f"实时语音模型预热失败：{exc}") from exc
+    return {
+        "ready": True,
+        "worker": manager.status(),
+        "compile_enabled": warmup.get("compile_enabled"),
+        "compile_warmed": warmup.get("compile_warmed"),
+        "compile_seconds": warmup.get("compile_seconds"),
+        "asr": asr,
+    }
+
+
+@router.post("/v1/realtime/runtime/release")
+def release_realtime_runtime_worker() -> dict:
+    # Prewarming makes Whispera resident before the first reply. Release our
+    # managed worker as soon as realtime closes so ordinary generation is not
+    # left waiting for the idle timeout. Externally owned workers stay intact.
+    settings = resolve_runtime_settings(get_settings())
+    released_worker = release_whispera_streaming_service(settings)
+    released_asr = release_realtime_asr()
+    release_realtime_runtime_reservation()
+    return {"reserved": False, "released_worker": released_worker, "released_asr": released_asr}
 
 
 @dataclass
@@ -131,6 +202,83 @@ def _pcm16_to_float32(payload: bytes) -> np.ndarray:
 def _float32_to_pcm16(payload: np.ndarray) -> bytes:
     samples = np.asarray(payload, dtype=np.float32).reshape(-1)
     return (np.clip(samples, -1.0, 1.0) * 32767.0).astype("<i2").tobytes()
+
+
+class StreamingPcmSeamFilter:
+    """Trim only confirmed padding silence at independent TTS boundaries.
+
+    Whispera delivers continuous chunks inside one request, but the realtime
+    reply queue uses a new request for each text segment. Holding a short tail
+    gives us enough evidence to remove artificial start/end silence from those
+    seams. It never sleeps or resamples, so continuous speech remains ordered
+    and delivery speed stays GPU-bound.
+    """
+
+    def __init__(self, sample_rate: int):
+        self.sample_rate = sample_rate
+        self._leading_pending = np.array([], dtype=np.float32)
+        self._tail = np.array([], dtype=np.float32)
+        self._started = False
+        self._leading_lookahead_frames = max(1, round(sample_rate * SEAM_LEADING_LOOKAHEAD_SECONDS))
+        self._max_leading_silence_frames = max(0, round(sample_rate * SEAM_MAX_LEADING_SILENCE_SECONDS))
+        self._tail_hold_frames = max(1, round(sample_rate * SEAM_TAIL_HOLD_SECONDS))
+        self._edge_frames = max(1, round(sample_rate * SEAM_EDGE_SECONDS))
+
+    @staticmethod
+    def _as_mono_float32(samples: np.ndarray) -> np.ndarray:
+        return np.ascontiguousarray(np.asarray(samples, dtype=np.float32).reshape(-1))
+
+    def _trim_leading_padding(self, samples: np.ndarray) -> np.ndarray:
+        if not samples.size:
+            return samples
+        search_end = min(samples.size, self._max_leading_silence_frames)
+        active = np.flatnonzero(np.abs(samples[:search_end]) >= SEAM_SILENCE_THRESHOLD)
+        if active.size:
+            cut = max(0, int(active[0]) - self._edge_frames)
+        else:
+            # Do not erase a deliberately quiet utterance. At most remove
+            # known model padding and retain a small natural lead-in.
+            cut = max(0, search_end - self._edge_frames)
+        return samples[cut:]
+
+    def _hold_tail(self, samples: np.ndarray) -> list[np.ndarray]:
+        combined = samples if not self._tail.size else np.concatenate((self._tail, samples))
+        if combined.size <= self._tail_hold_frames:
+            self._tail = combined
+            return []
+        output = combined[:-self._tail_hold_frames]
+        self._tail = combined[-self._tail_hold_frames:]
+        return [output]
+
+    def push(self, samples: np.ndarray) -> list[np.ndarray]:
+        values = self._as_mono_float32(samples)
+        if not values.size:
+            return []
+        if not self._started:
+            self._leading_pending = np.concatenate((self._leading_pending, values))
+            if self._leading_pending.size < self._leading_lookahead_frames:
+                return []
+            values = self._trim_leading_padding(self._leading_pending)
+            self._leading_pending = np.array([], dtype=np.float32)
+            self._started = True
+            return self._hold_tail(values)
+        return self._hold_tail(values)
+
+    def finish(self) -> list[np.ndarray]:
+        if not self._started and self._leading_pending.size:
+            self._tail = self._trim_leading_padding(self._leading_pending)
+            self._leading_pending = np.array([], dtype=np.float32)
+            self._started = True
+        if not self._tail.size:
+            return []
+        active = np.flatnonzero(np.abs(self._tail) >= SEAM_SILENCE_THRESHOLD)
+        if active.size:
+            end = min(self._tail.size, int(active[-1]) + self._edge_frames + 1)
+        else:
+            end = min(self._tail.size, self._edge_frames)
+        output = self._tail[:end]
+        self._tail = np.array([], dtype=np.float32)
+        return [output] if output.size else []
 
 
 def _next_or_done(iterator: Iterator[str]) -> tuple[bool, str]:
@@ -202,10 +350,14 @@ def _save_pcm16_wav(payload: bytes) -> Path:
 def _run_asr(payload: bytes) -> str:
     audio_path = _save_pcm16_wav(payload)
     try:
-        settings = resolve_runtime_settings(get_settings())
+        settings = get_realtime_asr_settings(resolve_runtime_settings(get_settings()))
         with local_gpu_generation_lock:
             transcriber = get_local_transcriber(settings)
-            release_conflicting_runtimes(transcriber.runtime_model_id, settings)
+            release_conflicting_runtimes(
+                transcriber.runtime_model_id,
+                settings,
+                preserve_realtime_pair=True,
+            )
             return transcriber.transcribe_path(audio_path, language="zh")
     finally:
         audio_path.unlink(missing_ok=True)
@@ -353,13 +505,56 @@ async def realtime_websocket(websocket: WebSocket) -> None:
 
         audio_id = f"audio-{uuid4().hex[:10]}"
         sample_rate: int | None = None
+        seam_filter: StreamingPcmSeamFilter | None = None
         sent_chunks = 0
         started_audio = False
+
+        async def send_samples(samples: np.ndarray, current_sample_rate: int) -> None:
+            nonlocal started_audio, sent_chunks
+            payload = _float32_to_pcm16(samples)
+            if not payload:
+                return
+            if not started_audio:
+                # The short seam look-ahead removes only model padding. The
+                # AudioContext then keeps every subsequent chunk and sentence
+                # on the same continuous playback timeline.
+                await send_event(
+                    "assistant.audio.start",
+                    turn_id=turn_id,
+                    audio_id=audio_id,
+                    sample_rate=current_sample_rate,
+                    audio_format="pcm_s16le",
+                    text=text,
+                    streaming=True,
+                )
+                started_audio = True
+            await send_audio(payload)
+            sent_chunks += 1
+
         try:
             # The upstream worker runs in a separate VoxCPM2 Python runtime.
             # Treat it as a distinct GPU occupant so the existing HTTP worker
             # is released before it loads the same weights.
-            await asyncio.to_thread(release_conflicting_runtimes, "voxcpm2_streaming", settings)
+            await send_event(
+                "assistant.audio.preparing",
+                turn_id=turn_id,
+                backend="streaming",
+                message="正在准备 Whispera 流式 VoxCPM2…",
+            )
+            released_models = await asyncio.to_thread(
+                release_conflicting_runtimes,
+                "voxcpm2_streaming",
+                settings,
+                preserve_realtime_pair=True,
+            )
+            if released_models:
+                await send_event(
+                    "assistant.audio.preparing",
+                    turn_id=turn_id,
+                    backend="streaming",
+                    message=f"已释放 {'、'.join(released_models)}，正在加载实时流式 VoxCPM2…",
+                    released_models=released_models,
+                )
             async for chunk in stream_whispera_tts(
                 settings,
                 text=text,
@@ -369,28 +564,17 @@ async def realtime_websocket(websocket: WebSocket) -> None:
             ):
                 if cancel_event.is_set():
                     break
-                if not started_audio:
+                if sample_rate is None:
                     sample_rate = chunk.sample_rate
-                    await send_event(
-                        "assistant.audio.start",
-                        turn_id=turn_id,
-                        audio_id=audio_id,
-                        sample_rate=sample_rate,
-                        audio_format="pcm_s16le",
-                        text=text,
-                        streaming=True,
-                    )
-                    started_audio = True
-                if sample_rate != chunk.sample_rate:
+                    seam_filter = StreamingPcmSeamFilter(sample_rate)
+                elif sample_rate != chunk.sample_rate:
                     raise WhisperaStreamingGenerationError("Whispera 流式 TTS 在同一请求中改变了采样率。")
-                payload = _float32_to_pcm16(chunk.samples)
-                if not payload:
-                    continue
-                await send_audio(payload)
-                sent_chunks += 1
-                # Keep browser scheduling bounded even on a GPU that produces
-                # several upstream chunks faster than their audible duration.
-                await asyncio.sleep(len(payload) / (chunk.sample_rate * PCM_BYTES_PER_SAMPLE))
+                assert seam_filter is not None
+                for filtered in seam_filter.push(chunk.samples):
+                    await send_samples(filtered, sample_rate)
+            if seam_filter is not None and sample_rate is not None and not cancel_event.is_set():
+                for filtered in seam_filter.finish():
+                    await send_samples(filtered, sample_rate)
             if not started_audio and not cancel_event.is_set():
                 raise WhisperaStreamingGenerationError("Whispera 流式 TTS 未生成可播放音频。")
         finally:
@@ -446,7 +630,6 @@ async def realtime_websocket(websocket: WebSocket) -> None:
         await send_event("assistant.started", turn_id=turn_id, request_id=request_id)
         started = perf_counter()
         full_text = ""
-        segmenter = StreamingTextSegmenter()
         audio_queue: asyncio.Queue[str | None] | None = None
         audio_worker: asyncio.Task[None] | None = None
 
@@ -506,14 +689,12 @@ async def realtime_websocket(websocket: WebSocket) -> None:
                     continue
                 full_text += delta
                 await send_event("assistant.delta", turn_id=turn_id, request_id=request_id, text=delta)
-                if audio_queue is not None:
-                    for segment in segmenter.feed(delta):
-                        if cancel_event.is_set():
-                            break
-                        await queue_audio(segment)
-            final_segment = segmenter.flush()
-            if final_segment and audio_queue is not None and not cancel_event.is_set():
-                await queue_audio(final_segment)
+            # Whispera currently receives a complete text field at tts.start;
+            # it cannot append later LLM deltas to the same acoustic request.
+            # Send one full reply once the LLM finishes, rather than cutting
+            # at punctuation and audibly resetting Vox between sentences.
+            if full_text and audio_queue is not None and not cancel_event.is_set():
+                await queue_audio(full_text)
             if audio_queue is not None and not cancel_event.is_set():
                 await audio_queue.put(None)
                 if audio_worker is not None:
@@ -607,7 +788,7 @@ async def realtime_websocket(websocket: WebSocket) -> None:
         microphone_format={"sample_rate": PCM_SAMPLE_RATE, "audio_format": "pcm_s16le", "channels": 1},
         capabilities={
             "vad": "silero" if conversation.vad else "unavailable",
-            "asr": "voxcpm2",
+            "asr": "sensevoice",
             "tts": "voxcpm2",
             "tts_backends": ["auto", "streaming", "compatibility"],
             "llm": "openai-compatible",

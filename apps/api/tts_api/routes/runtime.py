@@ -7,7 +7,7 @@ from tts_api.adapters.voxcpm2 import get_voxcpm2_service_manager, get_voxcpm2_st
 from tts_api.config import Settings, get_settings
 from tts_api.model_health import check_model_instance
 from tts_api.model_instances import ModelInstanceStatus, apply_model_instance_to_settings, get_model_instance
-from tts_api.runtime_memory import release_conflicting_runtimes
+from tts_api.runtime_memory import is_realtime_runtime_reserved, local_gpu_generation_lock, release_conflicting_runtimes
 
 router = APIRouter()
 
@@ -56,20 +56,26 @@ def _assert_startable(model_id: str) -> Settings:
 def start_model_runtime(model_id: str) -> dict:
     settings = _assert_startable(model_id)
     try:
-        released_models = release_conflicting_runtimes(model_id, settings)
-        if model_id == "indextts2":
-            get_indextts2_worker_client(settings).start()
-        elif model_id == "voxcpm2":
-            manager = get_voxcpm2_service_manager(settings)
-            manager.ensure_started()
-        elif model_id == "gptsovits":
-            manager = get_gptsovits_service_manager(settings)
-            manager.ensure_started()
-        elif model_id == "sensevoice":
-            manager = get_sensevoice_service_manager(settings)
-            manager.ensure_started()
-        else:
-            raise HTTPException(status_code=404, detail=f"Runtime controls are not available for: {model_id}")
+        # Model warm-up allocates the same CUDA memory as synthesis.  Keeping
+        # it behind the shared lock closes the race where a desktop prewarm and
+        # the realtime Whispera worker loaded VoxCPM2 at the same time.
+        with local_gpu_generation_lock:
+            if is_realtime_runtime_reserved():
+                raise RuntimeError("实时语音模式正在独占 GPU；请先退出实时工作区再预热普通生成引擎。")
+            released_models = release_conflicting_runtimes(model_id, settings)
+            if model_id == "indextts2":
+                get_indextts2_worker_client(settings).start()
+            elif model_id == "voxcpm2":
+                manager = get_voxcpm2_service_manager(settings)
+                manager.ensure_started()
+            elif model_id == "gptsovits":
+                manager = get_gptsovits_service_manager(settings)
+                manager.ensure_started()
+            elif model_id == "sensevoice":
+                manager = get_sensevoice_service_manager(settings)
+                manager.ensure_started()
+            else:
+                raise HTTPException(status_code=404, detail=f"Runtime controls are not available for: {model_id}")
     except HTTPException:
         raise
     except RuntimeError as exc:

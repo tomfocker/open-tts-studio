@@ -164,6 +164,11 @@ class SenseVoiceServiceManager:
             self.last_used_at = self.now_factory()
             self._schedule_idle_release()
 
+    def keep_warm(self) -> None:
+        """Disable the pending idle timer while realtime owns this ASR worker."""
+        with self._lock:
+            self._cancel_idle_release()
+
     def status(self, probe_timeout_seconds: float | None = None) -> dict:
         managed = self.process is not None and self.process.poll() is None
         healthy = self.is_healthy(probe_timeout_seconds) if probe_timeout_seconds is not None else None
@@ -178,6 +183,7 @@ class SenseVoiceServiceManager:
         return {
             "model": "sensevoice",
             "backend": "sensevoice-small",
+            "device": self.settings.sensevoice_device,
             "loaded": managed if healthy is None else healthy,
             "state": state,
             "health": "ok" if healthy is True else "unresponsive" if healthy is False else "not_checked",
@@ -263,15 +269,16 @@ class SenseVoiceServiceManager:
             self.shutdown()
 
 
-_service_managers: dict[tuple[str, int, str, str], SenseVoiceServiceManager] = {}
+_service_managers: dict[tuple[str, int, str, str, str], SenseVoiceServiceManager] = {}
 
 
-def _key(settings: Settings) -> tuple[str, int, str, str]:
+def _key(settings: Settings) -> tuple[str, int, str, str, str]:
     return (
         settings.sensevoice_api_host,
         settings.sensevoice_api_port,
         str(settings.sensevoice_python),
         str(settings.sensevoice_model_dir),
+        settings.sensevoice_device,
     )
 
 
@@ -292,6 +299,7 @@ def get_sensevoice_status(settings: Settings | None = None, probe_timeout_second
         return {
             "model": "sensevoice",
             "backend": "sensevoice-small",
+            "device": active_settings.sensevoice_device,
             "loaded": False,
             "state": "released",
             "api_base": f"http://{active_settings.sensevoice_api_host}:{active_settings.sensevoice_api_port}",

@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import sys
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,12 @@ if TYPE_CHECKING:
 
 
 WEBSOCKET_PATH = "/ws/tts"
+# The first call through ``torch.compile`` builds several Triton kernels.  Run
+# it during OpenTTS's explicit realtime prewarm, never in the first utterance.
+COMPILE_WARMUP_TEXT = (
+    "现在实时语音的 CUDA 图正在预热。完成之后，你可以自然连续地进行语音对话，"
+    "并且不会在每个词语之间产生明显的停顿或电流声。"
+)
 
 
 def _repo_root() -> Path:
@@ -169,10 +176,13 @@ class StreamingTTSService:
         self.config = config
         self._model: Optional[VoxCPM] = None
         self._model_lock = Lock()
+        self._warmup_lock = Lock()
         self._lora_root = resolve_default_lora_root()
         self._active_lora_key: Optional[str] = None
         self._active_lora_path: Optional[str] = None
         self._loaded_model_source: Optional[str] = None
+        self._streaming_graph_warmed = False
+        self._compile_warmup_seconds: Optional[float] = None
         self.session_store = SessionStore()
 
     @property
@@ -233,7 +243,45 @@ class StreamingTTSService:
 
             model_path = self.config.model_path or resolve_default_model_path()
             self._model = self._create_model(model_path=model_path)
+            self._streaming_graph_warmed = False
+            self._compile_warmup_seconds = None
             return self._model
+
+    def warmup_for_realtime(self) -> dict[str, Any]:
+        """Load weights and build streaming CUDA graphs before a user turn."""
+        with self._warmup_lock:
+            model = self.get_model()
+            tts_model = getattr(model, "tts_model", None)
+            compile_enabled = bool(getattr(tts_model, "torch_compile_enabled", False))
+            if not compile_enabled or self._streaming_graph_warmed:
+                return {
+                    "compile_enabled": compile_enabled,
+                    "compile_warmed": self._streaming_graph_warmed,
+                    "compile_seconds": self._compile_warmup_seconds,
+                }
+
+            started = time.perf_counter()
+            # Discard this deliberately local synthesis. It exercises every
+            # normal streaming stage and fills TorchInductor's in-memory graph
+            # cache while the UI is explicitly waiting for realtime readiness.
+            for _ in model.generate_streaming(
+                text=COMPILE_WARMUP_TEXT,
+                cfg_value=2.0,
+                inference_timesteps=10,
+                min_len=2,
+                max_len=256,
+                normalize=True,
+                denoise=False,
+                retry_badcase=False,
+            ):
+                pass
+            self._streaming_graph_warmed = True
+            self._compile_warmup_seconds = round(time.perf_counter() - started, 3)
+            return {
+                "compile_enabled": True,
+                "compile_warmed": True,
+                "compile_seconds": self._compile_warmup_seconds,
+            }
 
     def list_lora_checkpoints(self, with_info: bool = False) -> list[Any]:
         return scan_lora_checkpoints(self._lora_root, with_info=with_info)
@@ -278,6 +326,8 @@ class StreamingTTSService:
         with self._model_lock:
             if self._model is None:
                 self._model = self._create_model(model_path=required_model_path or self.config.model_path or resolve_default_model_path())
+                self._streaming_graph_warmed = False
+                self._compile_warmup_seconds = None
                 return self._model
 
             if required_source and self._loaded_model_source != required_source:
@@ -286,6 +336,8 @@ class StreamingTTSService:
                     file=sys.stderr,
                 )
                 self._model = self._create_model(model_path=required_source)
+                self._streaming_graph_warmed = False
+                self._compile_warmup_seconds = None
                 self._active_lora_key = None
                 self._active_lora_path = None
 
@@ -378,6 +430,22 @@ def create_app(
             "sample_rate": getattr(getattr(model, "tts_model", None), "sample_rate", None),
             "websocket_path": WEBSOCKET_PATH,
             "session_count": len(service.session_store.list_sessions()),
+        }
+
+    @app.post("/warmup")
+    async def warmup() -> Dict[str, Any]:
+        # OpenTTS calls this as soon as realtime reserves the GPU. Weight
+        # loading and the one-off TorchInductor graph build both happen here,
+        # so a user's first spoken reply does not pay the compile penalty.
+        try:
+            warmup = await asyncio.to_thread(service.warmup_for_realtime)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"failed to load streaming model: {exc}") from exc
+        return {
+            "status": "ok",
+            "model_loaded": service.is_model_loaded,
+            "sample_rate": getattr(getattr(service._model, "tts_model", None), "sample_rate", None),
+            **warmup,
         }
 
     @app.get("/sessions")

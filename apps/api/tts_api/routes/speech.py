@@ -15,7 +15,7 @@ from tts_api.model_instances import get_model_instance, mark_model_instance_succ
 from tts_api.model_capabilities import validate_speech_request_capabilities
 from tts_api.jobs import run_tracked_synthesis
 from tts_api.registry import ModelRegistry
-from tts_api.runtime_memory import local_gpu_generation_lock, release_conflicting_runtimes, resolve_runtime_settings
+from tts_api.runtime_memory import is_realtime_runtime_reserved, local_gpu_generation_lock, release_conflicting_runtimes, resolve_runtime_settings
 from tts_api.schemas import SpeechRequest, SpeechResult
 
 router = APIRouter()
@@ -41,6 +41,12 @@ def synthesize_with_registered_adapter(
         model = registry.get_model(request.model)
     except KeyError:
         raise unknown_model_error(request.model)
+
+    # A realtime session reserves the GPU for Whispera's VoxCPM2 worker. Do
+    # not let an ordinary local synthesis request tear that worker down and
+    # replace it with a different engine while the conversation is alive.
+    if is_realtime_runtime_reserved() and model.adapter not in {"doubao_web", "mock"}:
+        raise HTTPException(status_code=409, detail="实时语音模式正在独占 GPU；请先退出实时工作区再使用普通生成引擎。")
 
     try:
         validate_speech_request_capabilities(model, request)

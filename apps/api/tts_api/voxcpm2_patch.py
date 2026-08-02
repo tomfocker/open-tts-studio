@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 PATCH_MARKER = "OpenTTS-ASR-DETACH-PATCH: v2"
+WINDOWS_COMPILE_PATCH_MARKER = "OpenTTS-WINDOWS-COMPILE-PATCH: v1"
 
 
 _LEGACY_ASR_CONFIG = re.compile(
@@ -125,3 +126,65 @@ def ensure_voxcpm2_asr_detached(voxcpm2_root: Path) -> bool:
     _verify_detached_preload(source)
     _write_atomically(api_path, source)
     return True
+
+
+def _patch_windows_compile_mode(path: Path) -> bool:
+    """Enable CUDA graphs after disabling PyTorch's broken Windows launcher."""
+    try:
+        source = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"VoxCPM2 model source is not UTF-8: {path}") from exc
+
+    legacy_windows_mode = 'mode="default" if os.name == "nt" else "reduce-overhead"'
+    if WINDOWS_COMPILE_PATCH_MARKER in source:
+        # Upgrade workspaces patched by the earlier conservative fallback.
+        # Their static launcher is already disabled by the service manager, so
+        # retaining ``default`` would leave both ordinary and realtime Vox
+        # needlessly slower on every single decode step.
+        if legacy_windows_mode not in source:
+            return False
+        _write_atomically(source.replace(legacy_windows_mode, 'mode="reduce-overhead"'), path)
+        return True
+    if "import os" not in source or 'mode="reduce-overhead"' not in source:
+        raise RuntimeError(
+            "Unsupported VoxCPM2 torch.compile layout; refusing to start without the Windows safety patch."
+        )
+
+    optimize = re.search(r"(?m)^    def optimize\(self, disable: bool = False\).*?:\n", source)
+    if optimize is None:
+        raise RuntimeError("Unsupported VoxCPM2 torch.compile layout; optimize() was not found.")
+
+    source = (
+        source[: optimize.end()]
+        + f"        # {WINDOWS_COMPILE_PATCH_MARKER}\n"
+        + "        # OpenTTS disables PyTorch's static CUDA launcher on Windows.\n"
+        + source[optimize.end() :]
+    )
+    source = source.replace(
+        'mode="reduce-overhead"',
+        'mode="reduce-overhead"',
+    )
+    _write_atomically(path, source)
+    return True
+
+
+def ensure_voxcpm2_windows_compile_safe(voxcpm2_root: Path) -> bool:
+    """Patch the local VoxCPM source to keep ``torch.compile`` fast and reliable on Windows.
+
+    The upstream package already opts into TorchInductor and runs one warm-up
+    inference while the normal Vox HTTP service starts. Its original
+    static CUDA launcher can overflow while resolving 64-bit CUDA handles.
+    The worker disables that launcher before Torch imports, allowing the
+    upstream ``reduce-overhead`` CUDA-graph mode to stay enabled.
+    """
+    if os.name != "nt":
+        return False
+    model_root = voxcpm2_root / "src" / "voxcpm" / "model"
+    sources = [model_root / "voxcpm.py", model_root / "voxcpm2.py"]
+    missing = [str(path) for path in sources if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"VoxCPM2 torch.compile source not found: {', '.join(missing)}")
+    changed = False
+    for path in sources:
+        changed = _patch_windows_compile_mode(path) or changed
+    return changed

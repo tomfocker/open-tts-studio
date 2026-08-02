@@ -35,6 +35,9 @@ class WhisperaStreamingGenerationError(RuntimeError):
     """The upstream worker accepted a request but could not synthesize it."""
 
 
+FIRST_AUDIO_TIMEOUT_SECONDS = 45.0
+
+
 @dataclass(frozen=True)
 class WhisperaPcmChunk:
     sample_rate: int
@@ -50,6 +53,7 @@ class WhisperaStreamingServiceManager:
         popen=subprocess.Popen,
         http_client=httpx,
         startup_timeout_seconds: float = 20.0,
+        prewarm_timeout_seconds: float = 360.0,
         timer_factory=threading.Timer,
         now_factory=time.time,
         sleep=time.sleep,
@@ -58,6 +62,7 @@ class WhisperaStreamingServiceManager:
         self.popen = popen
         self.http_client = http_client
         self.startup_timeout_seconds = startup_timeout_seconds
+        self.prewarm_timeout_seconds = prewarm_timeout_seconds
         self.timer_factory = timer_factory
         self.now_factory = now_factory
         self.sleep = sleep
@@ -126,6 +131,15 @@ class WhisperaStreamingServiceManager:
         environment["HF_HUB_OFFLINE"] = "1"
         environment["TRANSFORMERS_OFFLINE"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
+        # PyTorch 2.8's Windows wheel routes ``torch.compile`` through a
+        # static CUDA launcher by default.  That launcher overflows on 64-bit
+        # CUDA handles (``Python int too large to convert to C long``) while
+        # Whispera is compiling its streaming graph.  Keep TorchInductor and
+        # Triton enabled, but use Triton's normal launcher which is stable on
+        # Windows.  The setting is read when Torch imports, so it must be set
+        # on the worker process before Uvicorn starts.
+        if os.name == "nt":
+            environment["TORCHINDUCTOR_USE_STATIC_CUDA_LAUNCHER"] = "0"
         # The model runtime has FastAPI/Uvicorn but no websocket backend. Both
         # path entries are vendored pure-Python source and leave the model pack
         # itself unmodified.
@@ -135,28 +149,52 @@ class WhisperaStreamingServiceManager:
         environment["PYTHONPATH"] = os.pathsep.join(python_paths)
         return environment
 
-    def is_healthy(self, timeout_seconds: float = 1.0) -> bool:
+    def _health_payload(self, timeout_seconds: float) -> dict | None:
         try:
             response = self.http_client.get(f"{self.api_base}/health", timeout=timeout_seconds)
             response.raise_for_status()
             payload = response.json()
-            return bool(isinstance(payload, dict) and payload.get("websocket_path") == "/ws/tts")
+            return payload if isinstance(payload, dict) else None
         except Exception:
-            return False
+            return None
+
+    def is_server_ready(self, timeout_seconds: float = 1.0) -> bool:
+        payload = self._health_payload(timeout_seconds)
+        return bool(payload and payload.get("websocket_path") == "/ws/tts")
+
+    def is_healthy(self, timeout_seconds: float = 1.0) -> bool:
+        payload = self._health_payload(timeout_seconds)
+        return bool(payload and payload.get("websocket_path") == "/ws/tts" and payload.get("model_loaded") is True)
 
     def ensure_started(self) -> None:
-        if self.is_healthy():
+        # Whispera's upstream service deliberately lazy-loads its weights on
+        # the first TTS request. Starting the HTTP server is enough here;
+        # ``prewarm_model`` explicitly loads weights when realtime opens.
+        if self.is_server_ready():
             return
         if self.process is None or self.process.poll() is not None:
             self.start()
         deadline = time.monotonic() + self.startup_timeout_seconds
         while time.monotonic() < deadline:
-            if self.is_healthy():
+            if self.is_server_ready():
                 return
             if self.process is not None and self.process.poll() is not None:
                 raise WhisperaStreamingUnavailable("Whispera 流式 TTS 服务在启动时异常退出。")
             self.sleep(0.25)
         raise WhisperaStreamingUnavailable("Whispera 流式 TTS 服务启动超时；请查看模型日志。")
+
+    def prewarm_model(self) -> dict:
+        """Eagerly load VoxCPM2 through Whispera's dedicated warmup endpoint."""
+        self.ensure_started()
+        try:
+            response = self.http_client.post(f"{self.api_base}/warmup", timeout=self.prewarm_timeout_seconds)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            raise WhisperaStreamingUnavailable(f"Whispera 流式 TTS 模型预热失败：{exc}") from exc
+        if not isinstance(payload, dict) or payload.get("model_loaded") is not True:
+            raise WhisperaStreamingUnavailable("Whispera 流式 TTS 预热未确认模型已加载。")
+        return payload
 
     def start(self) -> None:
         if self.process is not None and self.process.poll() is None:
@@ -182,7 +220,7 @@ class WhisperaStreamingServiceManager:
                     str(self.model_path),
                     "--local-files-only",
                     "--log-level",
-                    "warning",
+                    "info",
                 ],
                 cwd=str(self.settings.voxcpm2_root),
                 env=self.build_environment(),
@@ -211,11 +249,17 @@ class WhisperaStreamingServiceManager:
 
     def status(self) -> dict:
         managed = self.process is not None and self.process.poll() is None
+        # A previous desktop/API process can be interrupted before its child
+        # worker has a chance to exit. Do not let that healthy-but-unmanaged
+        # service become an invisible GPU occupant: expose it so normal TTS
+        # runtimes are blocked instead of loading alongside it.
+        external = not managed and self.is_healthy(timeout_seconds=0.25)
+        loaded = managed or external
         idle_seconds = int(self.now_factory() - self.last_used_at) if self.last_used_at else None
         return {
             "model": "whispera-voxcpm-streaming",
-            "loaded": managed,
-            "state": "loaded" if managed else "released",
+            "loaded": loaded,
+            "state": "loaded" if loaded else "released",
             "api_base": self.api_base,
             "websocket_url": self.websocket_url,
             "last_started_at": self.started_at,
@@ -223,6 +267,7 @@ class WhisperaStreamingServiceManager:
             "idle_timeout_seconds": self.settings.local_api_idle_timeout_seconds,
             "idle_seconds": idle_seconds,
             "managed": managed,
+            "external": external,
             "can_stop": managed and self.active_requests == 0,
             "active_requests": self.active_requests,
         }
@@ -302,21 +347,10 @@ def get_whispera_streaming_service_manager(settings: Settings) -> WhisperaStream
 
 
 def get_whispera_streaming_status(settings: Settings) -> dict:
-    manager = _service_managers.get(
-        (settings.voxcpm2_streaming_api_host, settings.voxcpm2_streaming_api_port, str(settings.voxcpm2_root))
-    )
-    if manager is None:
-        return {
-            "model": "whispera-voxcpm-streaming",
-            "loaded": False,
-            "state": "released",
-            "api_base": f"http://{settings.voxcpm2_streaming_api_host}:{settings.voxcpm2_streaming_api_port}",
-            "websocket_url": f"ws://{settings.voxcpm2_streaming_api_host}:{settings.voxcpm2_streaming_api_port}/ws/tts",
-            "managed": False,
-            "can_stop": False,
-            "active_requests": 0,
-        }
-    return manager.status()
+    # Create a lightweight manager even before this API has launched one so a
+    # healthy worker inherited from an earlier API process is still reported
+    # as an external GPU occupant.
+    return get_whispera_streaming_service_manager(settings).status()
 
 
 def release_whispera_streaming_service(settings: Settings, force: bool = False) -> bool:
@@ -351,8 +385,10 @@ async def stream_whispera_tts(
     session_id = f"opentts-{uuid4().hex}"
     request_id = f"tts-{uuid4().hex}"
     started = False
+    received_audio = False
     interrupt_sent = False
     sample_rate = 0
+    first_audio_deadline = time.monotonic() + FIRST_AUDIO_TIMEOUT_SECONDS
     try:
         try:
             async with websockets.connect(manager.websocket_url, open_timeout=8, close_timeout=2, max_size=None) as websocket:
@@ -402,6 +438,14 @@ async def stream_whispera_tts(
                         # it.  An externally managed service is never killed.
                         await asyncio.to_thread(manager.shutdown, True)
                         return
+                    if not received_audio and time.monotonic() >= first_audio_deadline:
+                        # A CUDA step can occasionally become non-responsive.
+                        # The worker is dedicated to realtime audio, so discard
+                        # it instead of keeping a full model resident forever.
+                        await asyncio.to_thread(manager.shutdown, True)
+                        raise WhisperaStreamingUnavailable(
+                            f"Whispera 流式 TTS 等待首段音频超过 {int(FIRST_AUDIO_TIMEOUT_SECONDS)} 秒，已释放流式模型。"
+                        )
                     try:
                         raw_message = await asyncio.wait_for(websocket.recv(), timeout=0.1)
                     except TimeoutError:
@@ -420,6 +464,7 @@ async def stream_whispera_tts(
                             raise WhisperaStreamingGenerationError("Whispera 流式 TTS 返回了无效音频块。")
                         samples = np.frombuffer(base64.b64decode(encoded), dtype=np.float32).copy()
                         if samples.size:
+                            received_audio = True
                             yield WhisperaPcmChunk(sample_rate=sample_rate, samples=samples)
                         continue
                     if message_type == "tts.completed":

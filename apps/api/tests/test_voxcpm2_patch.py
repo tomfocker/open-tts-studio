@@ -1,6 +1,14 @@
+import os
 from pathlib import Path
 
-from tts_api.voxcpm2_patch import PATCH_MARKER, ensure_voxcpm2_asr_detached
+import pytest
+
+from tts_api.voxcpm2_patch import (
+    PATCH_MARKER,
+    WINDOWS_COMPILE_PATCH_MARKER,
+    ensure_voxcpm2_asr_detached,
+    ensure_voxcpm2_windows_compile_safe,
+)
 
 
 LEGACY_API = '''import os
@@ -50,6 +58,21 @@ def preload_models():
         models_loaded["all_ready"] = True
     except Exception:
         pass
+'''
+
+
+LEGACY_COMPILE_MODEL = '''import os
+import torch
+
+class VoxCPMModel:
+    def optimize(self, disable: bool = False):
+        if disable:
+            return self
+        self.base_lm.forward_step = torch.compile(self.base_lm.forward_step, mode="reduce-overhead", fullgraph=True)
+        self.residual_lm.forward_step = torch.compile(self.residual_lm.forward_step, mode="reduce-overhead", fullgraph=True)
+        self.feat_encoder = torch.compile(self.feat_encoder, mode="reduce-overhead", fullgraph=True)
+        self.feat_decoder.estimator = torch.compile(self.feat_decoder.estimator, mode="reduce-overhead", fullgraph=True)
+        return self
 '''
 
 
@@ -110,3 +133,20 @@ def test_patch_rejects_unknown_vox_api_layout(tmp_path: Path):
         assert "Unsupported VoxCPM2" in str(exc)
     else:
         raise AssertionError("expected an unsupported-layout error")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the TorchInductor workaround applies only to Windows")
+def test_patch_switches_both_vox_models_to_the_windows_safe_compile_mode(tmp_path: Path):
+    model_root = tmp_path / "src" / "voxcpm" / "model"
+    model_root.mkdir(parents=True)
+    for name in ("voxcpm.py", "voxcpm2.py"):
+        (model_root / name).write_text(LEGACY_COMPILE_MODEL, encoding="utf-8")
+
+    assert ensure_voxcpm2_windows_compile_safe(tmp_path) is True
+    for name in ("voxcpm.py", "voxcpm2.py"):
+        patched = (model_root / name).read_text(encoding="utf-8")
+        compile(patched, str(model_root / name), "exec")
+        assert WINDOWS_COMPILE_PATCH_MARKER in patched
+        assert 'mode="reduce-overhead"' in patched
+
+    assert ensure_voxcpm2_windows_compile_safe(tmp_path) is False

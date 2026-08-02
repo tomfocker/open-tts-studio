@@ -23,6 +23,45 @@ import "./realtime-workspace.css";
 
 type ConnectionState = "offline" | "connecting" | "ready" | "error";
 type ChatRole = "user" | "assistant" | "system";
+// Whispera occasionally emits several inference chunks in a burst. Starting
+// after a wall-clock delay left only about one second of actual audio, so one
+// slow CUDA block could still drain the AudioContext timeline. Buffer source
+// audio instead: it is robust to uneven model/network delivery. One second is
+// an intentionally aggressive trial now that the warmed VoxCPM2 path is
+// keeping up with playback; if production stalls, playback will expose it.
+const PLAYBACK_STARTUP_BUFFER_SECONDS = 1;
+const PLAYBACK_START_DELAY_SECONDS = 0.05;
+type RealtimeRuntimeState = "idle" | "reserving" | "ready" | "error";
+
+type PendingPlaybackChunk = {
+  payload: ArrayBuffer;
+  sampleRate: number;
+  durationSeconds: number;
+};
+
+type RealtimeWorkspaceProps = {
+  runtimeState?: RealtimeRuntimeState;
+  runtimeMessage?: string;
+};
+
+type RealtimeSessionSettings = {
+  llmBaseUrl: string;
+  llmModel: string;
+  llmApiKey: string;
+  systemPrompt: string;
+  voiceId: string;
+  ttsEnabled: boolean;
+  ttsBackend: string;
+};
+
+declare global {
+  interface Window {
+    desktopRealtimeSettings?: {
+      load: () => Promise<RealtimeSessionSettings>;
+      save: (settings: RealtimeSessionSettings) => Promise<unknown>;
+    };
+  }
+}
 
 type ChatMessage = {
   id: string;
@@ -69,9 +108,9 @@ function createCaptureWorkletUrl(): string {
   return URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
 }
 
-export function RealtimeWorkspace() {
+export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" }: RealtimeWorkspaceProps) {
   const [connectionState, setConnectionState] = useState<ConnectionState>("offline");
-  const [statusText, setStatusText] = useState("填写本地或云端 LLM 后连接。");
+  const [statusText, setStatusText] = useState("正在恢复上次的实时会话设置…");
   const [llmBaseUrl, setLlmBaseUrl] = useState(DEFAULT_LLM_BASE_URL);
   const [llmModel, setLlmModel] = useState("");
   const [llmApiKey, setLlmApiKey] = useState("");
@@ -85,6 +124,8 @@ export function RealtimeWorkspace() {
   const [microphoneActive, setMicrophoneActive] = useState(false);
   const [vadSpeaking, setVadSpeaking] = useState(false);
   const [sending, setSending] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [settingsReady, setSettingsReady] = useState(() => typeof window === "undefined" || !window.desktopRealtimeSettings);
 
   const socketRef = useRef<WebSocket | null>(null);
   const connectionPromiseRef = useRef<Promise<boolean> | null>(null);
@@ -96,6 +137,69 @@ export function RealtimeWorkspace() {
   const playbackContextRef = useRef<AudioContext | null>(null);
   const playbackSourcesRef = useRef(new Set<AudioBufferSourceNode>());
   const nextPlaybackAtRef = useRef(0);
+  const pendingPlaybackChunksRef = useRef<PendingPlaybackChunk[]>([]);
+  const pendingPlaybackDurationRef = useRef(0);
+  const playbackStartedRef = useRef(false);
+  const playbackAudioIdRef = useRef<string | null>(null);
+  const settingsSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+
+  useEffect(() => {
+    const bridge = window.desktopRealtimeSettings;
+    if (!bridge) {
+      setStatusText("填写本地或云端 LLM 后连接。");
+      setSettingsReady(true);
+      return;
+    }
+    let cancelled = false;
+    void bridge.load()
+      .then((settings) => {
+        if (cancelled) return;
+        setLlmBaseUrl(settings.llmBaseUrl || DEFAULT_LLM_BASE_URL);
+        setLlmModel(settings.llmModel);
+        setLlmApiKey(settings.llmApiKey);
+        setSystemPrompt(settings.systemPrompt || DEFAULT_SYSTEM_PROMPT);
+        setVoiceId(settings.voiceId);
+        setTtsEnabled(settings.ttsEnabled);
+        setTtsBackend(settings.ttsBackend || "auto");
+        setStatusText(settings.llmBaseUrl && settings.llmModel
+          ? "已恢复上次的模型接口，可直接开始对话。"
+          : "填写本地或云端 LLM 后连接。"
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setStatusText("未能恢复上次设置，请填写本地或云端 LLM 后连接。");
+      })
+      .finally(() => {
+        if (!cancelled) setSettingsReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!settingsReady) return;
+    const bridge = window.desktopRealtimeSettings;
+    if (!bridge) return;
+    const snapshot: RealtimeSessionSettings = {
+      llmBaseUrl,
+      llmModel,
+      llmApiKey,
+      systemPrompt,
+      voiceId,
+      ttsEnabled,
+      ttsBackend
+    };
+    const timer = window.setTimeout(() => {
+      settingsSaveQueueRef.current = settingsSaveQueueRef.current
+        .catch(() => undefined)
+        .then(() => bridge.save(snapshot));
+      void settingsSaveQueueRef.current.catch(() => {
+        setStatusText("实时会话设置未能保存到本机；请检查系统凭据服务。");
+      });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [llmApiKey, llmBaseUrl, llmModel, settingsReady, systemPrompt, ttsBackend, ttsEnabled, voiceId]);
 
   const appendMessage = useCallback((message: ChatMessage) => {
     setMessages((current) => [...current, message]);
@@ -112,9 +216,13 @@ export function RealtimeWorkspace() {
     playbackSourcesRef.current.clear();
     const context = playbackContextRef.current;
     nextPlaybackAtRef.current = context ? context.currentTime : 0;
+    pendingPlaybackChunksRef.current = [];
+    pendingPlaybackDurationRef.current = 0;
+    playbackStartedRef.current = false;
+    playbackAudioIdRef.current = null;
   }, []);
 
-  const playPcmChunk = useCallback(async (payload: ArrayBuffer, sampleRate: number) => {
+  const activatePlayback = useCallback(async (): Promise<AudioContext> => {
     let context = playbackContextRef.current;
     if (!context || context.state === "closed") {
       context = new AudioContext();
@@ -123,6 +231,11 @@ export function RealtimeWorkspace() {
     if (context.state === "suspended") {
       await context.resume();
     }
+    return context;
+  }, []);
+
+  const schedulePcmChunk = useCallback(async (payload: ArrayBuffer, sampleRate: number) => {
+    const context = await activatePlayback();
     const samples = new Int16Array(payload);
     if (!samples.length) return;
     const buffer = context.createBuffer(1, samples.length, sampleRate);
@@ -133,11 +246,49 @@ export function RealtimeWorkspace() {
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(context.destination);
-    const startAt = Math.max(context.currentTime + 0.04, nextPlaybackAtRef.current);
+    // The response was held until it contained actual source audio. Later
+    // chunks reuse this one timeline; no per-chunk delay is introduced.
+    const playbackFloor = nextPlaybackAtRef.current > context.currentTime
+      ? nextPlaybackAtRef.current
+      : context.currentTime + PLAYBACK_START_DELAY_SECONDS;
+    const startAt = Math.max(playbackFloor, nextPlaybackAtRef.current);
     nextPlaybackAtRef.current = startAt + buffer.duration;
     playbackSourcesRef.current.add(source);
     source.onended = () => playbackSourcesRef.current.delete(source);
     source.start(startAt);
+  }, [activatePlayback]);
+
+  const flushPlaybackBuffer = useCallback(async () => {
+    if (playbackStartedRef.current || !pendingPlaybackChunksRef.current.length) return;
+    playbackStartedRef.current = true;
+    const pending = pendingPlaybackChunksRef.current;
+    pendingPlaybackChunksRef.current = [];
+    pendingPlaybackDurationRef.current = 0;
+    for (const chunk of pending) {
+      await schedulePcmChunk(chunk.payload, chunk.sampleRate);
+    }
+  }, [schedulePcmChunk]);
+
+  const playPcmChunk = useCallback(async (payload: ArrayBuffer, sampleRate: number) => {
+    if (playbackStartedRef.current) {
+      await schedulePcmChunk(payload, sampleRate);
+      return;
+    }
+    const durationSeconds = payload.byteLength / (2 * sampleRate);
+    if (!durationSeconds) return;
+    pendingPlaybackChunksRef.current.push({ payload, sampleRate, durationSeconds });
+    pendingPlaybackDurationRef.current += durationSeconds;
+    if (pendingPlaybackDurationRef.current >= PLAYBACK_STARTUP_BUFFER_SECONDS) {
+      await flushPlaybackBuffer();
+    }
+  }, [flushPlaybackBuffer, schedulePcmChunk]);
+
+  const beginPlaybackResponse = useCallback((audioId: string) => {
+    if (playbackAudioIdRef.current === audioId) return;
+    playbackAudioIdRef.current = audioId;
+    pendingPlaybackChunksRef.current = [];
+    pendingPlaybackDurationRef.current = 0;
+    playbackStartedRef.current = false;
   }, []);
 
   const sessionPayload = useCallback(() => ({
@@ -185,6 +336,13 @@ export function RealtimeWorkspace() {
       setStatusText("请先填写 OpenAI 兼容 LLM 地址和模型名。");
       return false;
     }
+    if (ttsEnabled && runtimeState !== "ready") {
+      setConnectionState(runtimeState === "error" ? "error" : "offline");
+      setStatusText(runtimeMessage || (runtimeState === "reserving"
+        ? "正在预约实时流式 VoxCPM2 的显存，请稍候。"
+        : "实时语音尚未取得 VoxCPM2 显存使用权。"));
+      return false;
+    }
     setConnectionState("connecting");
     setStatusText("正在建立实时会话…");
     const promise = new Promise<boolean>((resolve) => {
@@ -215,7 +373,10 @@ export function RealtimeWorkspace() {
       socket.onmessage = (event) => {
         if (event.data instanceof ArrayBuffer) {
           void playPcmChunk(event.data, (socket as WebSocket & { __openTtsSampleRate?: number }).__openTtsSampleRate ?? 24_000)
-            .catch(() => setStatusText("音频播放初始化失败。"));
+            .catch(() => {
+              setPlaybackError("系统阻止了音频播放；请再点击一次麦克风或发送按钮后重试。");
+              setStatusText("音频播放初始化失败。文字回复仍可使用。");
+            });
           return;
         }
         if (typeof event.data !== "string") return;
@@ -271,16 +432,26 @@ export function RealtimeWorkspace() {
           return;
         }
         if (type === "assistant.audio.generating") {
-          setStatusText("正在生成本句语音…");
+          setStatusText("回复已完成，正在生成整段语音…");
+          return;
+        }
+        if (type === "assistant.audio.preparing") {
+          setStatusText(String(payload.message || "正在准备实时流式 VoxCPM2…"));
           return;
         }
         if (type === "assistant.audio.start") {
           const sampleRate = Number(payload.sample_rate) || 24_000;
-          // Each sentence is a separate synthesis request.  Keep the shared
-          // AudioContext timeline intact so a later sentence follows the
-          // previous one instead of cutting it off mid-playback.
+          beginPlaybackResponse(String(payload.audio_id || crypto.randomUUID()));
           (socket as WebSocket & { __openTtsSampleRate?: number }).__openTtsSampleRate = sampleRate;
-          setStatusText("正在播放回复；直接开口即可打断。");
+          setPlaybackError(null);
+          setStatusText("正在积攒约 1 秒语音缓冲，随后连续播放；直接开口即可打断。");
+          return;
+        }
+        if (type === "assistant.audio.completed") {
+          void flushPlaybackBuffer().catch(() => {
+            setPlaybackError("系统阻止了音频播放；请再点击一次麦克风或发送按钮后重试。");
+            setStatusText("音频播放初始化失败。文字回复仍可使用。");
+          });
           return;
         }
         if (type === "assistant.audio.error") {
@@ -327,7 +498,7 @@ export function RealtimeWorkspace() {
     });
     connectionPromiseRef.current = promise;
     return promise;
-  }, [appendMessage, configureOpenSession, llmBaseUrl, llmModel, playPcmChunk, sessionPayload, stopPlayback, ttsEnabled]);
+  }, [appendMessage, beginPlaybackResponse, configureOpenSession, flushPlaybackBuffer, llmBaseUrl, llmModel, playPcmChunk, runtimeMessage, runtimeState, sessionPayload, stopPlayback, ttsEnabled]);
 
   const stopMicrophone = useCallback(async () => {
     captureNodeRef.current?.disconnect();
@@ -351,6 +522,12 @@ export function RealtimeWorkspace() {
       await stopMicrophone();
       return;
     }
+    // Chromium only permits resuming an AudioContext from a direct user
+    // gesture. Whispera's first chunk can arrive tens of seconds later, so
+    // unlock playback now rather than from the websocket callback.
+    void activatePlayback().catch(() => {
+      setPlaybackError("无法激活系统音频输出；请检查应用音量和默认播放设备。");
+    });
     const connected = await connect();
     if (!connected) return;
     if (!navigator.mediaDevices?.getUserMedia) {
@@ -396,11 +573,16 @@ export function RealtimeWorkspace() {
       await stopMicrophone();
       setStatusText(error instanceof Error ? `无法启用麦克风：${error.message}` : "无法启用麦克风，请检查系统权限。");
     }
-  }, [connect, microphoneActive, stopMicrophone]);
+  }, [activatePlayback, connect, microphoneActive, stopMicrophone]);
 
   const sendText = useCallback(async () => {
     const text = draft.trim();
     if (!text) return;
+    // Keep this before the first await so the browser associates AudioContext
+    // activation with the user's send-button/Enter gesture.
+    void activatePlayback().catch(() => {
+      setPlaybackError("无法激活系统音频输出；请检查应用音量和默认播放设备。");
+    });
     const connected = await connect();
     const socket = socketRef.current;
     if (!connected || socket?.readyState !== WebSocket.OPEN) return;
@@ -409,7 +591,7 @@ export function RealtimeWorkspace() {
     setDraft("");
     setSending(true);
     setStatusText("正在发送文字…");
-  }, [appendMessage, connect, draft]);
+  }, [activatePlayback, appendMessage, connect, draft]);
 
   const requestInterrupt = useCallback(() => {
     stopPlayback();
@@ -446,6 +628,18 @@ export function RealtimeWorkspace() {
 
   const activeVoice = voices.find((voice) => voice.id === voiceId);
   const statusClass = connectionState === "ready" ? "ready" : connectionState === "connecting" ? "connecting" : connectionState === "error" ? "error" : "offline";
+  const realtimeBackendLabel = !ttsEnabled
+    ? "文字回复"
+    : ttsBackend === "compatibility"
+      ? "兼容整句语音"
+      : "Whispera 流式语音";
+  const runtimeStatusLabel = runtimeState === "ready"
+    ? "ASR + Whispera 已预热"
+    : runtimeState === "reserving"
+      ? "正在预热 ASR + Whispera"
+    : runtimeState === "error"
+        ? "实时模型预热失败"
+        : "未预热 ASR + Whispera";
 
   return (
     <section className="realtimeWorkspace" aria-label="实时语音交互">
@@ -464,8 +658,9 @@ export function RealtimeWorkspace() {
           <input value={llmModel} onChange={(event) => setLlmModel(event.target.value)} placeholder="例如 qwen3:4b" />
         </label>
         <label className="realtimeField">
-          <span><KeyRound size={13} /> API Key（仅当前会话内存）</span>
+          <span><KeyRound size={13} /> API Key（本机加密保存）</span>
           <input type="password" autoComplete="off" value={llmApiKey} onChange={(event) => setLlmApiKey(event.target.value)} placeholder="本地服务可留空" />
+          <small>地址、模型、音色和提示词会自动恢复；密钥仅加密保存在当前 Windows 用户中，不会导出到设置备份。</small>
         </label>
         <label className="realtimeField">
           <span>回答音色</span>
@@ -497,7 +692,7 @@ export function RealtimeWorkspace() {
           {connectionState === "ready" ? <Wifi size={16} /> : connectionState === "connecting" ? <Loader2 className="spin" size={16} /> : <WifiOff size={16} />}
           <span>{connectionState === "ready" ? "实时后端已连接" : connectionState === "connecting" ? "正在连接" : "尚未连接"}</span>
         </div>
-        <button className="secondaryAction realtimeConnectButton" onClick={() => void connect()} disabled={connectionState === "connecting"}>
+        <button className="secondaryAction realtimeConnectButton" onClick={() => void connect()} disabled={!settingsReady || connectionState === "connecting" || (ttsEnabled && runtimeState === "reserving")}>
           {connectionState === "ready" ? <Wifi size={16} /> : <Radio size={16} />}
           <span>{connectionState === "ready" ? "重新应用会话设置" : "连接实时后端"}</span>
         </button>
@@ -522,6 +717,13 @@ export function RealtimeWorkspace() {
           <span>{statusText}</span>
         </div>
 
+        <div className="realtimeActivityDock" aria-label="实时会话状态">
+          <span><Radio size={14} /> {realtimeBackendLabel}</span>
+          <span className={runtimeState === "ready" ? "active" : runtimeState === "reserving" ? "busy" : runtimeState === "error" ? "error" : ""}><Radio size={14} /> {runtimeStatusLabel}</span>
+          <span className={microphoneActive ? "active" : ""}>{microphoneActive ? <Mic size={14} /> : <MicOff size={14} />}{microphoneActive ? (vadSpeaking ? "正在聆听" : "麦克风就绪") : "文字输入就绪"}</span>
+          <span className={playbackError ? "error" : sending ? "busy" : ""}>{playbackError ? <CircleAlert size={14} /> : sending ? <Loader2 className="spin" size={14} /> : <Volume2 size={14} />}{playbackError ?? (sending ? "回复处理中，可随时打断" : "语音队列空闲")}</span>
+        </div>
+
         <div className="realtimeMessageList" aria-live="polite">
           {!messages.length && (
             <div className="realtimeEmptyState">
@@ -529,7 +731,7 @@ export function RealtimeWorkspace() {
                 type="button"
                 className="realtimeEmptyStart"
                 onClick={() => void startMicrophone()}
-                disabled={connectionState === "connecting"}
+                disabled={!settingsReady || connectionState === "connecting" || (ttsEnabled && runtimeState === "reserving")}
                 aria-label="开启麦克风并开始实时对话"
               >
                 <Mic size={25} strokeWidth={1.8} />
@@ -553,6 +755,7 @@ export function RealtimeWorkspace() {
             onClick={() => void startMicrophone()}
             aria-pressed={microphoneActive}
             title={microphoneActive ? "停止麦克风" : "开启麦克风"}
+            disabled={!settingsReady || (ttsEnabled && runtimeState === "reserving")}
           >
             {microphoneActive ? <MicOff size={20} /> : <Mic size={20} />}
           </button>
@@ -568,7 +771,7 @@ export function RealtimeWorkspace() {
             placeholder="也可以先输入一段文字测试会话…"
             rows={2}
           />
-          <button className="primaryAction realtimeSendButton" disabled={!draft.trim()} onClick={() => void sendText()}>
+          <button className="primaryAction realtimeSendButton" disabled={!settingsReady || !draft.trim() || (ttsEnabled && runtimeState === "reserving")} onClick={() => void sendText()}>
             <Send size={17} /><span>发送</span>
           </button>
         </footer>

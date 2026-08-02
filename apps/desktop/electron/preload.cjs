@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld("desktopBackend", {
   ensureOnline: () => ipcRenderer.invoke("backend:ensure-online")
 });
 
+contextBridge.exposeInMainWorld("desktopRealtimeSettings", {
+  load: () => ipcRenderer.invoke("realtime-settings:load"),
+  save: (settings) => ipcRenderer.invoke("realtime-settings:save", settings)
+});
+
 contextBridge.exposeInMainWorld("desktopFiles", {
   openPath: (targetPath) => ipcRenderer.invoke("file:open-path", targetPath),
   revealInFolder: (targetPath) => ipcRenderer.invoke("file:reveal-in-folder", targetPath),
