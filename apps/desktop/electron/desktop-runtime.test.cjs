@@ -69,6 +69,7 @@ test("createDesktopPaths keeps packaged user data and model weights outside appl
   assert.equal(launchOptions.env.OPEN_TTS_MODEL_STORE_ROOT, paths.modelStoreRoot);
   assert.equal(launchOptions.env.OPEN_TTS_QWEN_ASR_WORK_DIR, path.join(paths.dataRoot, "asr", "qwen3-work"));
   assert.equal(launchOptions.env.OPEN_TTS_TRANSCRIPTION_INPUT_DIR, path.join(paths.dataRoot, "transcriptions", "inputs"));
+  assert.equal(launchOptions.env.OPEN_TTS_AUDIO_SEPARATION_ROOT, path.join(paths.dataRoot, "audio-separations"));
   assert.equal(launchOptions.env.OPEN_TTS_INDEXTTS2_ROOT, path.join(paths.modelStoreRoot, "IndexTTS2"));
   assert.equal(launchOptions.env.OPEN_TTS_VOICE_LIBRARY_FILE, path.join(paths.dataRoot, "config", "voices.json"));
   assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_COOKIE_FILE, path.join(paths.dataRoot, "config", "doubao-cookies.json"));

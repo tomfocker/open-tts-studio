@@ -76,6 +76,11 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_QWEN_ASR_WORK_DIR: path.join(paths.dataRoot, "asr", "qwen3-work"),
       OPEN_TTS_TRANSCRIPTION_JOBS_FILE: path.join(paths.dataRoot, "config", "transcriptions.json"),
       OPEN_TTS_TRANSCRIPTION_INPUT_DIR: path.join(paths.dataRoot, "transcriptions", "inputs"),
+      // Separation imports are staged through Electron under the desktop data
+      // root.  Do not derive this from output_dir: an upgraded user may retain
+      // an older custom output directory, which would make the API look for
+      // the opaque input ID in a different folder from the desktop importer.
+      OPEN_TTS_AUDIO_SEPARATION_ROOT: path.join(paths.dataRoot, "audio-separations"),
       OPEN_TTS_DOUBAO_COOKIE_FILE: path.join(paths.dataRoot, "config", "doubao-cookies.json"),
       OPEN_TTS_DOUBAO_DATA_DIR: path.join(paths.dataRoot, "doubao"),
       OPEN_TTS_FFMPEG_PATH: resolveFfmpegPath(paths),
