@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   Clock3,
   FileAudio,
+  FolderOpen,
   Loader2,
   RotateCw,
   Square,
@@ -71,6 +72,10 @@ function isActive(job: AudioSeparationJob | null): boolean {
 
 function stemLabel(stem: "vocals" | "instrumental"): string {
   return stem === "vocals" ? "人声" : "伴奏";
+}
+
+function outputFileName(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || "未命名音频";
 }
 
 export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
@@ -211,6 +216,19 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
     }
   };
 
+  const revealOutput = async (filePath: string) => {
+    if (!window.desktopFiles?.revealInFolder) {
+      setError("请在桌面软件中定位生成文件。 ");
+      return;
+    }
+    setError(null);
+    try {
+      await window.desktopFiles.revealInFolder(filePath);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法定位生成文件。 ");
+    }
+  };
+
   return (
     <div className="enhancementOverlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="enhancementWorkspace" role="dialog" aria-modal="true" aria-label="人声伴奏分轨">
@@ -241,7 +259,7 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
               <div className="enhancementProgress"><span style={{ width: `${selectedJob.progress_percent}%` }} /></div>
               {selectedJob.error && <div className="enhancementFeedback error"><AlertCircle size={16} /><span>{selectedJob.error}</span></div>}
               {selectedJob.warnings.map((warning) => <div key={warning} className="enhancementFeedback warning"><AlertCircle size={16} /><span>{warning}</span></div>)}
-              {selectedJob.outputs.length ? <div className="enhancementOutputs">{selectedJob.outputs.map((output) => <article key={output.stem}><div><strong>{stemLabel(output.stem)}</strong><small>{output.sample_rate / 1000} kHz · {formatTime(output.duration_seconds)} · {selectedJob.model_display_name}</small></div><audio controls preload="metadata" src={toAudioUrl(output.audio_url)} /></article>)}</div> : isActive(selectedJob) ? <div className="enhancementEmptyState"><Loader2 className="spin" size={30} /><strong>{selectedJob.status === "queued" ? "正在等待本地 GPU 槽位" : "正在分离人声与伴奏"}</strong><span>处理时会自动避免与 TTS、ASR 同时占用显存。</span></div> : <div className="enhancementEmptyState"><Volume2 size={31} /><strong>{selectedJob.status === "cancelled" ? "任务已取消" : "本次处理未完成"}</strong><span>检查本地 MDX-Net 模型与分轨运行时后可重试。</span></div>}
+              {selectedJob.outputs.length ? <div className="enhancementOutputs">{selectedJob.outputs.map((output) => <article key={output.stem}><div className="enhancementOutputHeader"><div><strong>{stemLabel(output.stem)}</strong><small>{outputFileName(output.file_path)}</small><small>{output.sample_rate / 1000} kHz · {formatTime(output.duration_seconds)} · {selectedJob.model_display_name}</small></div><button type="button" className="enhancementRevealButton" onClick={() => void revealOutput(output.file_path)} title={output.file_path}><FolderOpen size={14} />定位文件</button></div><audio controls preload="metadata" src={toAudioUrl(output.audio_url)} /></article>)}</div> : isActive(selectedJob) ? <div className="enhancementEmptyState"><Loader2 className="spin" size={30} /><strong>{selectedJob.status === "queued" ? "正在等待本地 GPU 槽位" : "正在分离人声与伴奏"}</strong><span>处理时会自动避免与 TTS、ASR 同时占用显存。</span></div> : <div className="enhancementEmptyState"><Volume2 size={31} /><strong>{selectedJob.status === "cancelled" ? "任务已取消" : "本次处理未完成"}</strong><span>检查本地 MDX-Net 模型与分轨运行时后可重试。</span></div>}
               <div className="enhancementActions">{isActive(selectedJob) && <button className="danger" type="button" onClick={() => void cancel()} disabled={pendingAction === "cancel"}>{pendingAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Square size={14} />}取消</button>}{(selectedJob.status === "failed" || selectedJob.status === "cancelled") && <button type="button" onClick={() => void retry()} disabled={pendingAction === "retry"}>{pendingAction === "retry" ? <Loader2 className="spin" size={15} /> : <RotateCw size={15} />}重试</button>}</div>
             </> : <div className="enhancementEmptyState"><Waves size={32} /><strong>还没有音频分轨任务</strong><span>导入一条素材，选择分轨侧重后即可在本机生成两条音轨。</span></div>}
           </section>

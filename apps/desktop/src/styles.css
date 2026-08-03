@@ -4912,6 +4912,23 @@ audio {
   align-items: center;
 }
 
+.managedStorageHint {
+  margin: 0;
+  color: #657584;
+  line-height: 1.55;
+  font-size: 12px;
+}
+
+.managedStoragePaths {
+  display: grid;
+  gap: 11px;
+}
+
+.managedStoragePaths input[readonly] {
+  cursor: default;
+  color: #526476;
+}
+
 .pathPickButton {
   min-width: 0;
   height: 42px;

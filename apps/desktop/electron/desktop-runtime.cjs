@@ -26,6 +26,7 @@ function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
   const desktopDir = options.desktopDir || path.join(resolvedWorkspaceRoot, "apps", "desktop");
   const dataRoot = options.dataRoot || path.join(resolvedWorkspaceRoot, "data");
   const modelStoreRoot = options.modelStoreRoot || path.join(resolvedWorkspaceRoot, "models");
+  const storageRoot = options.storageRoot || path.dirname(modelStoreRoot);
   const resourcesRoot = options.resourcesRoot || path.join(desktopDir, "resources");
   return {
     workspaceRoot: resolvedWorkspaceRoot,
@@ -35,6 +36,8 @@ function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
     distIndex: options.distIndex || path.join(desktopDir, "dist", "index.html"),
     dataRoot,
     modelStoreRoot,
+    storageRoot,
+    settingsFile: options.settingsFile || path.join(dataRoot, "config", "user-settings.json"),
     resourcesRoot,
     logsDir: path.join(dataRoot, "logs")
   };
@@ -61,6 +64,7 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_API_PORT: String(settings.apiPort),
       ...(settings.backendToken ? { OPEN_TTS_BACKEND_TOKEN: settings.backendToken } : {}),
       OPEN_TTS_SETTINGS_FILE: settings.settingsFile,
+      OPEN_TTS_STORAGE_ROOT: paths.storageRoot,
       OPEN_TTS_MODEL_STORE_ROOT: paths.modelStoreRoot,
       OPEN_TTS_OUTPUT_DIR: path.join(paths.dataRoot, "outputs"),
       OPEN_TTS_VOICE_LIBRARY_FILE: path.join(paths.dataRoot, "config", "voices.json"),
@@ -76,6 +80,9 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_QWEN_ASR_WORK_DIR: path.join(paths.dataRoot, "asr", "qwen3-work"),
       OPEN_TTS_TRANSCRIPTION_JOBS_FILE: path.join(paths.dataRoot, "config", "transcriptions.json"),
       OPEN_TTS_TRANSCRIPTION_INPUT_DIR: path.join(paths.dataRoot, "transcriptions", "inputs"),
+      OPEN_TTS_AUDIO_ENHANCEMENT_JOBS_FILE: path.join(paths.dataRoot, "config", "audio-enhancements.json"),
+      OPEN_TTS_AUDIO_ENHANCEMENT_INPUT_DIR: path.join(paths.dataRoot, "audio-enhancements", "inputs"),
+      OPEN_TTS_AUDIO_ENHANCEMENT_WORK_DIR: path.join(paths.dataRoot, "audio-enhancements", "work"),
       // Separation imports are staged through Electron under the desktop data
       // root.  Do not derive this from output_dir: an upgraded user may retain
       // an older custom output directory, which would make the API look for
@@ -125,19 +132,92 @@ function normalizeApiHost(value) {
   return typeof value === "string" && value.trim() ? value.trim() : DEFAULT_API_HOST;
 }
 
-function resolveDesktopSettings(paths, options = {}) {
-  const settingsFile = options.settingsFile || path.join(paths.dataRoot, "config", "user-settings.json");
+function readStoredDesktopSettings(settingsFile, options = {}) {
   const existsSync = options.existsSync || fs.existsSync;
   const readFileSync = options.readFileSync || fs.readFileSync;
-  let stored = {};
+  if (!settingsFile || !existsSync(settingsFile)) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(settingsFile, "utf-8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
-  if (existsSync(settingsFile)) {
-    try {
-      stored = JSON.parse(readFileSync(settingsFile, "utf-8"));
-    } catch {
-      stored = {};
+function inferStorageRootFromLegacySettings(stored, pathImpl = path) {
+  if (!stored || typeof stored !== "object") {
+    return null;
+  }
+  const explicit = typeof stored.storage_root === "string" ? stored.storage_root.trim() : "";
+  if (explicit) {
+    return pathImpl.resolve(explicit);
+  }
+
+  const modelPaths = [
+    stored.indextts2_root,
+    stored.voxcpm2_root,
+    stored.gptsovits_root,
+    stored.sensevoice_model_dir,
+    stored.qwen_asr_model_dir,
+    stored.alignment_aligner_model_dir,
+    stored.alignment_capswriter_root,
+    stored.qwen_asr_capswriter_root,
+    stored.deepfilternet3_root,
+    stored.mossformer2_se_root,
+    stored.audio_separation_root,
+    stored.audio_enhancement_python,
+    stored.audio_separation_python,
+    stored.qwen_asr_python,
+    stored.qwen_cuda_python,
+    stored.alignment_python,
+    stored.sensevoice_python
+  ];
+  for (const value of modelPaths) {
+    if (typeof value !== "string" || !value.trim()) {
+      continue;
+    }
+    let cursor = pathImpl.resolve(value.trim());
+    for (;;) {
+      if (pathImpl.basename(cursor).toLowerCase() === "models") {
+        return pathImpl.dirname(cursor);
+      }
+      const parent = pathImpl.dirname(cursor);
+      if (parent === cursor) {
+        break;
+      }
+      cursor = parent;
     }
   }
+
+  const outputDirectory = typeof stored.output_dir === "string" ? stored.output_dir.trim() : "";
+  if (outputDirectory) {
+    const outputRoot = pathImpl.resolve(outputDirectory);
+    if (pathImpl.basename(outputRoot).toLowerCase() === "outputs" && pathImpl.basename(pathImpl.dirname(outputRoot)).toLowerCase() === "data") {
+      return pathImpl.dirname(pathImpl.dirname(outputRoot));
+    }
+  }
+  return null;
+}
+
+function resolveManagedStorage(paths, options = {}) {
+  const pathImpl = options.path || path;
+  const settingsFile = options.settingsFile || paths.settingsFile || pathImpl.join(paths.dataRoot, "config", "user-settings.json");
+  const stored = options.stored || readStoredDesktopSettings(settingsFile, options);
+  const fallbackRoot = options.fallbackRoot || paths.storageRoot || pathImpl.dirname(paths.dataRoot);
+  const storageRoot = inferStorageRootFromLegacySettings(stored, pathImpl) || pathImpl.resolve(fallbackRoot);
+  return {
+    storageRoot,
+    dataRoot: pathImpl.join(storageRoot, "data"),
+    modelStoreRoot: pathImpl.join(storageRoot, "models"),
+    settingsFile
+  };
+}
+
+function resolveDesktopSettings(paths, options = {}) {
+  const settingsFile = options.settingsFile || paths.settingsFile || path.join(paths.dataRoot, "config", "user-settings.json");
+  const stored = readStoredDesktopSettings(settingsFile, options);
 
   const apiHost = normalizeApiHost(options.apiHost ?? stored.api_host);
   const apiPort = normalizeApiPort(options.apiPort ?? stored.api_port);
@@ -691,6 +771,7 @@ module.exports = {
   revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
+  resolveManagedStorage,
   resolveFfmpegPath,
   saveSettingsBackup,
   saveTranscriptionExport,

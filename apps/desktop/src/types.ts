@@ -741,6 +741,7 @@ export type SystemStatus = {
 export type AppSettings = {
   api_host: string;
   api_port: number;
+  storage_root: string;
   output_dir: string;
   model_store_root: string;
   indextts2_root: string;

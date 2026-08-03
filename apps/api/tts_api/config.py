@@ -14,6 +14,7 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 # user-managed model store instead. Development keeps the historical
 # workspace/models default unless the desktop launcher provides this value.
 MODEL_STORE_ROOT = Path(os.environ.get("OPEN_TTS_MODEL_STORE_ROOT") or (WORKSPACE_ROOT / "models"))
+MANAGED_STORAGE_ROOT = Path(os.environ["OPEN_TTS_STORAGE_ROOT"]) if os.environ.get("OPEN_TTS_STORAGE_ROOT") else None
 DEFAULT_INDEXTTS2_ROOT = MODEL_STORE_ROOT / "IndexTTS2"
 DEFAULT_VOXCPM2_ROOT = MODEL_STORE_ROOT / "VoxCPM2"
 DEFAULT_GPTSOVITS_ROOT = MODEL_STORE_ROOT / "GPT-SoVITS"
@@ -28,6 +29,30 @@ DEFAULT_DEEPFILTERNET3_ROOT = MODEL_STORE_ROOT / "DeepFilterNet3"
 DEFAULT_MOSSFORMER2_SE_ROOT = MODEL_STORE_ROOT / "MossFormer2-SE-48K"
 DEFAULT_AUDIO_SEPARATION_ROOT = MODEL_STORE_ROOT / "MDX_Net_Models"
 DEFAULT_SETTINGS_FILE = WORKSPACE_ROOT / "data" / "config" / "user-settings.json"
+
+
+def _default_storage_root() -> Path:
+    return MANAGED_STORAGE_ROOT or MODEL_STORE_ROOT.parent
+
+
+def _default_output_dir() -> Path:
+    if MANAGED_STORAGE_ROOT:
+        return MANAGED_STORAGE_ROOT / "data" / "outputs"
+    configured = os.environ.get("OPEN_TTS_OUTPUT_DIR")
+    if configured:
+        return Path(configured)
+    return WORKSPACE_ROOT / "data" / "outputs"
+
+
+def _apply_managed_storage_layout(values: dict) -> dict:
+    """Keep launcher-owned data paths from drifting due to old saved settings."""
+
+    if MANAGED_STORAGE_ROOT is None:
+        return values
+    normalized = dict(values)
+    normalized["storage_root"] = str(MANAGED_STORAGE_ROOT)
+    normalized["output_dir"] = str(MANAGED_STORAGE_ROOT / "data" / "outputs")
+    return normalized
 
 
 def get_app_version() -> str:
@@ -141,7 +166,18 @@ def _default_audio_enhancement_work_dir() -> Path:
 
 def _default_audio_enhancement_python() -> Path:
     configured = os.environ.get("OPEN_TTS_AUDIO_ENHANCEMENT_PYTHON")
-    return Path(configured) if configured else Path(sys.executable)
+    if configured:
+        return Path(configured)
+    executable = "python.exe" if os.name == "nt" else "python"
+    # Enhancement has an intentionally isolated dependency set.  Do not fall
+    # back to the lightweight desktop API interpreter: it would be reported as
+    # installed although it cannot run ClearVoice/MossFormer.  Both optional
+    # enhancement runtimes live beside the rest of the managed model assets.
+    for name in ("audio-enhancement-runtime-full", "audio-enhancement-runtime"):
+        candidate = MODEL_STORE_ROOT / name / "Scripts" / executable
+        if candidate.is_file():
+            return candidate
+    return MODEL_STORE_ROOT / "audio-enhancement-runtime" / "Scripts" / executable
 
 
 def _default_audio_separation_python() -> Path:
@@ -291,6 +327,7 @@ def _default_doubao_data_dir() -> Path:
 
 
 USER_SETTING_KEYS = {
+    "storage_root",
     "api_host",
     "api_port",
     "output_dir",
@@ -348,7 +385,8 @@ class Settings(BaseModel):
     backend_token: str | None = Field(default_factory=lambda: os.environ.get("OPEN_TTS_BACKEND_TOKEN") or None)
     api_access_key: str | None = Field(default_factory=lambda: os.environ.get("OPEN_TTS_API_KEY") or None)
     workspace_root: Path = WORKSPACE_ROOT
-    output_dir: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_OUTPUT_DIR", str(WORKSPACE_ROOT / "data" / "outputs"))))
+    storage_root: Path = Field(default_factory=_default_storage_root)
+    output_dir: Path = Field(default_factory=_default_output_dir)
     model_registry_path: Path = WORKSPACE_ROOT / "model-registry" / "models.json"
     settings_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_SETTINGS_FILE", str(DEFAULT_SETTINGS_FILE))))
     voice_library_file: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_VOICE_LIBRARY_FILE", str(WORKSPACE_ROOT / "data" / "config" / "voices.json"))))
@@ -493,13 +531,18 @@ def load_user_settings(settings_file: Path) -> dict:
     if not isinstance(data, dict):
         return {}
     values = {key: value for key, value in data.items() if key in USER_SETTING_KEYS and value is not None}
+    # ``storage_root`` is a launcher bootstrap marker, not a free-form API
+    # setting.  Source/API-only launches retain their historical workspace
+    # roots unless Electron explicitly supplies a managed storage root.
+    if MANAGED_STORAGE_ROOT is None:
+        values.pop("storage_root", None)
     # v0.8 stored the cloud adapter as a local default model.  Keep existing
     # installations bootable while moving that preference to a real local
     # engine; cloud synthesis remains available from its separate workspace.
     if values.get("default_model_id") == "doubao-web":
         values["default_model_id"] = "indextts2"
         values["prewarm_default_model_on_startup"] = False
-    return _recover_legacy_asr_companions(values)
+    return _apply_managed_storage_layout(_recover_legacy_asr_companions(values))
 
 
 def _recover_legacy_asr_companions(values: dict) -> dict:
@@ -594,7 +637,7 @@ def _recover_legacy_asr_companions(values: dict) -> dict:
 
 def save_user_settings(settings_file: Path, values: dict) -> None:
     existing = load_user_settings(settings_file)
-    merged = {**existing, **{key: value for key, value in values.items() if value is not None}}
+    merged = _apply_managed_storage_layout({**existing, **{key: value for key, value in values.items() if value is not None}})
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     settings_file.write_text(
         json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True),
@@ -634,6 +677,7 @@ def serialize_settings(settings: Settings) -> dict:
         "api_host": settings.api_host,
         "api_port": settings.api_port,
         "api_access_key_required": bool(settings.api_access_key),
+        "storage_root": str(settings.storage_root),
         "output_dir": str(settings.output_dir),
         "model_store_root": str(MODEL_STORE_ROOT),
         "indextts2_root": str(settings.indextts2_root),

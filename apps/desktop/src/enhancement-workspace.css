@@ -101,10 +101,14 @@
 
 .enhancementOutputs { display: grid; gap: 10px; align-content: start; }
 .enhancementOutputs article { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: color-mix(in srgb, var(--panel) 64%, var(--panel-strong)); }
+.enhancementOutputHeader { min-width: 0; display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+.enhancementOutputHeader > div { min-width: 0; }
 .enhancementOutputs strong, .enhancementOutputs small { display: block; }
 .enhancementOutputs strong { font-size: 12px; }
-.enhancementOutputs small { margin-top: 3px; color: var(--muted); font-size: 10px; }
+.enhancementOutputs small { max-width: 100%; margin-top: 3px; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
 .enhancementOutputs audio { width: 100%; height: 34px; }
+.enhancementRevealButton { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px; min-height: 29px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--accent-dark); background: var(--panel-strong); cursor: pointer; font-size: 10px; font-weight: 720; }
+.enhancementRevealButton:hover, .enhancementRevealButton:focus-visible { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong)); }
 .enhancementEmptyState { min-height: 230px; display: grid; place-content: center; justify-items: center; gap: 8px; padding: 28px; color: var(--muted); text-align: center; }
 .enhancementEmptyState svg { color: var(--accent-dark); }
 .enhancementEmptyState strong { color: var(--text); font-size: 13px; }

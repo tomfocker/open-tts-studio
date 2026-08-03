@@ -17,6 +17,7 @@ const {
   revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
+  resolveManagedStorage,
   resolveFfmpegPath,
   saveSettingsBackup,
   saveTranscriptionExport,
@@ -57,14 +58,26 @@ const selectedPreviewAudioPaths = new Set();
 const localMediaRegistry = createLocalMediaRegistry();
 const backendToken = app.isPackaged ? randomUUID() : null;
 const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
-const packagedDataRoot = app.isPackaged ? path.join(app.getPath("userData"), "data") : undefined;
-const packagedModelStoreRoot = app.isPackaged ? path.join(app.getPath("userData"), "models") : undefined;
+const packagedStorageRoot = app.isPackaged ? app.getPath("userData") : undefined;
+const bootstrapPaths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
+  dataRoot: app.isPackaged ? path.join(packagedStorageRoot, "data") : undefined,
+  modelStoreRoot: app.isPackaged ? path.join(packagedStorageRoot, "models") : undefined,
+  storageRoot: packagedStorageRoot,
+  settingsFile: app.isPackaged ? path.join(packagedStorageRoot, "data", "config", "user-settings.json") : undefined,
+  apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined,
+  desktopDir: app.isPackaged ? path.resolve(__dirname, "..") : undefined,
+  resourcesRoot: app.isPackaged ? process.resourcesPath : undefined,
+  distIndex: app.isPackaged ? path.join(path.resolve(__dirname, ".."), "dist", "index.html") : undefined
+});
+const managedStorage = app.isPackaged ? resolveManagedStorage(bootstrapPaths) : null;
 // The renderer bundle is part of app.asar, while API files are copied to
 // resources/workspace. Keep those roots separate in packaged builds.
 const packagedAppRoot = app.isPackaged ? path.resolve(__dirname, "..") : undefined;
 const paths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
-  dataRoot: packagedDataRoot,
-  modelStoreRoot: packagedModelStoreRoot,
+  dataRoot: managedStorage?.dataRoot,
+  modelStoreRoot: managedStorage?.modelStoreRoot,
+  storageRoot: managedStorage?.storageRoot,
+  settingsFile: managedStorage?.settingsFile,
   apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined,
   desktopDir: packagedAppRoot,
   resourcesRoot: app.isPackaged ? process.resourcesPath : undefined,

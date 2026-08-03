@@ -2,7 +2,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from tts_api.config import get_settings
+from tts_api import config as config_module
+from tts_api.config import Settings, get_settings, load_user_settings
 from tts_api.main import create_app
 
 
@@ -104,3 +105,21 @@ def test_settings_endpoint_persists_gptsovits_directory(tmp_path: Path, monkeypa
     assert body["gptsovits_root"] == str(gptsovits_root)
     assert body["gptsovits_api_port"] == 9890
     assert get_settings().gptsovits_root == gptsovits_root
+
+
+def test_managed_storage_layout_keeps_outputs_and_models_under_one_root(tmp_path: Path, monkeypatch):
+    storage_root = tmp_path / "OpenTTS"
+    settings_file = tmp_path / "user-settings.json"
+    settings_file.write_text(
+        '{"output_dir":"D:/legacy/outputs","storage_root":"D:/legacy"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config_module, "MANAGED_STORAGE_ROOT", storage_root)
+
+    loaded = load_user_settings(settings_file)
+    assert loaded["storage_root"] == str(storage_root)
+    assert loaded["output_dir"] == str(storage_root / "data" / "outputs")
+
+    settings = Settings()
+    assert settings.storage_root == storage_root
+    assert settings.output_dir == storage_root / "data" / "outputs"

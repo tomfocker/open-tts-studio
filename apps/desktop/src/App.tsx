@@ -619,7 +619,6 @@ type GenerationProgress = {
 type SettingsDraft = {
   api_host: string;
   api_port: number;
-  output_dir: string;
   indextts2_root: string;
   indextts2_idle_timeout_seconds: number;
   local_api_idle_timeout_seconds: number;
@@ -939,7 +938,6 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
   return {
     api_host: settings?.api_host ?? "127.0.0.1",
     api_port: settings?.api_port ?? 8765,
-    output_dir: settings?.output_dir ?? "D:\\code\\tts\\data\\outputs",
     indextts2_root: settings?.indextts2_root ?? `${modelStoreRoot}\\IndexTTS2`,
     indextts2_idle_timeout_seconds: idleTimeoutSeconds,
     local_api_idle_timeout_seconds: idleTimeoutSeconds,
@@ -4313,11 +4311,8 @@ export function App() {
   }
 
   async function onSaveSettings() {
-    if (
-      !settingsDraft.output_dir.trim() ||
-      !settingsDraft.api_host.trim()
-    ) {
-      setSettingsError("路径和地址不能为空");
+    if (!settingsDraft.api_host.trim()) {
+      setSettingsError("监听地址不能为空");
       return;
     }
 
@@ -4328,7 +4323,6 @@ export function App() {
       const savedSettings = await saveAppSettings({
         api_host: settingsDraft.api_host.trim(),
         api_port: Number(settingsDraft.api_port),
-        output_dir: settingsDraft.output_dir.trim(),
         indextts2_idle_timeout_seconds: Number(settingsDraft.indextts2_idle_timeout_seconds),
         local_api_idle_timeout_seconds: Number(settingsDraft.local_api_idle_timeout_seconds),
         asr_backend: settingsDraft.asr_backend,
@@ -4428,7 +4422,7 @@ export function App() {
     }
   }
 
-  async function chooseDirectoryForSetting(field: "indextts2_root" | "voxcpm2_root" | "gptsovits_root" | "output_dir" | "deepfilternet3_root" | "mossformer2_se_root" | "audio_separation_root") {
+  async function chooseDirectoryForSetting(field: "indextts2_root" | "voxcpm2_root" | "gptsovits_root" | "deepfilternet3_root" | "mossformer2_se_root" | "audio_separation_root") {
     if (!window.desktopFiles?.selectDirectory) {
       setSettingsError("当前预览环境不支持选择目录");
       return;
@@ -8738,21 +8732,41 @@ export function App() {
               <div className="settingsGroup">
                 <div className="settingsGroupTitle">
                   <FolderOpen size={16} strokeWidth={1.9} />
-                  <span>文件输出</span>
+                  <span>统一资源库</span>
                 </div>
-                <label className="settingsField">
-                  <span>输出目录</span>
-                  <div className="settingsPathInput">
-                    <input
-                      value={settingsDraft.output_dir}
-                      onChange={(event) => setSettingsDraft((draft) => ({ ...draft, output_dir: event.target.value }))}
-                    />
-                    <button className="pathPickButton" onClick={() => void chooseDirectoryForSetting("output_dir")}>
+                <p className="managedStorageHint">模型权重、模型专用运行时、任务缓存与成品输出由同一个资源库管理；升级不会再把新文件写到安装目录或另一套空目录。</p>
+                <div className="managedStoragePaths">
+                  <label className="settingsField">
+                    <span>资源库根目录</span>
+                    <div className="settingsPathInput">
+                      <input value={appSettings?.storage_root ?? "正在读取…"} readOnly />
+                      <button className="pathPickButton" onClick={() => void openModelDirectory({ id: "storage-root", display_name: "统一资源库", path: appSettings?.storage_root ?? "", exists: Boolean(appSettings?.storage_root), kind: "storage_root" })} disabled={!appSettings?.storage_root}>
+                        <FolderOpen size={15} strokeWidth={1.9} />
+                        <span>打开</span>
+                      </button>
+                    </div>
+                  </label>
+                  <label className="settingsField">
+                    <span>模型与专用运行时</span>
+                    <div className="settingsPathInput">
+                      <input value={appSettings?.model_store_root ?? "正在读取…"} readOnly />
+                      <button className="pathPickButton" onClick={() => void openModelDirectory({ id: "model-store", display_name: "模型与专用运行时", path: appSettings?.model_store_root ?? "", exists: Boolean(appSettings?.model_store_root), kind: "model_store" })} disabled={!appSettings?.model_store_root}>
+                        <FolderOpen size={15} strokeWidth={1.9} />
+                        <span>打开</span>
+                      </button>
+                    </div>
+                  </label>
+                  <label className="settingsField">
+                    <span>成品输出目录</span>
+                    <div className="settingsPathInput">
+                      <input value={appSettings?.output_dir ?? "正在读取…"} readOnly />
+                      <button className="pathPickButton" onClick={() => void openModelDirectory({ id: "outputs", display_name: "成品输出", path: appSettings?.output_dir ?? "", exists: Boolean(appSettings?.output_dir), kind: "output" })} disabled={!appSettings?.output_dir}>
                       <FolderOpen size={15} strokeWidth={1.9} />
-                      <span>选择</span>
-                    </button>
-                  </div>
-                </label>
+                      <span>打开</span>
+                      </button>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               <div className="settingsGroup">

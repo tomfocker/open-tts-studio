@@ -15,6 +15,7 @@ const {
   revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
+  resolveManagedStorage,
   resolveFfmpegPath,
   saveSettingsBackup,
   saveTranscriptionExport,
@@ -56,24 +57,52 @@ test("buildBackendLaunchOptions points at the bundled API environment", () => {
 
 test("createDesktopPaths keeps packaged user data and model weights outside application resources", () => {
   const workspaceRoot = path.resolve("D:/OpenTTS/resources/workspace");
+  const storageRoot = path.resolve("D:/OpenTTS Library");
   const paths = createDesktopPaths(__dirname, workspaceRoot, {
-    dataRoot: "C:/Users/test/AppData/Roaming/OpenTTS Studio/data",
-    modelStoreRoot: "D:/TTS-models",
+    dataRoot: path.join(storageRoot, "data"),
+    modelStoreRoot: path.join(storageRoot, "models"),
+    storageRoot,
     resourcesRoot: "D:/OpenTTS/resources"
   });
 
   const launchOptions = buildBackendLaunchOptions(paths, 8765);
 
   assert.equal(paths.logsDir, path.join(paths.dataRoot, "logs"));
+  assert.equal(paths.storageRoot, storageRoot);
+  assert.equal(launchOptions.env.OPEN_TTS_STORAGE_ROOT, storageRoot);
   assert.equal(launchOptions.env.OPEN_TTS_OUTPUT_DIR, path.join(paths.dataRoot, "outputs"));
   assert.equal(launchOptions.env.OPEN_TTS_MODEL_STORE_ROOT, paths.modelStoreRoot);
   assert.equal(launchOptions.env.OPEN_TTS_QWEN_ASR_WORK_DIR, path.join(paths.dataRoot, "asr", "qwen3-work"));
   assert.equal(launchOptions.env.OPEN_TTS_TRANSCRIPTION_INPUT_DIR, path.join(paths.dataRoot, "transcriptions", "inputs"));
+  assert.equal(launchOptions.env.OPEN_TTS_AUDIO_ENHANCEMENT_JOBS_FILE, path.join(paths.dataRoot, "config", "audio-enhancements.json"));
+  assert.equal(launchOptions.env.OPEN_TTS_AUDIO_ENHANCEMENT_INPUT_DIR, path.join(paths.dataRoot, "audio-enhancements", "inputs"));
+  assert.equal(launchOptions.env.OPEN_TTS_AUDIO_ENHANCEMENT_WORK_DIR, path.join(paths.dataRoot, "audio-enhancements", "work"));
   assert.equal(launchOptions.env.OPEN_TTS_AUDIO_SEPARATION_ROOT, path.join(paths.dataRoot, "audio-separations"));
   assert.equal(launchOptions.env.OPEN_TTS_INDEXTTS2_ROOT, path.join(paths.modelStoreRoot, "IndexTTS2"));
   assert.equal(launchOptions.env.OPEN_TTS_VOICE_LIBRARY_FILE, path.join(paths.dataRoot, "config", "voices.json"));
   assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_COOKIE_FILE, path.join(paths.dataRoot, "config", "doubao-cookies.json"));
   assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_DATA_DIR, path.join(paths.dataRoot, "doubao"));
+});
+
+test("resolveManagedStorage reuses the legacy model library without copying weights", () => {
+  const appDataRoot = path.resolve("C:/Users/test/AppData/Roaming/open-tts-desktop");
+  const paths = createDesktopPaths(__dirname, path.resolve("D:/OpenTTS/resources/workspace"), {
+    dataRoot: path.join(appDataRoot, "data"),
+    modelStoreRoot: path.join(appDataRoot, "models"),
+    storageRoot: appDataRoot
+  });
+
+  const managed = resolveManagedStorage(paths, {
+    stored: {
+      voxcpm2_root: "D:/code/tts/models/VoxCPM2",
+      output_dir: "D:/code/tts/data/outputs"
+    }
+  });
+
+  assert.equal(managed.storageRoot, path.resolve("D:/code/tts"));
+  assert.equal(managed.modelStoreRoot, path.join(path.resolve("D:/code/tts"), "models"));
+  assert.equal(managed.dataRoot, path.join(path.resolve("D:/code/tts"), "data"));
+  assert.equal(managed.settingsFile, path.join(appDataRoot, "data", "config", "user-settings.json"));
 });
 
 test("migrateLegacyManagedModelAssets only copies managed ASR assets missing from the user model store", () => {

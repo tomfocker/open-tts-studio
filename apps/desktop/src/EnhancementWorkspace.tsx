@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   Clock3,
   FileAudio,
+  FolderOpen,
   Loader2,
   RotateCw,
   Sparkles,
@@ -66,6 +67,10 @@ function statusLabel(status: AudioEnhancementJob["status"]): string {
 
 function isActive(job: AudioEnhancementJob | null): boolean {
   return Boolean(job && (job.status === "queued" || job.status === "running"));
+}
+
+function outputFileName(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || "未命名音频";
 }
 
 export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
@@ -229,6 +234,19 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
     }
   };
 
+  const revealOutput = async (filePath: string) => {
+    if (!window.desktopFiles?.revealInFolder) {
+      setError("请在桌面软件中定位生成文件。 ");
+      return;
+    }
+    setError(null);
+    try {
+      await window.desktopFiles.revealInFolder(filePath);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法定位生成文件。 ");
+    }
+  };
+
   return (
     <div className="enhancementOverlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="enhancementWorkspace" role="dialog" aria-modal="true" aria-label="语音增强对比">
@@ -260,7 +278,7 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
               <div className="enhancementProgress"><span style={{ width: `${selectedJob.progress_percent}%` }} /></div>
               {selectedJob.error && <div className="enhancementFeedback error"><AlertCircle size={16} /><span>{selectedJob.error}</span></div>}
               {selectedJob.warnings.map((warning) => <div key={warning} className="enhancementFeedback warning"><AlertCircle size={16} /><span>{warning}</span></div>)}
-              {selectedJob.outputs.length ? <div className="enhancementOutputs">{selectedJob.outputs.map((output) => <article key={output.backend}><div><strong>{output.model}</strong><small>{output.sample_rate / 1000} kHz · {formatTime(output.duration_seconds)}</small></div><audio controls preload="metadata" src={toAudioUrl(output.audio_url)} /></article>)}</div> : isActive(selectedJob) ? <div className="enhancementEmptyState"><Loader2 className="spin" size={30} /><strong>{selectedJob.status === "queued" ? "正在等待本地 GPU 槽位" : "正在生成语音增强结果"}</strong><span>模型会依次运行，避免与 TTS、ASR 争抢显存。</span></div> : <div className="enhancementEmptyState"><FileAudio size={31} /><strong>{selectedJob.status === "cancelled" ? "任务已取消" : "本次处理未完成"}</strong><span>检查模型目录和增强运行时后可重试。</span></div>}
+              {selectedJob.outputs.length ? <div className="enhancementOutputs">{selectedJob.outputs.map((output) => <article key={output.backend}><div className="enhancementOutputHeader"><div><strong>{output.model}</strong><small>{outputFileName(output.file_path)}</small><small>{output.sample_rate / 1000} kHz · {formatTime(output.duration_seconds)}</small></div><button type="button" className="enhancementRevealButton" onClick={() => void revealOutput(output.file_path)} title={output.file_path}><FolderOpen size={14} />定位文件</button></div><audio controls preload="metadata" src={toAudioUrl(output.audio_url)} /></article>)}</div> : isActive(selectedJob) ? <div className="enhancementEmptyState"><Loader2 className="spin" size={30} /><strong>{selectedJob.status === "queued" ? "正在等待本地 GPU 槽位" : "正在生成语音增强结果"}</strong><span>模型会依次运行，避免与 TTS、ASR 争抢显存。</span></div> : <div className="enhancementEmptyState"><FileAudio size={31} /><strong>{selectedJob.status === "cancelled" ? "任务已取消" : "本次处理未完成"}</strong><span>检查模型目录和增强运行时后可重试。</span></div>}
               <div className="enhancementActions">{isActive(selectedJob) && <button className="danger" type="button" onClick={() => void cancel()} disabled={pendingAction === "cancel"}>{pendingAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Square size={14} />}取消</button>}{(selectedJob.status === "failed" || selectedJob.status === "cancelled") && <button type="button" onClick={() => void retry()} disabled={pendingAction === "retry"}>{pendingAction === "retry" ? <Loader2 className="spin" size={15} /> : <RotateCw size={15} />}重试</button>}</div>
             </> : <div className="enhancementEmptyState"><Sparkles size={32} /><strong>还没有语音增强任务</strong><span>导入一条素材，选择一个或两个模型后即可开始本地对比。</span></div>}
           </section>
