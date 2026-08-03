@@ -6,6 +6,7 @@ const path = require("node:path");
 const DEFAULT_API_PORT = 8765;
 const DEFAULT_DEV_URL = "http://127.0.0.1:5173";
 const DEFAULT_API_HOST = "127.0.0.1";
+const DEFAULT_WINDOWS_STORAGE_ROOT = "D:\\open-tts";
 const MAX_TRANSCRIPTION_MEDIA_BYTES = 8 * 1024 * 1024 * 1024;
 const TRANSCRIPTION_MEDIA_EXTENSIONS = [
   "wav", "mp3", "flac", "m4a", "aac", "ogg", "opus", "webm",
@@ -17,7 +18,8 @@ const LEGACY_MANAGED_MODEL_ASSETS = [
   "Qwen3-ASR-1.7B",
   "Qwen3-ForcedAligner-0.6B",
   "Qwen3-runtime",
-  "Qwen3-runtime-cuda"
+  "Qwen3-runtime-cuda",
+  "realtime"
 ];
 
 function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
@@ -41,6 +43,217 @@ function createDesktopPaths(electronDir, workspaceRoot, options = {}) {
     resourcesRoot,
     logsDir: path.join(dataRoot, "logs")
   };
+}
+
+function resolvePreferredStorageRoot(options = {}) {
+  const pathImpl = options.path || path;
+  const configured = typeof options.storageRoot === "string" && options.storageRoot.trim()
+    ? options.storageRoot.trim()
+    : typeof options.env?.OPEN_TTS_STORAGE_ROOT === "string" && options.env.OPEN_TTS_STORAGE_ROOT.trim()
+      ? options.env.OPEN_TTS_STORAGE_ROOT.trim()
+      : "";
+  if (configured) {
+    return pathImpl.resolve(configured);
+  }
+  const platform = options.platform || process.platform;
+  if (platform === "win32") {
+    return pathImpl.resolve(DEFAULT_WINDOWS_STORAGE_ROOT);
+  }
+  return pathImpl.resolve(options.userDataRoot || options.fallbackRoot || pathImpl.join(process.cwd(), "data"));
+}
+
+function isPathWithin(candidate, root, pathImpl = path) {
+  const relative = pathImpl.relative(pathImpl.resolve(root), pathImpl.resolve(candidate));
+  return relative === "" || (!relative.startsWith(`..${pathImpl.sep}`) && relative !== ".." && !pathImpl.isAbsolute(relative));
+}
+
+function uniqueMigrationTarget(targetPath, fsImpl = fs, pathImpl = path) {
+  let attempt = 1;
+  let candidate = `${targetPath}.migrated`;
+  while (fsImpl.existsSync(candidate)) {
+    candidate = `${targetPath}.migrated-${attempt}`;
+    attempt += 1;
+  }
+  return pathImpl.resolve(candidate);
+}
+
+function moveManagedPath(sourcePath, targetPath, options = {}) {
+  const fsImpl = options.fs || fs;
+  const pathImpl = options.path || path;
+  const source = pathImpl.resolve(sourcePath);
+  const target = pathImpl.resolve(targetPath);
+  if (source === target || !fsImpl.existsSync(source)) {
+    return [];
+  }
+
+  const moveEntry = (from, to) => {
+    fsImpl.mkdirSync(pathImpl.dirname(to), { recursive: true });
+    try {
+      fsImpl.renameSync(from, to);
+    } catch (error) {
+      if (error?.code !== "EXDEV") {
+        throw error;
+      }
+      // C: -> D: upgrades cannot rename.  Copy first and only remove the
+      // source after the complete copy succeeds, so a failed migration never
+      // destroys an existing local model or generated file.
+      fsImpl.cpSync(from, to, { recursive: true, force: false, errorOnExist: true });
+      fsImpl.rmSync(from, { recursive: true, force: false });
+    }
+  };
+
+  const sourceStat = fsImpl.statSync(source);
+  if (!fsImpl.existsSync(target)) {
+    moveEntry(source, target);
+    return [{ source, target }];
+  }
+  const targetStat = fsImpl.statSync(target);
+  if (!sourceStat.isDirectory() || !targetStat.isDirectory()) {
+    const collisionTarget = uniqueMigrationTarget(target, fsImpl, pathImpl);
+    moveEntry(source, collisionTarget);
+    return [{ source, target: collisionTarget }];
+  }
+
+  const moved = [];
+  for (const entry of fsImpl.readdirSync(source, { withFileTypes: true })) {
+    const childSource = pathImpl.join(source, entry.name);
+    const childTarget = pathImpl.join(target, entry.name);
+    moved.push(...moveManagedPath(childSource, childTarget, { fs: fsImpl, path: pathImpl }));
+  }
+  try {
+    fsImpl.rmdirSync(source);
+  } catch {
+    // A newly-created file may arrive while an upgrade is running. Leave the
+    // source directory intact rather than deleting a file we did not move.
+  }
+  return moved;
+}
+
+function migrateManagedStorage(sourceRoots, targetRoot, options = {}) {
+  const fsImpl = options.fs || fs;
+  const pathImpl = options.path || path;
+  const target = pathImpl.resolve(targetRoot);
+  const excludedModelNames = new Set((options.excludedModelNames || []).map((name) => String(name).toLowerCase()));
+  const seen = new Set();
+  const moved = [];
+  for (const candidate of sourceRoots || []) {
+    if (typeof candidate !== "string" || !candidate.trim()) {
+      continue;
+    }
+    const source = pathImpl.resolve(candidate);
+    const key = source.toLowerCase();
+    if (source === target || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    const sourceModels = pathImpl.join(source, "models");
+    if (excludedModelNames.size > 0 && fsImpl.existsSync(sourceModels) && fsImpl.statSync(sourceModels).isDirectory()) {
+      for (const entry of fsImpl.readdirSync(sourceModels, { withFileTypes: true })) {
+        if (excludedModelNames.has(entry.name.toLowerCase())) {
+          continue;
+        }
+        moved.push(...moveManagedPath(pathImpl.join(sourceModels, entry.name), pathImpl.join(target, "models", entry.name), { fs: fsImpl, path: pathImpl }));
+      }
+      try {
+        fsImpl.rmdirSync(sourceModels);
+      } catch {
+        // Build-time assets intentionally remain in the source checkout.
+      }
+    } else {
+      moved.push(...moveManagedPath(sourceModels, pathImpl.join(target, "models"), { fs: fsImpl, path: pathImpl }));
+    }
+    moved.push(...moveManagedPath(pathImpl.join(source, "data"), pathImpl.join(target, "data"), { fs: fsImpl, path: pathImpl }));
+  }
+  return moved;
+}
+
+function remapManagedPathValue(value, mappings, pathImpl = path) {
+  if (typeof value !== "string" || !value.trim() || !pathImpl.isAbsolute(value.trim())) {
+    return value;
+  }
+  for (const mapping of mappings) {
+    if (!mapping?.source || !mapping?.target || !isPathWithin(value, mapping.source, pathImpl)) {
+      continue;
+    }
+    return pathImpl.join(pathImpl.resolve(mapping.target), pathImpl.relative(pathImpl.resolve(mapping.source), pathImpl.resolve(value)));
+  }
+  return value;
+}
+
+function remapManagedJsonValue(value, mappings, pathImpl = path) {
+  if (typeof value === "string") {
+    return remapManagedPathValue(value, mappings, pathImpl);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => remapManagedJsonValue(item, mappings, pathImpl));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, remapManagedJsonValue(item, mappings, pathImpl)]));
+  }
+  return value;
+}
+
+function remapManagedJsonFiles(rootDirectory, mappings, options = {}) {
+  const fsImpl = options.fs || fs;
+  const pathImpl = options.path || path;
+  const root = pathImpl.resolve(rootDirectory);
+  if (!fsImpl.existsSync(root)) {
+    return [];
+  }
+  const changedFiles = [];
+  const visit = (directory) => {
+    for (const entry of fsImpl.readdirSync(directory, { withFileTypes: true })) {
+      const target = pathImpl.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(target);
+        continue;
+      }
+      if (!entry.isFile() || pathImpl.extname(entry.name).toLowerCase() !== ".json") {
+        continue;
+      }
+      let parsed;
+      try {
+        parsed = JSON.parse(fsImpl.readFileSync(target, "utf8"));
+      } catch {
+        continue;
+      }
+      const remapped = remapManagedJsonValue(parsed, mappings, pathImpl);
+      if (JSON.stringify(remapped) === JSON.stringify(parsed)) {
+        continue;
+      }
+      const temporary = `${target}.${process.pid}.migration.tmp`;
+      fsImpl.writeFileSync(temporary, JSON.stringify(remapped, null, 2), "utf8");
+      fsImpl.renameSync(temporary, target);
+      changedFiles.push(target);
+    }
+  };
+  visit(root);
+  return changedFiles;
+}
+
+function synchronizeManagedStorageSettings(settingsFile, storageRoot, options = {}) {
+  const fsImpl = options.fs || fs;
+  const pathImpl = options.path || path;
+  if (!fsImpl.existsSync(settingsFile)) {
+    return false;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(fsImpl.readFileSync(settingsFile, "utf8"));
+  } catch {
+    return false;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return false;
+  }
+  const root = pathImpl.resolve(storageRoot);
+  parsed.storage_root = root;
+  parsed.output_dir = pathImpl.join(root, "data", "outputs");
+  const temporary = `${settingsFile}.${process.pid}.migration.tmp`;
+  fsImpl.mkdirSync(pathImpl.dirname(settingsFile), { recursive: true });
+  fsImpl.writeFileSync(temporary, JSON.stringify(parsed, null, 2), "utf8");
+  fsImpl.renameSync(temporary, settingsFile);
+  return true;
 }
 
 function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
@@ -766,11 +979,13 @@ module.exports = {
   isHttpOk,
   loadFrontend,
   migrateLegacyManagedModelAssets,
+  migrateManagedStorage,
   openLegadoImportUrl,
   openLocalPath,
   revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
+  resolvePreferredStorageRoot,
   resolveManagedStorage,
   resolveFfmpegPath,
   saveSettingsBackup,
@@ -785,6 +1000,9 @@ module.exports = {
   selectReferenceAudio,
   selectVoicePackage,
   saveVoicePackage,
+  moveManagedPath,
+  remapManagedJsonFiles,
+  synchronizeManagedStorageSettings,
   stageManagedMediaFile,
   spawnBackendProcess,
   terminateProcessTree,

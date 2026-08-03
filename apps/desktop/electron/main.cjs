@@ -12,16 +12,20 @@ const {
   isBackendHealthy,
   loadFrontend,
   migrateLegacyManagedModelAssets,
+  migrateManagedStorage,
+  moveManagedPath,
   openLegadoImportUrl,
   openLocalPath,
   revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
   resolveManagedStorage,
+  resolvePreferredStorageRoot,
   resolveFfmpegPath,
   saveSettingsBackup,
   saveTranscriptionExport,
   saveVoicePackage,
+  remapManagedJsonFiles,
   selectDirectory,
   selectPythonExecutable,
   selectModelArchive,
@@ -33,6 +37,7 @@ const {
   selectVoicePackage,
   spawnBackendProcess,
   stageManagedMediaFile,
+  synchronizeManagedStorageSettings,
   terminateProcessTree
 } = require("./desktop-runtime.cjs");
 const { BilibiliSamplerService } = require("./bilibili-sampler-runtime.cjs");
@@ -58,26 +63,31 @@ const selectedPreviewAudioPaths = new Set();
 const localMediaRegistry = createLocalMediaRegistry();
 const backendToken = app.isPackaged ? randomUUID() : null;
 const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
-const packagedStorageRoot = app.isPackaged ? app.getPath("userData") : undefined;
-const bootstrapPaths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
-  dataRoot: app.isPackaged ? path.join(packagedStorageRoot, "data") : undefined,
-  modelStoreRoot: app.isPackaged ? path.join(packagedStorageRoot, "models") : undefined,
-  storageRoot: packagedStorageRoot,
-  settingsFile: app.isPackaged ? path.join(packagedStorageRoot, "data", "config", "user-settings.json") : undefined,
+const legacyUserDataRoot = app.getPath("userData");
+const managedStorageRoot = resolvePreferredStorageRoot({
+  env: process.env,
+  platform: process.platform,
+  userDataRoot: legacyUserDataRoot
+});
+const legacyBootstrapPaths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
+  dataRoot: path.join(legacyUserDataRoot, "data"),
+  modelStoreRoot: path.join(legacyUserDataRoot, "models"),
+  storageRoot: legacyUserDataRoot,
+  settingsFile: path.join(legacyUserDataRoot, "data", "config", "user-settings.json"),
   apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined,
   desktopDir: app.isPackaged ? path.resolve(__dirname, "..") : undefined,
   resourcesRoot: app.isPackaged ? process.resourcesPath : undefined,
   distIndex: app.isPackaged ? path.join(path.resolve(__dirname, ".."), "dist", "index.html") : undefined
 });
-const managedStorage = app.isPackaged ? resolveManagedStorage(bootstrapPaths) : null;
+const legacyManagedStorage = resolveManagedStorage(legacyBootstrapPaths);
 // The renderer bundle is part of app.asar, while API files are copied to
 // resources/workspace. Keep those roots separate in packaged builds.
 const packagedAppRoot = app.isPackaged ? path.resolve(__dirname, "..") : undefined;
 const paths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
-  dataRoot: managedStorage?.dataRoot,
-  modelStoreRoot: managedStorage?.modelStoreRoot,
-  storageRoot: managedStorage?.storageRoot,
-  settingsFile: managedStorage?.settingsFile,
+  dataRoot: path.join(managedStorageRoot, "data"),
+  modelStoreRoot: path.join(managedStorageRoot, "models"),
+  storageRoot: managedStorageRoot,
+  settingsFile: path.join(managedStorageRoot, "data", "config", "user-settings.json"),
   apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined,
   desktopDir: packagedAppRoot,
   resourcesRoot: app.isPackaged ? process.resourcesPath : undefined,
@@ -86,6 +96,7 @@ const paths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
 let desktopSettings = resolveDesktopSettings(paths, { backendToken });
 const bilibiliSamplerService = new BilibiliSamplerService({
   app,
+  userDataRoot: path.join(paths.dataRoot, "bilibili"),
   defaultOutputDirectory: resolveBilibiliInputsDirectory(paths),
   getFfmpegPath: () => resolveFfmpegPath(paths)
 });
@@ -97,7 +108,7 @@ const updateService = createUpdateService({
 const realtimeSettingsStore = createRealtimeSettingsStore({
   fs,
   safeStorage,
-  getUserDataPath: () => app.getPath("userData")
+  getUserDataPath: () => path.join(paths.dataRoot, "config")
 });
 
 updateService.subscribe((state) => {
@@ -154,6 +165,28 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  const legacyRoots = [legacyUserDataRoot, legacyManagedStorage.storageRoot];
+  if (!app.isPackaged) {
+    legacyRoots.push(paths.workspaceRoot);
+  }
+  try {
+    migrateManagedStorage(legacyRoots, paths.storageRoot, { excludedModelNames: [".gitignore", "README.md", "realtime"] });
+    const pathMappings = legacyRoots
+      .filter((source) => source && path.resolve(source) !== path.resolve(paths.storageRoot))
+      .map((source) => ({ source, target: paths.storageRoot }));
+    remapManagedJsonFiles(paths.dataRoot, pathMappings);
+    synchronizeManagedStorageSettings(paths.settingsFile, paths.storageRoot);
+    // These Electron-side state files were historically written next to
+    // Chromium caches in AppData. Keep the useful application data together
+    // with models and task data while leaving expendable browser caches alone.
+    moveManagedPath(path.join(legacyUserDataRoot, "bilibili-sampler"), path.join(paths.dataRoot, "bilibili", "bilibili-sampler"));
+    moveManagedPath(path.join(legacyUserDataRoot, "bilibili-sampler-session.json"), path.join(paths.dataRoot, "bilibili", "bilibili-sampler-session.json"));
+    moveManagedPath(path.join(legacyUserDataRoot, "bilibili-sampler-history.json"), path.join(paths.dataRoot, "bilibili", "bilibili-sampler-history.json"));
+    moveManagedPath(path.join(legacyUserDataRoot, "realtime-session.json"), path.join(paths.dataRoot, "config", "realtime-session.json"));
+    remapManagedJsonFiles(path.join(paths.dataRoot, "bilibili"), pathMappings);
+  } catch (error) {
+    console.warn("OpenTTS D: storage migration skipped:", error instanceof Error ? error.message : String(error));
+  }
   // v0.7.1 moves mutable ASR assets out of the application installation. This
   // one-time copy preserves older local runtime installs without touching
   // user-selected external model directories.

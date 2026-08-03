@@ -43,7 +43,7 @@ from tts_api.adapters.whispera_streaming import (
     release_whispera_streaming_service,
     stream_whispera_tts,
 )
-from tts_api.config import Settings, get_settings
+from tts_api.config import MODEL_STORE_ROOT, Settings, get_settings
 from tts_api.model_health import check_model_instance
 from tts_api.model_instances import get_model_instance
 from tts_api.realtime_vad import RealtimeSession as WhisperaRealtimeSession
@@ -173,6 +173,9 @@ def _resolve_vad_model_path(settings: Settings) -> Path:
     configured = os.environ.get("OPEN_TTS_REALTIME_VAD_MODEL", "").strip()
     candidates = [
         Path(configured).expanduser() if configured else None,
+        # Desktop-managed data lives outside the immutable application bundle.
+        # The launcher copies the small vendored VAD asset here on first run.
+        MODEL_STORE_ROOT / "realtime" / "silero_vad.onnx",
         settings.workspace_root / "models" / "realtime" / "silero_vad.onnx",
         # The research checkout lets contributors exercise the direct reuse
         # before the binary asset is included in the desktop runtime bundle.

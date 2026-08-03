@@ -1,10 +1,12 @@
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 from fastapi.testclient import TestClient
 
 from tts_api import realtime_vad
+from tts_api.config import Settings
 from tts_api.realtime_vad import RealtimeSession, VADConfig
 from tts_api.realtime_text_segmenter import StreamingTextSegmenter
 from tts_api.routes import realtime
@@ -19,6 +21,15 @@ def test_segmenter_prefers_sentence_boundaries_and_flushes_tail():
     assert segmenter.feed("第一句。第二") == ["第一句。"]
     assert segmenter.feed("句还没结束") == []
     assert segmenter.flush() == "第二句还没结束"
+
+
+def test_realtime_vad_prefers_the_managed_model_store(tmp_path: Path, monkeypatch):
+    managed_model = tmp_path / "models" / "realtime" / "silero_vad.onnx"
+    managed_model.parent.mkdir(parents=True)
+    managed_model.write_bytes(b"vad")
+    monkeypatch.setattr(realtime, "MODEL_STORE_ROOT", tmp_path / "models")
+
+    assert realtime._resolve_vad_model_path(Settings(workspace_root=tmp_path / "workspace")) == managed_model
 
 
 def test_segmenter_keeps_words_intact_at_hard_limit():

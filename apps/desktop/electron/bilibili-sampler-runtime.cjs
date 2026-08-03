@@ -397,6 +397,7 @@ class BilibiliSamplerService {
     this.now = dependencies.now ?? (() => Date.now());
     this.createHistoryId = dependencies.createHistoryId ?? randomUUID;
     this.defaultOutputDirectory = dependencies.defaultOutputDirectory ?? null;
+    this.userDataRoot = dependencies.userDataRoot ?? this.app.getPath("userData");
     this.downloadBinaryImpl = dependencies.downloadBinary ?? ((input) => this.downloadBinary(input));
     this.runFfmpegImpl = dependencies.runFfmpeg ?? ((input) => this.runFfmpeg(input));
     this.mergeFfmpegImpl = dependencies.mergeFfmpeg ?? ((input) => this.mergeFfmpeg(input));
@@ -1156,11 +1157,11 @@ class BilibiliSamplerService {
   }
 
   getSessionPath() {
-    return path.join(this.app.getPath("userData"), SESSION_FILE_NAME);
+    return path.join(this.userDataRoot, SESSION_FILE_NAME);
   }
 
   getHistoryPath() {
-    return path.join(this.app.getPath("userData"), HISTORY_FILE_NAME);
+    return path.join(this.userDataRoot, HISTORY_FILE_NAME);
   }
 
   readVideoHistory() {
@@ -1256,7 +1257,7 @@ class BilibiliSamplerService {
   }
 
   getTaskDirectory() {
-    return path.join(this.app.getPath("userData"), TASK_ROOT_DIRECTORY_NAME, TASKS_DIRECTORY_NAME, String(this.now()));
+    return path.join(this.userDataRoot, TASK_ROOT_DIRECTORY_NAME, TASKS_DIRECTORY_NAME, String(this.now()));
   }
 
   getSelectedItem() {

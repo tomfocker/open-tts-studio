@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -10,16 +12,20 @@ const {
   ensureBackend,
   isBackendHealthy,
   migrateLegacyManagedModelAssets,
+  migrateManagedStorage,
+  remapManagedJsonFiles,
   openLegadoImportUrl,
   openLocalPath,
   revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
   resolveManagedStorage,
+  resolvePreferredStorageRoot,
   resolveFfmpegPath,
   saveSettingsBackup,
   saveTranscriptionExport,
   saveVoicePackage,
+  synchronizeManagedStorageSettings,
   selectDirectory,
   selectPythonExecutable,
   selectModelArchive,
@@ -103,6 +109,49 @@ test("resolveManagedStorage reuses the legacy model library without copying weig
   assert.equal(managed.modelStoreRoot, path.join(path.resolve("D:/code/tts"), "models"));
   assert.equal(managed.dataRoot, path.join(path.resolve("D:/code/tts"), "data"));
   assert.equal(managed.settingsFile, path.join(appDataRoot, "data", "config", "user-settings.json"));
+});
+
+test("managed storage defaults to D drive and safely migrates legacy models, data and recorded paths", () => {
+  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "open-tts-storage-migration-"));
+  const sourceRoot = path.join(temporaryRoot, "legacy");
+  const targetRoot = path.join(temporaryRoot, "open-tts");
+  try {
+    fs.mkdirSync(path.join(sourceRoot, "models", "VoxCPM2"), { recursive: true });
+    fs.writeFileSync(path.join(sourceRoot, "models", "VoxCPM2", "weights.bin"), "model");
+    fs.writeFileSync(path.join(sourceRoot, "models", "README.md"), "source build asset");
+    fs.mkdirSync(path.join(sourceRoot, "data", "config"), { recursive: true });
+    fs.mkdirSync(path.join(sourceRoot, "data", "outputs"), { recursive: true });
+    fs.writeFileSync(path.join(sourceRoot, "data", "outputs", "result.wav"), "audio");
+    fs.writeFileSync(path.join(sourceRoot, "data", "config", "user-settings.json"), JSON.stringify({
+      storage_root: sourceRoot,
+      output_dir: path.join(sourceRoot, "data", "outputs"),
+      voxcpm2_root: path.join(sourceRoot, "models", "VoxCPM2"),
+      asr_backend: "sensevoice"
+    }));
+    fs.mkdirSync(path.join(targetRoot, "data", "outputs"), { recursive: true });
+    fs.writeFileSync(path.join(targetRoot, "data", "outputs", "existing.wav"), "existing");
+
+    const moved = migrateManagedStorage([sourceRoot], targetRoot, { excludedModelNames: ["README.md"] });
+    assert.ok(moved.length >= 2);
+    assert.equal(fs.existsSync(path.join(targetRoot, "models", "VoxCPM2", "weights.bin")), true);
+    assert.equal(fs.existsSync(path.join(sourceRoot, "models", "README.md")), true);
+    assert.equal(fs.existsSync(path.join(targetRoot, "models", "README.md")), false);
+    assert.equal(fs.existsSync(path.join(targetRoot, "data", "outputs", "result.wav")), true);
+    assert.equal(fs.existsSync(path.join(sourceRoot, "models", "VoxCPM2")), false);
+    assert.equal(fs.existsSync(path.join(sourceRoot, "data")), false);
+
+    const remapped = remapManagedJsonFiles(path.join(targetRoot, "data"), [{ source: sourceRoot, target: targetRoot }]);
+    assert.equal(remapped.length, 1);
+    assert.equal(synchronizeManagedStorageSettings(path.join(targetRoot, "data", "config", "user-settings.json"), targetRoot), true);
+    const settings = JSON.parse(fs.readFileSync(path.join(targetRoot, "data", "config", "user-settings.json"), "utf8"));
+    assert.equal(settings.storage_root, path.resolve(targetRoot));
+    assert.equal(settings.output_dir, path.join(targetRoot, "data", "outputs"));
+    assert.equal(settings.voxcpm2_root, path.join(targetRoot, "models", "VoxCPM2"));
+    assert.equal(settings.asr_backend, "sensevoice");
+    assert.equal(resolvePreferredStorageRoot({ platform: "win32" }), path.resolve("D:/open-tts"));
+  } finally {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 });
 
 test("migrateLegacyManagedModelAssets only copies managed ASR assets missing from the user model store", () => {
