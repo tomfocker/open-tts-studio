@@ -11,21 +11,16 @@ const {
   createDesktopPaths,
   isBackendHealthy,
   loadFrontend,
-  migrateLegacyManagedModelAssets,
-  migrateManagedStorage,
-  moveManagedPath,
   openLegadoImportUrl,
   openLocalPath,
   revealLocalItem,
   resolveBilibiliInputsDirectory,
   resolveDesktopSettings,
-  resolveManagedStorage,
   resolvePreferredStorageRoot,
   resolveFfmpegPath,
   saveSettingsBackup,
   saveTranscriptionExport,
   saveVoicePackage,
-  remapManagedJsonFiles,
   selectDirectory,
   selectPythonExecutable,
   selectModelArchive,
@@ -37,7 +32,6 @@ const {
   selectVoicePackage,
   spawnBackendProcess,
   stageManagedMediaFile,
-  synchronizeManagedStorageSettings,
   terminateProcessTree
 } = require("./desktop-runtime.cjs");
 const { BilibiliSamplerService } = require("./bilibili-sampler-runtime.cjs");
@@ -63,23 +57,15 @@ const selectedPreviewAudioPaths = new Set();
 const localMediaRegistry = createLocalMediaRegistry();
 const backendToken = app.isPackaged ? randomUUID() : null;
 const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
-const legacyUserDataRoot = app.getPath("userData");
 const managedStorageRoot = resolvePreferredStorageRoot({
   env: process.env,
-  platform: process.platform,
-  userDataRoot: legacyUserDataRoot
+  platform: process.platform
 });
-const legacyBootstrapPaths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
-  dataRoot: path.join(legacyUserDataRoot, "data"),
-  modelStoreRoot: path.join(legacyUserDataRoot, "models"),
-  storageRoot: legacyUserDataRoot,
-  settingsFile: path.join(legacyUserDataRoot, "data", "config", "user-settings.json"),
-  apiPython: app.isPackaged ? path.join(process.resourcesPath, "workspace", "runtime", "python", "python.exe") : undefined,
-  desktopDir: app.isPackaged ? path.resolve(__dirname, "..") : undefined,
-  resourcesRoot: app.isPackaged ? process.resourcesPath : undefined,
-  distIndex: app.isPackaged ? path.join(path.resolve(__dirname, ".."), "dist", "index.html") : undefined
-});
-const legacyManagedStorage = resolveManagedStorage(legacyBootstrapPaths);
+// Keep Chromium's cache, cookies and renderer local storage beside the
+// managed application data as well. This must run before app.whenReady().
+if (process.platform === "win32") {
+  app.setPath("userData", path.join(managedStorageRoot, "data", "electron"));
+}
 // The renderer bundle is part of app.asar, while API files are copied to
 // resources/workspace. Keep those roots separate in packaged builds.
 const packagedAppRoot = app.isPackaged ? path.resolve(__dirname, "..") : undefined;
@@ -165,36 +151,9 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  const legacyRoots = [legacyUserDataRoot, legacyManagedStorage.storageRoot];
-  if (!app.isPackaged) {
-    legacyRoots.push(paths.workspaceRoot);
-  }
-  try {
-    migrateManagedStorage(legacyRoots, paths.storageRoot, { excludedModelNames: [".gitignore", "README.md", "realtime"] });
-    const pathMappings = legacyRoots
-      .filter((source) => source && path.resolve(source) !== path.resolve(paths.storageRoot))
-      .map((source) => ({ source, target: paths.storageRoot }));
-    remapManagedJsonFiles(paths.dataRoot, pathMappings);
-    synchronizeManagedStorageSettings(paths.settingsFile, paths.storageRoot);
-    // These Electron-side state files were historically written next to
-    // Chromium caches in AppData. Keep the useful application data together
-    // with models and task data while leaving expendable browser caches alone.
-    moveManagedPath(path.join(legacyUserDataRoot, "bilibili-sampler"), path.join(paths.dataRoot, "bilibili", "bilibili-sampler"));
-    moveManagedPath(path.join(legacyUserDataRoot, "bilibili-sampler-session.json"), path.join(paths.dataRoot, "bilibili", "bilibili-sampler-session.json"));
-    moveManagedPath(path.join(legacyUserDataRoot, "bilibili-sampler-history.json"), path.join(paths.dataRoot, "bilibili", "bilibili-sampler-history.json"));
-    moveManagedPath(path.join(legacyUserDataRoot, "realtime-session.json"), path.join(paths.dataRoot, "config", "realtime-session.json"));
-    remapManagedJsonFiles(path.join(paths.dataRoot, "bilibili"), pathMappings);
-  } catch (error) {
-    console.warn("OpenTTS D: storage migration skipped:", error instanceof Error ? error.message : String(error));
-  }
-  // v0.7.1 moves mutable ASR assets out of the application installation. This
-  // one-time copy preserves older local runtime installs without touching
-  // user-selected external model directories.
-  try {
-    migrateLegacyManagedModelAssets(paths);
-  } catch (error) {
-    console.warn("OpenTTS managed-model migration skipped:", error instanceof Error ? error.message : String(error));
-  }
+  // v0.9 is a clean D: installation: it never follows or mutates data left
+  // by an older AppData-based installation. Every managed file is read from
+  // the single storage root selected above.
   configureBackend();
   protocol.handle(LOCAL_MEDIA_SCHEME, async (request) => {
     const fileUrl = localMediaRegistry.resolve(request.url);

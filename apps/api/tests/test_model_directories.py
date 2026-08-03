@@ -3,7 +3,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from tts_api import config as config_module
-from tts_api.config import Settings, get_settings, load_user_settings
+from tts_api.config import Settings, get_settings, load_user_settings, save_user_settings
 from tts_api.main import create_app
 
 
@@ -123,3 +123,17 @@ def test_managed_storage_layout_keeps_outputs_and_models_under_one_root(tmp_path
     settings = Settings()
     assert settings.storage_root == storage_root
     assert settings.output_dir == storage_root / "data" / "outputs"
+
+
+def test_save_user_settings_replaces_a_malformed_previous_file_atomically(tmp_path: Path, monkeypatch):
+    settings_file = tmp_path / "user-settings.json"
+    settings_file.write_text('{"storage_root":"D:/old"}ts"}', encoding="utf-8")
+    monkeypatch.setattr(config_module, "MANAGED_STORAGE_ROOT", Path("D:/open-tts"))
+
+    save_user_settings(settings_file, {"storage_root": "D:/open-tts", "output_dir": "D:/open-tts/data/outputs"})
+
+    assert load_user_settings(settings_file) == {
+        "storage_root": str(Path("D:/open-tts")),
+        "output_dir": str(Path("D:/open-tts/data/outputs")),
+    }
+    assert settings_file.read_text(encoding="utf-8").endswith("}")

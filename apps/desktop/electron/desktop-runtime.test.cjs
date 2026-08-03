@@ -85,6 +85,9 @@ test("createDesktopPaths keeps packaged user data and model weights outside appl
   assert.equal(launchOptions.env.OPEN_TTS_AUDIO_ENHANCEMENT_WORK_DIR, path.join(paths.dataRoot, "audio-enhancements", "work"));
   assert.equal(launchOptions.env.OPEN_TTS_AUDIO_SEPARATION_ROOT, path.join(paths.dataRoot, "audio-separations"));
   assert.equal(launchOptions.env.OPEN_TTS_INDEXTTS2_ROOT, path.join(paths.modelStoreRoot, "IndexTTS2"));
+  assert.equal(launchOptions.env.OPEN_TTS_ALIGNMENT_CAPSWRITER_ROOT, path.join(paths.modelStoreRoot, "CapsWriter-Offline"));
+  assert.equal(launchOptions.env.OPEN_TTS_ALIGNMENT_ALIGNER_MODEL_DIR, path.join(paths.modelStoreRoot, "Qwen3-ForcedAligner-0.6B"));
+  assert.equal(launchOptions.env.OPEN_TTS_QWEN_ASR_CAPSWRITER_ROOT, path.join(paths.modelStoreRoot, "CapsWriter-Offline"));
   assert.equal(launchOptions.env.OPEN_TTS_VOICE_LIBRARY_FILE, path.join(paths.dataRoot, "config", "voices.json"));
   assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_COOKIE_FILE, path.join(paths.dataRoot, "config", "doubao-cookies.json"));
   assert.equal(launchOptions.env.OPEN_TTS_DOUBAO_DATA_DIR, path.join(paths.dataRoot, "doubao"));

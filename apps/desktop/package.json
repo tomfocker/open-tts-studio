@@ -1,6 +1,6 @@
 {
   "name": "open-tts-desktop",
-  "version": "0.8.10",
+  "version": "0.9.0",
   "description": "A local desktop workstation for managing open-source TTS models.",
   "author": "tomfocker",
   "homepage": "https://github.com/tomfocker/open-tts-studio",
@@ -116,6 +116,7 @@
       "artifactName": "OpenTTS-Studio-Setup-${version}-${arch}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },

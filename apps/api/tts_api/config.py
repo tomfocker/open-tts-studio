@@ -2,6 +2,7 @@ from functools import lru_cache
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Literal
 
@@ -639,10 +640,13 @@ def save_user_settings(settings_file: Path, values: dict) -> None:
     existing = load_user_settings(settings_file)
     merged = _apply_managed_storage_layout({**existing, **{key: value for key, value in values.items() if value is not None}})
     settings_file.parent.mkdir(parents=True, exist_ok=True)
-    settings_file.write_text(
-        json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{settings_file.name}.", suffix=".tmp", dir=settings_file.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True))
+        os.replace(temporary_name, settings_file)
+    finally:
+        Path(temporary_name).unlink(missing_ok=True)
 
 
 def serialize_settings(settings: Settings) -> dict:

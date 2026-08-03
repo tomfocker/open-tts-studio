@@ -258,6 +258,7 @@ function synchronizeManagedStorageSettings(settingsFile, storageRoot, options = 
 
 function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
   const settings = typeof port === "object" ? port : resolveDesktopSettings(paths, { apiPort: port });
+  const modelRoot = paths.modelStoreRoot;
   return {
     filePath: paths.apiPython,
     args: [
@@ -306,7 +307,23 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_FFMPEG_PATH: resolveFfmpegPath(paths),
       OPEN_TTS_INDEXTTS2_ROOT: path.join(paths.modelStoreRoot, "IndexTTS2"),
       OPEN_TTS_VOXCPM2_ROOT: path.join(paths.modelStoreRoot, "VoxCPM2"),
-      OPEN_TTS_GPTSOVITS_ROOT: path.join(paths.modelStoreRoot, "GPT-SoVITS")
+      OPEN_TTS_GPTSOVITS_ROOT: path.join(paths.modelStoreRoot, "GPT-SoVITS"),
+      // Do not let a terminal or an older development preview leak stale
+      // OPEN_TTS_* model paths into the installed application. Saved settings
+      // still override these managed defaults after startup.
+      OPEN_TTS_SENSEVOICE_MODEL_DIR: path.join(modelRoot, "SenseVoiceSmall"),
+      OPEN_TTS_SENSEVOICE_PYTHON: path.join(modelRoot, "SenseVoiceSmall", "runtime", "python.exe"),
+      OPEN_TTS_QWEN_ASR_CAPSWRITER_ROOT: path.join(modelRoot, "CapsWriter-Offline"),
+      OPEN_TTS_QWEN_ASR_MODEL_DIR: path.join(modelRoot, "Qwen3-ASR-1.7B"),
+      OPEN_TTS_QWEN_ASR_PYTHON: path.join(modelRoot, "Qwen3-runtime", "python.exe"),
+      OPEN_TTS_QWEN_CUDA_PYTHON: path.join(modelRoot, "Qwen3-runtime-cuda", "python.exe"),
+      OPEN_TTS_QWEN_CUDA_BACKEND_DIR: path.join(modelRoot, "CapsWriter-Offline", ".open-tts-backends", "cuda"),
+      OPEN_TTS_ALIGNMENT_PYTHON: path.join(modelRoot, "Qwen3-runtime", "python.exe"),
+      OPEN_TTS_ALIGNMENT_CAPSWRITER_ROOT: path.join(modelRoot, "CapsWriter-Offline"),
+      OPEN_TTS_ALIGNMENT_ALIGNER_MODEL_DIR: path.join(modelRoot, "Qwen3-ForcedAligner-0.6B"),
+      OPEN_TTS_DEEPFILTERNET3_ROOT: path.join(modelRoot, "DeepFilterNet3"),
+      OPEN_TTS_MOSSFORMER2_SE_ROOT: path.join(modelRoot, "MossFormer2-SE-48K"),
+      OPEN_TTS_AUDIO_SEPARATION_MODEL_ROOT: path.join(modelRoot, "MDX_Net_Models")
     }
   };
 }
