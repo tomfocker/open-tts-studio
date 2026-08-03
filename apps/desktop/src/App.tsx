@@ -168,6 +168,7 @@ declare global {
       selectReferenceAudio: () => Promise<string | null>;
       selectTranscriptionMedia: () => Promise<{ id: string; fileName: string; fileSizeBytes: number } | null>;
       selectAudioEnhancementMedia: () => Promise<{ id: string; fileName: string; fileSizeBytes: number } | null>;
+      selectAudioSeparationMedia: () => Promise<{ id: string; fileName: string; fileSizeBytes: number } | null>;
       saveTranscriptionExport: (content: string, defaultName: string, extension: "txt" | "srt") => Promise<string | null>;
       readSelectedAudio: (targetPath: string) => Promise<Uint8Array>;
       readManagedReferenceAudio: (targetPath: string) => Promise<Uint8Array>;
@@ -627,6 +628,9 @@ type SettingsDraft = {
   audio_enhancement_device: "auto" | "cuda" | "cpu";
   deepfilternet3_root: string;
   mossformer2_se_root: string;
+  audio_separation_python: string;
+  audio_separation_root: string;
+  audio_separation_device: "auto" | "cuda" | "cpu";
   voxcpm2_root: string;
   voxcpm2_api_host: string;
   voxcpm2_api_port: number;
@@ -944,6 +948,9 @@ function createSettingsDraft(settings: AppSettings | null): SettingsDraft {
     audio_enhancement_device: settings?.audio_enhancement_device ?? "auto",
     deepfilternet3_root: settings?.deepfilternet3_root ?? `${modelStoreRoot}\\DeepFilterNet3`,
     mossformer2_se_root: settings?.mossformer2_se_root ?? `${modelStoreRoot}\\MossFormer2-SE-48K`,
+    audio_separation_python: settings?.audio_separation_python ?? "",
+    audio_separation_root: settings?.audio_separation_root ?? `${modelStoreRoot}\\MDX_Net_Models`,
+    audio_separation_device: settings?.audio_separation_device ?? "auto",
     voxcpm2_root: settings?.voxcpm2_root ?? `${modelStoreRoot}\\VoxCPM2`,
     voxcpm2_api_host: settings?.voxcpm2_api_host ?? "127.0.0.1",
     voxcpm2_api_port: settings?.voxcpm2_api_port ?? 8000,
@@ -4329,6 +4336,9 @@ export function App() {
         audio_enhancement_device: settingsDraft.audio_enhancement_device,
         deepfilternet3_root: settingsDraft.deepfilternet3_root.trim(),
         mossformer2_se_root: settingsDraft.mossformer2_se_root.trim(),
+        audio_separation_python: settingsDraft.audio_separation_python.trim(),
+        audio_separation_root: settingsDraft.audio_separation_root.trim(),
+        audio_separation_device: settingsDraft.audio_separation_device,
         default_model_id: settingsDraft.default_model_id,
         prewarm_default_model_on_startup: settingsDraft.prewarm_default_model_on_startup
       });
@@ -4418,7 +4428,7 @@ export function App() {
     }
   }
 
-  async function chooseDirectoryForSetting(field: "indextts2_root" | "voxcpm2_root" | "gptsovits_root" | "output_dir" | "deepfilternet3_root" | "mossformer2_se_root") {
+  async function chooseDirectoryForSetting(field: "indextts2_root" | "voxcpm2_root" | "gptsovits_root" | "output_dir" | "deepfilternet3_root" | "mossformer2_se_root" | "audio_separation_root") {
     if (!window.desktopFiles?.selectDirectory) {
       setSettingsError("当前预览环境不支持选择目录");
       return;
@@ -4743,6 +4753,22 @@ export function App() {
       const pythonPath = await window.desktopFiles.selectPythonExecutable();
       if (pythonPath) {
         setSettingsDraft((draft) => ({ ...draft, audio_enhancement_python: pythonPath }));
+      }
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : "选择 Python 运行时失败");
+    }
+  }
+
+  async function chooseAudioSeparationPython() {
+    if (!window.desktopFiles?.selectPythonExecutable) {
+      setSettingsError("当前预览环境不支持选择 Python 运行时");
+      return;
+    }
+    setSettingsError(null);
+    try {
+      const pythonPath = await window.desktopFiles.selectPythonExecutable();
+      if (pythonPath) {
+        setSettingsDraft((draft) => ({ ...draft, audio_separation_python: pythonPath }));
       }
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "选择 Python 运行时失败");
@@ -8400,6 +8426,52 @@ export function App() {
                       </button>
                     </div>
                     <small className={appSettings?.mossformer2_se_model_installed ? "settingCheck ready" : "settingCheck"}>{appSettings?.mossformer2_se_model_installed ? "已找到 last_best_checkpoint 与 .pt 权重。" : "目录需要包含 last_best_checkpoint 与 last_best_checkpoint.pt。"}</small>
+                  </label>
+                </div>
+                <div className="enhancementSettingsSummary">
+                  <div>
+                    <strong>音频分轨（本地）</strong>
+                    <span>MDX-Net / MDX23C 会单独占用推理资源，并在开始前检查人声与伴奏两条轨道所需的本地文件。</span>
+                  </div>
+                  <span className={appSettings?.audio_separation_ready ? "enhancementReadiness ready" : "enhancementReadiness incomplete"}>
+                    {appSettings?.audio_separation_ready ? "至少一个模型已就绪" : "需要配置"}
+                  </span>
+                </div>
+                <div className="enhancementSettingsGrid">
+                  <label className="settingsField enhancementWideField">
+                    <span>分轨专用 Python 运行时</span>
+                    <div className="settingsPathInput">
+                      <input
+                        value={settingsDraft.audio_separation_python}
+                        placeholder="…\\audio-separation-runtime-full\\Scripts\\python.exe"
+                        onChange={(event) => setSettingsDraft((draft) => ({ ...draft, audio_separation_python: event.target.value }))}
+                      />
+                      <button className="pathPickButton" type="button" onClick={() => void chooseAudioSeparationPython()}>
+                        <FolderOpen size={15} strokeWidth={1.9} />
+                        <span>选择</span>
+                      </button>
+                    </div>
+                    <small className={appSettings?.audio_separation_runtime_installed ? "settingCheck ready" : "settingCheck"}>{appSettings?.audio_separation_runtime_installed ? "已找到 Python 运行时。" : "请选择安装了 audio-separator 的 python.exe。"}</small>
+                  </label>
+                  <label className="settingsField">
+                    <span>分轨设备</span>
+                    <select value={settingsDraft.audio_separation_device} onChange={(event) => setSettingsDraft((draft) => ({ ...draft, audio_separation_device: event.target.value as SettingsDraft["audio_separation_device"] }))}>
+                      <option value="auto">自动选择（推荐）</option>
+                      <option value="cuda">NVIDIA CUDA</option>
+                      <option value="cpu">CPU</option>
+                    </select>
+                    <small>自动优先使用 CUDA；CPU 仅用于兼容性排查。</small>
+                  </label>
+                  <label className="settingsField enhancementWideField">
+                    <span>MDX-Net 模型目录</span>
+                    <div className="settingsPathInput">
+                      <input value={settingsDraft.audio_separation_root} onChange={(event) => setSettingsDraft((draft) => ({ ...draft, audio_separation_root: event.target.value }))} />
+                      <button className="pathPickButton" type="button" onClick={() => void chooseDirectoryForSetting("audio_separation_root")}>
+                        <FolderOpen size={15} strokeWidth={1.9} />
+                        <span>选择</span>
+                      </button>
+                    </div>
+                    <small className={appSettings?.audio_separation_ready ? "settingCheck ready" : "settingCheck"}>{appSettings?.audio_separation_ready ? "已检测到可用模型与参数文件。" : "目录需包含权重及 model_data 参数文件。"}</small>
                   </label>
                 </div>
                 <details className="settingsAdvancedDetails">

@@ -42,9 +42,10 @@ def _prepare_model_root(tmp_path: Path) -> Path:
 
 def test_separation_runner_creates_two_published_stems(tmp_path: Path, monkeypatch):
     settings = _settings(tmp_path)
+    monkeypatch.setattr("tts_api.separation.release_conflicting_runtimes", lambda *_args, **_kwargs: [])
     root = _prepare_model_root(tmp_path)
-    monkeypatch.setattr("tts_api.separation._model_root", lambda: root)
-    monkeypatch.setattr("tts_api.separation._runtime_python", lambda: Path(sys.executable))
+    monkeypatch.setattr("tts_api.separation._model_root", lambda _settings=None: root)
+    monkeypatch.setattr("tts_api.separation._runtime_python", lambda _settings=None: Path(sys.executable))
     paths = _paths(settings)
     input_id = "a" * 32
     paths.inputs.mkdir(parents=True)
@@ -77,7 +78,7 @@ def test_separation_runner_creates_two_published_stems(tmp_path: Path, monkeypat
 
 def test_separation_job_rejects_unmanaged_input(tmp_path: Path, monkeypatch):
     settings = _settings(tmp_path)
-    monkeypatch.setattr("tts_api.separation._model_root", lambda: _prepare_model_root(tmp_path))
+    monkeypatch.setattr("tts_api.separation._model_root", lambda _settings=None: _prepare_model_root(tmp_path))
     runner = get_audio_separation_runner(settings)
     try:
         runner.enqueue(AudioSeparationJobRequest(input_id="b" * 32, source_file_name="missing.wav"))

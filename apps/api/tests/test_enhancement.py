@@ -42,6 +42,7 @@ def _settings(tmp_path: Path) -> Settings:
 
 def test_enhancement_runner_creates_ordered_comparison_outputs(tmp_path: Path, monkeypatch):
     settings = _settings(tmp_path)
+    monkeypatch.setattr("tts_api.enhancement.release_conflicting_runtimes", lambda *_args, **_kwargs: [])
     input_id = "a" * 32
     settings.audio_enhancement_input_dir.mkdir(parents=True)
     source = settings.audio_enhancement_input_dir / f"{input_id}.wav"

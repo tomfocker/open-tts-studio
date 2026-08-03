@@ -24,7 +24,7 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 from tts_api.audio import create_output_path, probe_audio_metadata
-from tts_api.config import MODEL_STORE_ROOT, Settings, get_settings
+from tts_api.config import Settings, get_settings
 from tts_api.runtime_memory import local_gpu_generation_lock, release_conflicting_runtimes
 
 
@@ -145,23 +145,16 @@ def _paths(settings: Settings) -> _Paths:
     return _Paths(root=root, inputs=root / "inputs", work=root / "work", jobs_file=root / "jobs.json")
 
 
-def _runtime_python() -> Path:
+def _runtime_python(settings: Settings | None = None) -> Path:
     configured = os.environ.get("OPEN_TTS_AUDIO_SEPARATION_PYTHON", "").strip()
     if configured:
         return Path(configured)
-    executable = "python.exe" if os.name == "nt" else "python"
-    # Prefer the complete standalone runtime.  The shorter historical folder
-    # remains a compatible fallback for people who installed it manually.
-    for name in ("audio-separation-runtime-full", "audio-separation-runtime"):
-        candidate = MODEL_STORE_ROOT / name / "Scripts" / executable
-        if candidate.is_file():
-            return candidate
-    return MODEL_STORE_ROOT / "audio-separation-runtime" / "Scripts" / executable
+    return (settings or get_settings()).audio_separation_python
 
 
-def _model_root() -> Path:
+def _model_root(settings: Settings | None = None) -> Path:
     configured = os.environ.get("OPEN_TTS_MDX_MODEL_ROOT", "").strip()
-    return Path(configured) if configured else MODEL_STORE_ROOT / "MDX_Net_Models"
+    return Path(configured) if configured else (settings or get_settings()).audio_separation_root
 
 
 def _safe_error(error: Exception | str) -> str:
@@ -199,9 +192,9 @@ def _build_work(request: AudioSeparationJobRequest, settings: Settings) -> _Work
     return _Work(request=request.model_copy(update={"source_file_name": source_file_name}), input_path=source, file_size_bytes=file_size_bytes)
 
 
-def _model_files(model: AudioSeparationModel) -> tuple[_ModelSpec, Path, Path]:
+def _model_files(model: AudioSeparationModel, settings: Settings | None = None) -> tuple[_ModelSpec, Path, Path]:
     spec = _MODEL_SPECS[model]
-    root = _model_root()
+    root = _model_root(settings)
     model_file = root / spec.file_name
     model_config = (
         root / "model_data" / "mdx_c_configs" / spec.config_name
@@ -344,7 +337,7 @@ class AudioSeparationRunner:
 
     def enqueue(self, request: AudioSeparationJobRequest, retry_of: str | None = None) -> AudioSeparationJobInfo:
         work = _build_work(request, self.settings)
-        _model_files(work.request.model)
+        _model_files(work.request.model, self.settings)
         job = self.store.create(work, retry_of=retry_of)
         with self._lock:
             self._work[job.id] = work
@@ -396,7 +389,7 @@ class AudioSeparationRunner:
                 self._queue.task_done()
 
     def _run_work(self, job_id: str, work: _Work) -> None:
-        runtime = _runtime_python()
+        runtime = _runtime_python(self.settings)
         if not runtime.is_file():
             raise AudioSeparationError("未找到音频分轨 Python 运行时；请安装本地 audio-separation-runtime。")
         settings = self.settings
@@ -411,7 +404,7 @@ class AudioSeparationRunner:
             source_rate, duration_seconds = probe_audio_metadata(canonical, settings.ffmpeg_path)
             if duration_seconds <= 0:
                 raise AudioSeparationError("媒体音轨时长为零，无法进行人声与伴奏分离。")
-            spec, model_file, model_config = _model_files(work.request.model)
+            spec, model_file, model_config = _model_files(work.request.model, settings)
             self.store.report_progress(job_id, "waiting_for_gpu", 20)
             with local_gpu_generation_lock:
                 try:
@@ -439,7 +432,7 @@ class AudioSeparationRunner:
         worker = Path(__file__).resolve().parents[1] / "tools" / "run_audio_separation.py"
         if not worker.is_file():
             raise AudioSeparationError("音频分轨运行脚本缺失，请修复本地安装。")
-        command = [str(_runtime_python()), str(worker), "--backend", backend, "--input", str(source), "--output-dir", str(output_dir), "--model-file", str(model_file), "--model-config", str(model_config), "--device", os.environ.get("OPEN_TTS_AUDIO_SEPARATION_DEVICE", "auto")]
+        command = [str(_runtime_python(self.settings)), str(worker), "--backend", backend, "--input", str(source), "--output-dir", str(output_dir), "--model-file", str(model_file), "--model-config", str(model_config), "--device", self.settings.audio_separation_device]
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
         with self._lock:
             self._processes[job_id] = process

@@ -16,6 +16,7 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelAudioSeparationJob,
   createAudioSeparationJob,
+  fetchAppSettings,
   fetchAudioSeparationJobs,
   retryAudioSeparationJob,
   toAudioUrl,
@@ -24,7 +25,8 @@ import {
 import type {
   AudioSeparationInputInfo,
   AudioSeparationJob,
-  AudioSeparationModel
+  AudioSeparationModel,
+  AppSettings
 } from "./types";
 
 import "./enhancement-workspace.css";
@@ -79,6 +81,12 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<Pick<AppSettings,
+    "audio_separation_runtime_installed"
+    | "audio_separation_mdx_vocals_installed"
+    | "audio_separation_mdx_karaoke_installed"
+    | "audio_separation_mdx23c_installed"
+  > | null>(null);
   const browserFileRef = useRef<HTMLInputElement | null>(null);
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null, [jobs, selectedJobId]);
 
@@ -95,6 +103,12 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
 
   useEffect(() => {
     void refreshJobs();
+    void fetchAppSettings().then((settings) => setReadiness({
+      audio_separation_runtime_installed: settings.audio_separation_runtime_installed,
+      audio_separation_mdx_vocals_installed: settings.audio_separation_mdx_vocals_installed,
+      audio_separation_mdx_karaoke_installed: settings.audio_separation_mdx_karaoke_installed,
+      audio_separation_mdx23c_installed: settings.audio_separation_mdx23c_installed
+    })).catch(() => setReadiness(null));
     const timer = window.setInterval(() => void refreshJobs(true), 1600);
     return () => window.clearInterval(timer);
   }, []);
@@ -102,6 +116,18 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
   const selectMedia = () => {
     setError(null);
     setMessage(null);
+    if (window.desktopFiles?.selectAudioSeparationMedia) {
+      setPendingAction("select");
+      void window.desktopFiles.selectAudioSeparationMedia()
+        .then((picked) => {
+          if (!picked) return;
+          setMedia(picked);
+          setMessage("媒体已在本地受控暂存，可开始本地人声与伴奏分轨。 ");
+        })
+        .catch((reason) => setError(reason instanceof Error ? reason.message : "无法导入本地媒体。 "))
+        .finally(() => setPendingAction(null));
+      return;
+    }
     browserFileRef.current?.click();
   };
 
@@ -127,9 +153,20 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
     setSelectedJobId(job.id);
   };
 
+  const selectedModelInstalled = readiness === null ? undefined : {
+    "mdx-vocals": readiness.audio_separation_mdx_vocals_installed,
+    "mdx-karaoke": readiness.audio_separation_mdx_karaoke_installed,
+    "mdx23c-instvoc-hq": readiness.audio_separation_mdx23c_installed
+  }[model];
+  const selectedModelReady = readiness === null ? undefined : Boolean(readiness.audio_separation_runtime_installed && selectedModelInstalled);
+
   const start = async () => {
     if (!media) {
       setError("请先选择一个本地音频或视频文件。 ");
+      return;
+    }
+    if (selectedModelReady === false) {
+      setError("当前分轨模型或专用运行时尚未就绪，请在设置中检查 MDX-Net 目录与 Python 运行时。 ");
       return;
     }
     setPendingAction("start");
@@ -193,8 +230,9 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
             <input ref={browserFileRef} className="enhancementHiddenInput" type="file" accept="audio/*,video/*" onChange={(event) => void onMediaPicked(event)} />
 
             <fieldset className="enhancementModels"><legend>分轨模型</legend>{MODEL_OPTIONS.map((option) => <label key={option.id} className={model === option.id ? "active" : ""}><input type="radio" name="audio-separation-model" checked={model === option.id} onChange={() => setModel(option.id)} /><span><strong>{option.name}</strong><small>{option.detail}</small></span></label>)}</fieldset>
-            <button className="enhancementPrimaryButton" type="button" onClick={() => void start()} disabled={pendingAction === "start" || !media}>{pendingAction === "start" ? <Loader2 className="spin" size={16} /> : <Waves size={16} />}开始分轨</button>
+            <button className="enhancementPrimaryButton" type="button" onClick={() => void start()} disabled={pendingAction === "start" || !media || selectedModelReady === false}>{pendingAction === "start" ? <Loader2 className="spin" size={16} /> : <Waves size={16} />}开始分轨</button>
             <p className="enhancementNote">每次会生成独立的人声和伴奏 WAV。模型会与 TTS、ASR 串行使用 GPU，音频不会上传。</p>
+            {selectedModelReady === false && <p className="enhancementNote error">当前选择尚未就绪：{readiness?.audio_separation_runtime_installed ? "缺少对应 MDX-Net 权重或参数文件。" : "缺少 audio-separation-runtime 专用 Python 运行时。"}</p>}
           </section>
 
           <section className="enhancementResult">

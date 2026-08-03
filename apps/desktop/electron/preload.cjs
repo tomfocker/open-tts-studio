@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld("desktopFiles", {
   selectReferenceAudio: () => ipcRenderer.invoke("file:select-reference-audio"),
   selectTranscriptionMedia: () => ipcRenderer.invoke("file:select-transcription-media"),
   selectAudioEnhancementMedia: () => ipcRenderer.invoke("file:select-audio-enhancement-media"),
+  selectAudioSeparationMedia: () => ipcRenderer.invoke("file:select-audio-separation-media"),
   saveTranscriptionExport: (content, defaultName, extension) => ipcRenderer.invoke("file:save-transcription-export", content, defaultName, extension),
   readSelectedAudio: (targetPath) => ipcRenderer.invoke("file:read-selected-audio", targetPath),
   readManagedReferenceAudio: (targetPath) => ipcRenderer.invoke("file:read-managed-reference-audio", targetPath),

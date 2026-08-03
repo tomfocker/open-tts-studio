@@ -26,6 +26,7 @@ DEFAULT_QWEN_CUDA_RUNTIME_ROOT = MODEL_STORE_ROOT / "Qwen3-runtime-cuda"
 DEFAULT_QWEN_CUDA_BACKEND_DIR = DEFAULT_CAPSWRITER_ROOT / ".open-tts-backends" / "cuda"
 DEFAULT_DEEPFILTERNET3_ROOT = MODEL_STORE_ROOT / "DeepFilterNet3"
 DEFAULT_MOSSFORMER2_SE_ROOT = MODEL_STORE_ROOT / "MossFormer2-SE-48K"
+DEFAULT_AUDIO_SEPARATION_ROOT = MODEL_STORE_ROOT / "MDX_Net_Models"
 DEFAULT_SETTINGS_FILE = WORKSPACE_ROOT / "data" / "config" / "user-settings.json"
 
 
@@ -141,6 +142,29 @@ def _default_audio_enhancement_work_dir() -> Path:
 def _default_audio_enhancement_python() -> Path:
     configured = os.environ.get("OPEN_TTS_AUDIO_ENHANCEMENT_PYTHON")
     return Path(configured) if configured else Path(sys.executable)
+
+
+def _default_audio_separation_python() -> Path:
+    configured = os.environ.get("OPEN_TTS_AUDIO_SEPARATION_PYTHON")
+    if configured:
+        return Path(configured)
+    executable = "python.exe" if os.name == "nt" else "python"
+    for name in ("audio-separation-runtime-full", "audio-separation-runtime"):
+        candidate = MODEL_STORE_ROOT / name / "Scripts" / executable
+        if candidate.is_file():
+            return candidate
+    return MODEL_STORE_ROOT / "audio-separation-runtime" / "Scripts" / executable
+
+
+def _default_audio_separation_root() -> Path:
+    # ``OPEN_TTS_AUDIO_SEPARATION_ROOT`` was already the job-workspace
+    # override (inputs, work files and job state) before model-root settings
+    # were introduced.  Keep that meaning: using it for model discovery would
+    # otherwise make a configured MDX model directory receive temporary media
+    # and jobs.json.  New deployments can use the explicit model-root name;
+    # OPEN_TTS_MDX_MODEL_ROOT remains the compatible UVR-oriented alias.
+    configured = os.environ.get("OPEN_TTS_AUDIO_SEPARATION_MODEL_ROOT") or os.environ.get("OPEN_TTS_MDX_MODEL_ROOT")
+    return Path(configured) if configured else DEFAULT_AUDIO_SEPARATION_ROOT
 
 
 def _default_qwen_asr_python() -> Path:
@@ -309,6 +333,9 @@ USER_SETTING_KEYS = {
     "audio_enhancement_device",
     "deepfilternet3_root",
     "mossformer2_se_root",
+    "audio_separation_python",
+    "audio_separation_root",
+    "audio_separation_device",
     "model_instances",
 }
 RESTART_REQUIRED_FIELDS = ["api_host", "api_port"]
@@ -388,6 +415,14 @@ class Settings(BaseModel):
     )
     mossformer2_se_root: Path = Field(
         default_factory=lambda: Path(os.environ.get("OPEN_TTS_MOSSFORMER2_SE_ROOT", str(DEFAULT_MOSSFORMER2_SE_ROOT)))
+    )
+    # UVR-compatible MDX/MDXC separation has its own optional runtime and
+    # local model package.  Keeping them separate from enhancement prevents a
+    # core desktop Python runtime from being mistaken for a usable separator.
+    audio_separation_python: Path = Field(default_factory=_default_audio_separation_python)
+    audio_separation_root: Path = Field(default_factory=_default_audio_separation_root)
+    audio_separation_device: Literal["auto", "cuda", "cpu"] = Field(
+        default_factory=lambda: os.environ.get("OPEN_TTS_AUDIO_SEPARATION_DEVICE", "auto")
     )
     indextts2_root: Path = Field(default_factory=lambda: Path(os.environ.get("OPEN_TTS_INDEXTTS2_ROOT", str(DEFAULT_INDEXTTS2_ROOT))))
     indextts2_idle_timeout_seconds: int = Field(default_factory=lambda: int(os.environ.get("OPEN_TTS_INDEXTTS2_IDLE_SECONDS", "600")))
@@ -512,13 +547,19 @@ def _recover_legacy_asr_companions(values: dict) -> dict:
 
     recovered = dict(values)
 
-    def use_existing(key: str, candidate: Path) -> None:
+    def use_existing(key: str, candidate: Path, *, replace_core_runtime: bool = False) -> None:
         current = recovered.get(key)
         try:
             current_exists = bool(current) and Path(current).expanduser().exists()
         except TypeError:
             current_exists = False
-        if candidate.exists() and not current_exists:
+        current_is_core_runtime = False
+        if replace_core_runtime and current:
+            try:
+                current_is_core_runtime = Path(current).expanduser().resolve() == Path(sys.executable).resolve()
+            except OSError:
+                current_is_core_runtime = False
+        if candidate.exists() and (not current_exists or current_is_core_runtime):
             recovered[key] = str(candidate)
 
     use_existing("qwen_asr_model_dir", legacy_root / "Qwen3-ASR-1.7B")
@@ -531,6 +572,23 @@ def _recover_legacy_asr_companions(values: dict) -> dict:
     use_existing("alignment_python", legacy_root / "Qwen3-runtime" / "python.exe")
     use_existing("sensevoice_model_dir", legacy_root / "SenseVoiceSmall")
     use_existing("sensevoice_python", legacy_root / "SenseVoiceSmall" / "runtime" / "python.exe")
+    # Previous desktop versions saved the lightweight bundled API Python as
+    # the enhancement runtime.  That interpreter deliberately has neither
+    # ClearVoice nor audio-separator, so prefer an existing sibling optional
+    # runtime when the old value is exactly that core runtime.
+    use_existing(
+        "audio_enhancement_python",
+        legacy_root / "audio-enhancement-runtime" / "Scripts" / ("python.exe" if os.name == "nt" else "python"),
+        replace_core_runtime=True,
+    )
+    use_existing("deepfilternet3_root", legacy_root / "DeepFilterNet3")
+    use_existing("mossformer2_se_root", legacy_root / "MossFormer2-SE-48K")
+    use_existing(
+        "audio_separation_python",
+        legacy_root / "audio-separation-runtime-full" / "Scripts" / ("python.exe" if os.name == "nt" else "python"),
+        replace_core_runtime=True,
+    )
+    use_existing("audio_separation_root", legacy_root / "MDX_Net_Models")
     return recovered
 
 
@@ -556,6 +614,20 @@ def serialize_settings(settings: Settings) -> dict:
     mossformer2_se_model_installed = (
         (settings.mossformer2_se_root / "last_best_checkpoint").is_file()
         and (settings.mossformer2_se_root / "last_best_checkpoint.pt").is_file()
+    )
+    separation_root = settings.audio_separation_root
+    separation_runtime_installed = settings.audio_separation_python.is_file()
+    separation_mdx_vocals_installed = (
+        (separation_root / "UVR-MDX-NET-Voc_FT.onnx").is_file()
+        and (separation_root / "model_data" / "model_data.json").is_file()
+    )
+    separation_mdx_karaoke_installed = (
+        (separation_root / "UVR_MDXNET_KARA_2.onnx").is_file()
+        and (separation_root / "model_data" / "model_data.json").is_file()
+    )
+    separation_mdx23c_installed = (
+        (separation_root / "MDX23C-8KFFT-InstVoc_HQ.ckpt").is_file()
+        and (separation_root / "model_data" / "mdx_c_configs" / "model_2_stem_full_band_8k.yaml").is_file()
     )
 
     return {
@@ -604,6 +676,16 @@ def serialize_settings(settings: Settings) -> dict:
             audio_enhancement_runtime_installed
             and deepfilternet3_model_installed
             and mossformer2_se_model_installed
+        ),
+        "audio_separation_python": str(settings.audio_separation_python),
+        "audio_separation_runtime_installed": separation_runtime_installed,
+        "audio_separation_root": str(separation_root),
+        "audio_separation_device": settings.audio_separation_device,
+        "audio_separation_mdx_vocals_installed": separation_mdx_vocals_installed,
+        "audio_separation_mdx_karaoke_installed": separation_mdx_karaoke_installed,
+        "audio_separation_mdx23c_installed": separation_mdx23c_installed,
+        "audio_separation_ready": separation_runtime_installed and any(
+            (separation_mdx_vocals_installed, separation_mdx_karaoke_installed, separation_mdx23c_installed)
         ),
         "qwen_asr_python": str(settings.qwen_asr_python),
         "qwen_cuda_python": str(settings.qwen_cuda_python),

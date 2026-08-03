@@ -542,6 +542,10 @@ async function selectAudioEnhancementMedia(dialogImpl, fsPromises, inputDirector
   return selectManagedMedia(dialogImpl, fsPromises, inputDirectory, "选择要降噪或增强的音频或视频", idFactory);
 }
 
+async function selectAudioSeparationMedia(dialogImpl, fsPromises, inputDirectory, idFactory = randomUUID) {
+  return selectManagedMedia(dialogImpl, fsPromises, inputDirectory, "选择要分离人声与伴奏的音频或视频", idFactory);
+}
+
 async function saveTranscriptionExport(dialogImpl, fsPromises, content, defaultName, extension) {
   if (typeof content !== "string" || !content.trim()) {
     throw new Error("没有可导出的转写内容");
@@ -690,6 +694,7 @@ module.exports = {
   selectModelArchive,
   selectSettingsBackup,
   selectAudioEnhancementMedia,
+  selectAudioSeparationMedia,
   selectTranscriptionMedia,
   selectReferenceAudio,
   selectVoicePackage,

@@ -41,6 +41,9 @@ class SettingsBackupValues(BaseModel):
     audio_enhancement_device: Literal["auto", "cuda", "cpu"] = "auto"
     deepfilternet3_root: Path | None = None
     mossformer2_se_root: Path | None = None
+    audio_separation_python: Path | None = None
+    audio_separation_root: Path | None = None
+    audio_separation_device: Literal["auto", "cuda", "cpu"] = "auto"
     default_model_id: Literal["indextts2", "voxcpm2", "gptsovits", "doubao-web"] = "indextts2"
     prewarm_default_model_on_startup: bool = False
 
@@ -87,6 +90,9 @@ class SettingsUpdate(BaseModel):
     audio_enhancement_device: Literal["auto", "cuda", "cpu"] | None = None
     deepfilternet3_root: Path | None = None
     mossformer2_se_root: Path | None = None
+    audio_separation_python: Path | None = None
+    audio_separation_root: Path | None = None
+    audio_separation_device: Literal["auto", "cuda", "cpu"] | None = None
     alignment_device: Literal["auto", "cuda", "dml", "cpu"] | None = None
     voxcpm2_root: Path | None = None
     voxcpm2_api_host: str | None = None
@@ -131,6 +137,9 @@ def build_settings_backup(settings) -> SettingsBackup:
             audio_enhancement_device=settings.audio_enhancement_device,
             deepfilternet3_root=settings.deepfilternet3_root,
             mossformer2_se_root=settings.mossformer2_se_root,
+            audio_separation_python=settings.audio_separation_python,
+            audio_separation_root=settings.audio_separation_root,
+            audio_separation_device=settings.audio_separation_device,
             default_model_id=settings.default_model_id,
             prewarm_default_model_on_startup=settings.prewarm_default_model_on_startup,
         ),
@@ -185,8 +194,10 @@ def update_runtime_settings(update: SettingsUpdate) -> dict:
     updated_settings = get_settings()
     get_transcription_runner(updated_settings)
     from tts_api.enhancement import get_audio_enhancement_runner
+    from tts_api.separation import get_audio_separation_runner
 
     get_audio_enhancement_runner(updated_settings)
+    get_audio_separation_runner(updated_settings)
     return serialize_settings(updated_settings)
 
 
@@ -212,8 +223,10 @@ def import_runtime_settings(backup: SettingsBackup) -> dict:
     imported_settings = get_settings()
     get_transcription_runner(imported_settings)
     from tts_api.enhancement import get_audio_enhancement_runner
+    from tts_api.separation import get_audio_separation_runner
 
     get_audio_enhancement_runner(imported_settings)
+    get_audio_separation_runner(imported_settings)
     if backup.model_packages is not None:
         replace_model_packages(backup.model_packages, imported_settings)
     return serialize_settings(imported_settings)

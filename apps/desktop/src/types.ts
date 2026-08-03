@@ -768,6 +768,14 @@ export type AppSettings = {
   mossformer2_se_root: string;
   mossformer2_se_model_installed: boolean;
   audio_enhancement_ready: boolean;
+  audio_separation_python: string;
+  audio_separation_runtime_installed: boolean;
+  audio_separation_root: string;
+  audio_separation_device: "auto" | "cuda" | "cpu";
+  audio_separation_mdx_vocals_installed: boolean;
+  audio_separation_mdx_karaoke_installed: boolean;
+  audio_separation_mdx23c_installed: boolean;
+  audio_separation_ready: boolean;
   voxcpm2_root: string;
   voxcpm2_api_host: string;
   voxcpm2_api_port: number;
@@ -801,6 +809,9 @@ export type AppSettingsUpdate = Partial<
     | "audio_enhancement_device"
     | "deepfilternet3_root"
     | "mossformer2_se_root"
+    | "audio_separation_python"
+    | "audio_separation_root"
+    | "audio_separation_device"
     | "voxcpm2_root"
     | "voxcpm2_api_host"
     | "voxcpm2_api_port"
@@ -837,6 +848,9 @@ export type SettingsBackup = {
     | "audio_enhancement_device"
     | "deepfilternet3_root"
     | "mossformer2_se_root"
+    | "audio_separation_python"
+    | "audio_separation_root"
+    | "audio_separation_device"
     | "default_model_id"
     | "prewarm_default_model_on_startup"
   >;

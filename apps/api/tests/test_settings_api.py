@@ -83,6 +83,41 @@ def test_settings_recovers_asr_companions_from_an_existing_legacy_model_root(tmp
     assert settings.sensevoice_python == sensevoice_python
 
 
+def test_settings_recovers_optional_audio_tools_from_an_existing_legacy_model_root(tmp_path: Path, monkeypatch):
+    _, settings_file = make_settings_client(tmp_path, monkeypatch)
+    legacy_root = tmp_path / "legacy-models"
+    (legacy_root / "IndexTTS2").mkdir(parents=True)
+    # One existing ASR sibling makes this a migrated legacy model store rather
+    # than an arbitrary custom IndexTTS2 folder.
+    (legacy_root / "SenseVoiceSmall").mkdir()
+    (legacy_root / "DeepFilterNet3" / "checkpoints").mkdir(parents=True)
+    (legacy_root / "DeepFilterNet3" / "config.ini").write_text("[train]\n", encoding="utf-8")
+    moss_root = legacy_root / "MossFormer2-SE-48K"
+    moss_root.mkdir()
+    (moss_root / "last_best_checkpoint").write_text("last_best_checkpoint.pt\n", encoding="utf-8")
+    (moss_root / "last_best_checkpoint.pt").write_bytes(b"weights")
+    mdx_root = legacy_root / "MDX_Net_Models"
+    (mdx_root / "model_data" / "mdx_c_configs").mkdir(parents=True)
+    (mdx_root / "UVR-MDX-NET-Voc_FT.onnx").write_bytes(b"onnx")
+    (mdx_root / "model_data" / "model_data.json").write_text("{}", encoding="utf-8")
+    enhancement_python = legacy_root / "audio-enhancement-runtime" / "Scripts" / "python.exe"
+    separation_python = legacy_root / "audio-separation-runtime-full" / "Scripts" / "python.exe"
+    enhancement_python.parent.mkdir(parents=True)
+    separation_python.parent.mkdir(parents=True)
+    enhancement_python.touch()
+    separation_python.touch()
+    settings_file.write_text(json.dumps({"indextts2_root": str(legacy_root / "IndexTTS2")}), encoding="utf-8")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+
+    assert settings.deepfilternet3_root == legacy_root / "DeepFilterNet3"
+    assert settings.mossformer2_se_root == moss_root
+    assert settings.audio_enhancement_python == enhancement_python
+    assert settings.audio_separation_root == mdx_root
+    assert settings.audio_separation_python == separation_python
+
+
 def test_settings_endpoint_persists_updates_and_refreshes_runtime(tmp_path: Path, monkeypatch):
     client, settings_file = make_settings_client(tmp_path, monkeypatch)
     custom_output = tmp_path / "outputs"

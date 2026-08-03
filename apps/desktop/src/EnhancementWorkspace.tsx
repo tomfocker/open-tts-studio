@@ -15,6 +15,7 @@ import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   cancelAudioEnhancementJob,
   createAudioEnhancementJob,
+  fetchAppSettings,
   fetchAudioEnhancementJobs,
   retryAudioEnhancementJob,
   toAudioUrl,
@@ -24,7 +25,8 @@ import type {
   AudioEnhancementBackend,
   AudioEnhancementInputInfo,
   AudioEnhancementJob,
-  AudioEnhancementPreset
+  AudioEnhancementPreset,
+  AppSettings
 } from "./types";
 
 import "./enhancement-workspace.css";
@@ -75,6 +77,11 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<Pick<AppSettings,
+    "audio_enhancement_runtime_installed"
+    | "deepfilternet3_model_installed"
+    | "mossformer2_se_model_installed"
+  > | null>(null);
   const browserFileRef = useRef<HTMLInputElement | null>(null);
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null, [jobs, selectedJobId]);
 
@@ -91,6 +98,11 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
 
   useEffect(() => {
     void refreshJobs();
+    void fetchAppSettings().then((settings) => setReadiness({
+      audio_enhancement_runtime_installed: settings.audio_enhancement_runtime_installed,
+      deepfilternet3_model_installed: settings.deepfilternet3_model_installed,
+      mossformer2_se_model_installed: settings.mossformer2_se_model_installed
+    })).catch(() => setReadiness(null));
     const timer = window.setInterval(() => void refreshJobs(true), 1600);
     return () => window.clearInterval(timer);
   }, []);
@@ -134,8 +146,22 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
   };
 
   const toggleBackend = (backend: AudioEnhancementBackend) => {
-    setBackends((current) => current.includes(backend) ? current.filter((item) => item !== backend) : [...current, backend]);
+    const ready = readiness === null ? true : readiness.audio_enhancement_runtime_installed && (
+      backend === "deepfilternet3" ? readiness.deepfilternet3_model_installed : readiness.mossformer2_se_model_installed
+    );
+    setBackends((current) => {
+      if (current.includes(backend)) return current.filter((item) => item !== backend);
+      return ready ? [...current, backend] : current;
+    });
   };
+
+  const backendReady = (backend: AudioEnhancementBackend): boolean | undefined => {
+    if (readiness === null) return undefined;
+    return readiness.audio_enhancement_runtime_installed && (
+      backend === "deepfilternet3" ? readiness.deepfilternet3_model_installed : readiness.mossformer2_se_model_installed
+    );
+  };
+  const selectedBackendsReady = backends.every((backend) => backendReady(backend) !== false);
 
   const updateJob = (job: AudioEnhancementJob) => {
     setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)]);
@@ -149,6 +175,10 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
     }
     if (!backends.length) {
       setError("请至少选择一个增强模型。 ");
+      return;
+    }
+    if (!selectedBackendsReady) {
+      setError("所选增强模型或专用运行时尚未就绪，请在设置中检查模型目录。 ");
       return;
     }
     setPendingAction("start");
@@ -217,11 +247,11 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
             </button>
             <input ref={browserFileRef} className="enhancementHiddenInput" type="file" accept="audio/*,video/*" onChange={(event) => void onBrowserMediaPicked(event)} />
 
-            <fieldset className="enhancementModels"><legend>对比模型</legend>{MODEL_OPTIONS.map((model) => <label key={model.id} className={backends.includes(model.id) ? "active" : ""}><input type="checkbox" checked={backends.includes(model.id)} onChange={() => toggleBackend(model.id)} /><span><strong>{model.name}</strong><small>{model.detail}</small></span></label>)}</fieldset>
+            <fieldset className="enhancementModels"><legend>对比模型</legend>{MODEL_OPTIONS.map((model) => <label key={model.id} className={backends.includes(model.id) ? "active" : ""}><input type="checkbox" checked={backends.includes(model.id)} disabled={backendReady(model.id) === false && !backends.includes(model.id)} onChange={() => toggleBackend(model.id)} /><span><strong>{model.name}</strong><small>{backendReady(model.id) === false ? (readiness?.audio_enhancement_runtime_installed ? "模型目录不完整，请到设置中修复。" : "缺少专用 Python 运行时，请到设置中修复。") : model.detail}</small></span></label>)}</fieldset>
 
             <label className="enhancementPreset"><span>处理预设</span><select value={preset} onChange={(event) => setPreset(event.target.value as AudioEnhancementPreset)}><option value="light">轻度：保留更多原始音色</option><option value="standard">标准：降噪与清晰度平衡</option><option value="strong">强力：更积极地压低噪声</option></select></label>
-            <button className="enhancementPrimaryButton" type="button" onClick={() => void start()} disabled={pendingAction === "start" || !media || !backends.length}>{pendingAction === "start" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}生成对比结果</button>
-            <p className="enhancementNote">如果尚未配置模型包或语音增强 Python 运行时，任务会给出本地修复提示，不会上传音频。</p>
+            <button className="enhancementPrimaryButton" type="button" onClick={() => void start()} disabled={pendingAction === "start" || !media || !backends.length || !selectedBackendsReady}>{pendingAction === "start" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}生成对比结果</button>
+            <p className="enhancementNote">模型与专用运行时均就绪后才可开始；音频不会上传。</p>
           </section>
 
           <section className="enhancementResult">

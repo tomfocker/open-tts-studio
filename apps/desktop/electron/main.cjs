@@ -26,6 +26,7 @@ const {
   selectModelArchive,
   selectSettingsBackup,
   selectAudioEnhancementMedia,
+  selectAudioSeparationMedia,
   selectTranscriptionMedia,
   selectReferenceAudio,
   selectVoicePackage,
@@ -231,6 +232,10 @@ ipcMain.handle("file:select-transcription-media", () => (
 
 ipcMain.handle("file:select-audio-enhancement-media", () => (
   selectAudioEnhancementMedia(dialog, fs, path.join(paths.dataRoot, "audio-enhancements", "inputs"))
+));
+
+ipcMain.handle("file:select-audio-separation-media", () => (
+  selectAudioSeparationMedia(dialog, fs, path.join(paths.dataRoot, "audio-separations", "inputs"))
 ));
 
 ipcMain.handle("file:save-transcription-export", (_event, content, defaultName, extension) => (
