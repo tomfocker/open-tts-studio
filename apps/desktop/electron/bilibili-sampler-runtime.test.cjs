@@ -90,6 +90,12 @@ function toPlain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function outputTimestamp(timestamp) {
+  const date = new Date(timestamp);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
 function createFixtureFetch({ metadataPayload, playPayload }) {
   return async (url) => {
     const normalizedUrl = String(url);
@@ -390,7 +396,7 @@ test("extractSample downloads audio and runs ffmpeg with clipping options", asyn
     {
       ffmpegPath: "C:\\ffmpeg\\bin\\ffmpeg.exe",
       inputPath: path.join(createTestApp().getPath("userData"), "bilibili-sampler", "tasks", "1713657600000", "source.audio.m4s"),
-      outputPath: path.join(outputDirectory, "20240421-080000-Clean Speech.wav"),
+      outputPath: path.join(outputDirectory, `${outputTimestamp(1713657600000)}-Clean Speech.wav`),
       startSeconds: 5,
       endSeconds: 13,
       sampleRate: 24000,
@@ -398,8 +404,8 @@ test("extractSample downloads audio and runs ffmpeg with clipping options", asyn
     }
   ]);
   assert.deepEqual(toPlain(result.data), {
-    audioPath: path.join(outputDirectory, "20240421-080000-Clean Speech.wav"),
-    sourceAudioPath: path.join(createTestApp().getPath("userData"), "sources", "20240421-080000-Clean Speech.source.m4s"),
+    audioPath: path.join(outputDirectory, `${outputTimestamp(1713657600000)}-Clean Speech.wav`),
+    sourceAudioPath: path.join(createTestApp().getPath("userData"), "sources", `${outputTimestamp(1713657600000)}-Clean Speech.source.m4s`),
     durationSeconds: 8,
     sampleRate: 24000,
     title: "Voice Study",
@@ -459,7 +465,7 @@ test("downloadVideo downloads DASH tracks and remuxes a local MP4 without re-enc
   const result = await service.downloadVideo({ fileName: "Video Export" });
 
   const taskDirectory = path.join(createTestApp().getPath("userData"), "bilibili-sampler", "tasks", "1713657600002");
-  const outputPath = path.join(createTestApp().getPath("downloads"), "20240421-080000-Video Export.mp4");
+  const outputPath = path.join(createTestApp().getPath("downloads"), `${outputTimestamp(1713657600002)}-Video Export.mp4`);
   assert.equal(result.success, true);
   assert.equal(service.getState().taskStage, "completed");
   assert.deepEqual(downloaded.map(({ url, destinationPath }) => ({ url, destinationPath })), [
@@ -532,7 +538,7 @@ test("downloadVideo publishes real byte progress for each DASH track", async () 
 test("downloadVideo chooses a new MP4 name when a playing preview locks the previous file", async () => {
   const fsMock = createFsMock();
   const downloadsPath = createTestApp().getPath("downloads");
-  const lockedPath = path.join(downloadsPath, "20240421-080000-Video Export.mp4");
+  const lockedPath = path.join(downloadsPath, `${outputTimestamp(1713657600004)}-Video Export.mp4`);
   fsMock.files.set(lockedPath, Buffer.from("existing-mp4"));
   const originalUnlink = fsMock.unlinkSync.bind(fsMock);
   fsMock.unlinkSync = (filePath) => {
@@ -569,7 +575,7 @@ test("downloadVideo chooses a new MP4 name when a playing preview locks the prev
   const result = await service.downloadVideo({ fileName: "Video Export" });
 
   assert.equal(result.success, true);
-  assert.equal(result.data.videoPath, path.join(downloadsPath, "20240421-080000-Video Export-02.mp4"));
+  assert.equal(result.data.videoPath, path.join(downloadsPath, `${outputTimestamp(1713657600004)}-Video Export-02.mp4`));
   assert.equal(fsMock.files.has(lockedPath), true);
 });
 
@@ -773,14 +779,14 @@ test("extractLocalSample clips the downloaded MP4 without contacting a Bilibili 
   assert.deepEqual(ffmpegCalls, [{
     ffmpegPath: "C:\\ffmpeg\\bin\\ffmpeg.exe",
     inputPath,
-    outputPath: path.join(outputDirectory, "20240421-080000-Selected clip.wav"),
+    outputPath: path.join(outputDirectory, `${outputTimestamp(1713657600000)}-Selected clip.wav`),
     startSeconds: 10,
     endSeconds: 16.5,
     sampleRate: 24000,
     channels: 1
   }]);
   assert.deepEqual(toPlain(result.data), {
-    audioPath: path.join(outputDirectory, "20240421-080000-Selected clip.wav"),
+    audioPath: path.join(outputDirectory, `${outputTimestamp(1713657600000)}-Selected clip.wav`),
     durationSeconds: 6.5,
     sampleRate: 24000
   });
