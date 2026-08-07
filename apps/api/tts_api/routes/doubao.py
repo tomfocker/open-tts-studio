@@ -150,7 +150,18 @@ def confirm_qr_login(request: QrConfirmRequest) -> dict:
     manager = get_qr_login_manager()
     try:
         cookie = manager.consume_cookie(request.sessionId)
-        record = _pool().add(name=request.cookieName.strip(), value=cookie, description="通过豆包扫码登录添加")
+        pool = _pool()
+        cookie_name = request.cookieName.strip()
+        existing = next((item for item in pool.list(include_values=False) if item.get("name") == cookie_name), None)
+        if existing:
+            record = pool.update(
+                existing["id"],
+                {"name": cookie_name, "value": cookie, "description": "通过豆包扫码登录更新"},
+            )
+            if record.get("status", {}).get("isDisabled"):
+                record = pool.set_disabled(existing["id"], False)
+        else:
+            record = pool.add(name=cookie_name, value=cookie, description="通过豆包扫码登录添加")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="会话不存在或已过期") from exc
     except RuntimeError as exc:

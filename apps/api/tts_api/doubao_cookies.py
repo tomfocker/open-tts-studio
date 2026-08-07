@@ -123,7 +123,25 @@ class DoubaoCookiePool:
         defaults["config"] = copy.deepcopy(self._default_data()["config"])
         defaults["config"]["rotation"].update(payload.get("config", {}).get("rotation", {}))
         for cookie in defaults["cookies"]:
-            cookie["value"] = self.codec.unprotect(str(cookie.get("value", "")))
+            try:
+                cookie["value"] = self.codec.unprotect(str(cookie.get("value", "")))
+            except Exception:
+                # A Windows DPAPI secret can outlive the user profile or the
+                # machine that created it. Keep the record visible, but never
+                # let one unreadable legacy cookie prevent QR re-login or the
+                # status endpoint from working.
+                cookie["value"] = ""
+                status = cookie.setdefault("status", {})
+                status.update(
+                    {
+                        "isActive": False,
+                        "isValid": False,
+                        "isDisabled": False,
+                        "validationStatus": "invalid",
+                        "lastError": "Cookie 密文无法解密，请重新登录",
+                        "lastFailure": _utc_now(),
+                    }
+                )
         return defaults
 
     def _save(self) -> None:
@@ -227,6 +245,17 @@ class DoubaoCookiePool:
                 raise ValueError("Cookie名称已存在")
             record.update({"name": name, "value": value, "description": description})
             record["metadata"]["updatedAt"] = _utc_now()
+            record["status"].update(
+                {
+                    "isValid": True,
+                    "validationStatus": "pending",
+                    "lastValidated": None,
+                    "lastError": None,
+                    "lastFailure": None,
+                }
+            )
+            if not record["status"].get("isDisabled") and not any(item["status"].get("isActive") for item in self._available()):
+                self._set_active(record)
             self._save()
             return self._public(record, include_value=False)
 
@@ -344,16 +373,17 @@ class DoubaoCookiePool:
         with self._lock:
             records = self._data["cookies"]
             available = self._available()
-            valid = [record for record in available if record["status"]["isValid"]]
+            enabled = [record for record in records if not record["status"].get("isDisabled", False)]
+            valid = [record for record in enabled if record["status"].get("isValid", False)]
             active = next((record for record in available if record["status"]["isActive"]), None)
             success = sum(record["usage"]["successCount"] for record in records)
             failures = sum(record["usage"]["failureCount"] for record in records)
             return {
                 "total": len(records),
-                "enabled": len(available),
-                "disabled": len(records) - len(available),
+                "enabled": len(enabled),
+                "disabled": len(records) - len(enabled),
                 "valid": len(valid),
-                "invalid": len(available) - len(valid),
+                "invalid": len(enabled) - len(valid),
                 "active": {"id": active["id"], "name": active["name"]} if active else None,
                 "totalRequests": self._data["metadata"]["totalRequests"],
                 "totalRotations": self._data["metadata"]["totalRotations"],
