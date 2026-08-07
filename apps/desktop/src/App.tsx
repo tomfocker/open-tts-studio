@@ -749,6 +749,12 @@ function createDefaultBilibiliSamplerState(): BilibiliSamplerState {
       qn: null
     },
     audioOptionSummary: null,
+    downloadProgress: {
+      receivedBytes: 0,
+      totalBytes: null,
+      percent: null,
+      bytesPerSecond: null
+    },
     taskStage: "idle",
     error: null
   };
@@ -795,6 +801,24 @@ function formatSamplerItemMeta(item: BilibiliParsedItem | null) {
 function formatSamplerVideoQuality(quality: BilibiliVideoQuality) {
   const resolution = quality.width && quality.height ? `${quality.width}×${quality.height}` : null;
   return [quality.label, resolution, quality.codec].filter(Boolean).join(" · ");
+}
+
+function formatSamplerTransferBytes(value: number | null | undefined) {
+  if (!Number.isFinite(value) || !value || value <= 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unit = 0;
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024;
+    unit += 1;
+  }
+  return `${size >= 100 || unit === 0 ? Math.round(size) : size.toFixed(1)} ${units[unit]}`;
+}
+
+function formatSamplerTransferRate(value: number | null | undefined) {
+  return value && value > 0 ? `${formatSamplerTransferBytes(value)}/s` : "速度计算中";
 }
 
 function samplerKindLabel(kind: BilibiliParsedLink["kind"] | null | undefined) {
@@ -7998,6 +8022,22 @@ export function App() {
                           : samplerState.audioOptionSummary.videoDisabledReason ?? "没有可用视频流"}
                       </span>
                     </div>
+                  )}
+
+                  {samplerExtracting && (
+                    <section className={`samplerDownloadProgress${samplerState.downloadProgress?.percent === null ? " indeterminate" : ""}`} aria-live="polite">
+                      <div className="samplerDownloadProgressHeading">
+                        <span>
+                          <strong>{samplerStageLabel(samplerState.taskStage)}</strong>
+                          <small>{samplerState.downloadProgress?.totalBytes ? `${formatSamplerTransferBytes(samplerState.downloadProgress.receivedBytes)} / ${formatSamplerTransferBytes(samplerState.downloadProgress.totalBytes)}` : "CDN 未提供总大小，仍在持续下载"}</small>
+                        </span>
+                        <strong>{samplerState.downloadProgress?.percent === null || samplerState.downloadProgress?.percent === undefined ? "进行中" : `${samplerState.downloadProgress.percent}%`}</strong>
+                      </div>
+                      <div className="samplerDownloadProgressTrack" role="progressbar" aria-label="B 站下载进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={samplerState.downloadProgress?.percent ?? undefined}>
+                        <span style={{ width: `${samplerState.downloadProgress?.percent ?? 100}%` }} />
+                      </div>
+                      <small className="samplerDownloadProgressMeta">{formatSamplerTransferRate(samplerState.downloadProgress?.bytesPerSecond)}{samplerState.taskStage === "merging" ? " · 正在封装音视频" : ""}</small>
+                    </section>
                   )}
 
                   {samplerVideoPreview && (

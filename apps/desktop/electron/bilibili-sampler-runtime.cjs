@@ -2,6 +2,7 @@ const childProcess = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { once } = require("node:events");
 const { URL } = require("node:url");
 
 const QR_BOOTSTRAP_URL = "https://passport.bilibili.com/x/passport-login/web/qrcode/generate";
@@ -10,7 +11,11 @@ const BILIBILI_VIDEO_VIEW_URL = "https://api.bilibili.com/x/web-interface/view";
 const BILIBILI_VIDEO_PLAY_URL = "https://api.bilibili.com/x/player/playurl";
 const BILIBILI_BANGUMI_SEASON_URL = "https://api.bilibili.com/pgc/view/web/season";
 const BILIBILI_BANGUMI_PLAY_URL = "https://api.bilibili.com/pgc/player/web/playurl";
-const DEFAULT_STREAM_QN = 120;
+// Start at 1080P instead of 4K.  Requesting 4K first can make Bilibili
+// downgrade a regular logged-in account straight to 720P, even when 1080P is
+// otherwise available.  The returned quality list still exposes 4K and above
+// whenever the current video/account is entitled to them.
+const DEFAULT_STREAM_QN = 80;
 const DEFAULT_FNVAL = 4048;
 const BILIBILI_MEDIA_REFERER = "https://www.bilibili.com/";
 const BILIBILI_MEDIA_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -181,6 +186,12 @@ function createDefaultBilibiliSamplerState() {
       qn: null
     },
     audioOptionSummary: null,
+    downloadProgress: {
+      receivedBytes: 0,
+      totalBytes: null,
+      percent: null,
+      bytesPerSecond: null
+    },
     taskStage: "idle",
     error: null
   };
@@ -670,13 +681,15 @@ class BilibiliSamplerService {
     this.fs.mkdirSync(outputDirectory, { recursive: true });
 
     try {
-      this.updateState({ taskStage: "downloading-audio", error: null });
+      this.updateState({ taskStage: "downloading-audio", downloadProgress: this.emptyDownloadProgress(), error: null });
       await this.downloadBinaryImpl({
         url: audioUrl,
         destinationPath: sourceTempPath,
         signal: controller.signal,
-        headers: this.getMediaRequestHeaders()
+        headers: this.getMediaRequestHeaders(),
+        onProgress: this.createDownloadProgressReporter("downloading-audio")
       });
+      this.completeDownloadProgress("downloading-audio");
 
       this.updateState({ taskStage: "converting", error: null });
       this.removeExistingFileIfPresent(outputPath);
@@ -818,23 +831,27 @@ class BilibiliSamplerService {
     this.fs.mkdirSync(outputDirectory, { recursive: true });
 
     try {
-      this.updateState({ taskStage: "downloading-video", error: null });
+      this.updateState({ taskStage: "downloading-video", downloadProgress: this.emptyDownloadProgress(), error: null });
       await this.downloadBinaryImpl({
         url: videoUrl,
         destinationPath: videoTempPath,
         signal: controller.signal,
-        headers: this.getMediaRequestHeaders()
+        headers: this.getMediaRequestHeaders(),
+        onProgress: this.createDownloadProgressReporter("downloading-video")
       });
+      this.completeDownloadProgress("downloading-video");
 
-      this.updateState({ taskStage: "downloading-audio", error: null });
+      this.updateState({ taskStage: "downloading-audio", downloadProgress: this.emptyDownloadProgress(), error: null });
       await this.downloadBinaryImpl({
         url: audioUrl,
         destinationPath: audioTempPath,
         signal: controller.signal,
-        headers: this.getMediaRequestHeaders()
+        headers: this.getMediaRequestHeaders(),
+        onProgress: this.createDownloadProgressReporter("downloading-audio")
       });
+      this.completeDownloadProgress("downloading-audio");
 
-      this.updateState({ taskStage: "merging", error: null });
+      this.updateState({ taskStage: "merging", downloadProgress: this.emptyDownloadProgress(), error: null });
       outputPath = this.prepareVideoOutputPath(outputDirectory, outputBaseName);
       await this.mergeFfmpegImpl({
         ffmpegPath,
@@ -888,7 +905,7 @@ class BilibiliSamplerService {
   async loadVideoMetadata(parsedInput) {
     const url = new URL(BILIBILI_VIDEO_VIEW_URL);
     url.searchParams.set("bvid", parsedInput.bvid);
-    const payload = await this.fetchJson(url.toString());
+    const payload = await this.fetchJson(url.toString(), { headers: this.getMediaRequestHeaders() });
     const data = payload?.data ?? payload;
     const pages = Array.isArray(data?.pages) ? data.pages : [];
     const requestedPage = parsedInput.page ?? 1;
@@ -996,7 +1013,7 @@ class BilibiliSamplerService {
     url.searchParams.set("fnval", String(DEFAULT_FNVAL));
     url.searchParams.set("qn", String(normalizePositiveNumber(requestedQn) ?? DEFAULT_STREAM_QN));
     url.searchParams.set("fourk", "1");
-    const payload = await this.fetchJson(url.toString());
+    const payload = await this.fetchJson(url.toString(), { headers: this.getMediaRequestHeaders() });
     return payload?.result ?? payload?.data ?? payload;
   }
 
@@ -1118,7 +1135,10 @@ class BilibiliSamplerService {
       throw new Error("Fetch is not available");
     }
     const response = await this.fetchImpl(url, {
-      headers: options.includeAuth === false ? {} : this.getRequestHeaders()
+      headers: {
+        ...(options.includeAuth === false ? {} : this.getRequestHeaders()),
+        ...(options.headers ?? {})
+      }
     });
     if (response && response.ok === false) {
       throw new Error(`Bilibili request failed (HTTP ${response.status ?? "unknown"})`);
@@ -1260,6 +1280,54 @@ class BilibiliSamplerService {
     return path.join(this.userDataRoot, TASK_ROOT_DIRECTORY_NAME, TASKS_DIRECTORY_NAME, String(this.now()));
   }
 
+  emptyDownloadProgress() {
+    return {
+      receivedBytes: 0,
+      totalBytes: null,
+      percent: null,
+      bytesPerSecond: null
+    };
+  }
+
+  createDownloadProgressReporter(stage) {
+    const startedAt = this.now();
+    let lastReportedAt = 0;
+    return ({ receivedBytes = 0, totalBytes = null } = {}) => {
+      const now = this.now();
+      // Avoid flooding the renderer while keeping the bar responsive. Always
+      // publish the first and final updates even for very fast CDNs.
+      const percent = totalBytes && totalBytes > 0
+        ? Math.min(100, Math.round((receivedBytes / totalBytes) * 100))
+        : null;
+      if (receivedBytes < totalBytes && lastReportedAt && now - lastReportedAt < 120) {
+        return;
+      }
+      lastReportedAt = now;
+      const elapsedSeconds = Math.max(0, (now - startedAt) / 1000);
+      this.updateState({
+        taskStage: stage,
+        downloadProgress: {
+          receivedBytes: Math.max(0, Number(receivedBytes) || 0),
+          totalBytes: totalBytes && totalBytes > 0 ? totalBytes : null,
+          percent,
+          bytesPerSecond: elapsedSeconds > 0 ? Math.max(0, Math.round(receivedBytes / elapsedSeconds)) : null
+        }
+      });
+    };
+  }
+
+  completeDownloadProgress(stage) {
+    const current = this.state.downloadProgress ?? this.emptyDownloadProgress();
+    this.updateState({
+      taskStage: stage,
+      downloadProgress: {
+        ...current,
+        receivedBytes: current.totalBytes ?? current.receivedBytes,
+        percent: 100
+      }
+    });
+  }
+
   getSelectedItem() {
     return this.state.parsedLink?.items.find((item) => item.id === this.state.selection.itemId) ?? null;
   }
@@ -1358,7 +1426,45 @@ class BilibiliSamplerService {
     if (typeof response.arrayBuffer !== "function") {
       throw new Error("Binary downloads are not supported by the current fetch implementation");
     }
-    await this.fs.promises.writeFile(input.destinationPath, Buffer.from(await response.arrayBuffer()));
+    const totalBytes = normalizePositiveNumber(response.headers?.get?.("content-length"));
+    const report = typeof input.onProgress === "function" ? input.onProgress : null;
+    if (response.body?.getReader && typeof this.fs.createWriteStream === "function") {
+      const writer = this.fs.createWriteStream(input.destinationPath);
+      const finished = new Promise((resolve, reject) => {
+        writer.once("finish", resolve);
+        writer.once("error", reject);
+      });
+      const reader = response.body.getReader();
+      let receivedBytes = 0;
+      try {
+        report?.({ receivedBytes, totalBytes });
+        while (true) {
+          if (input.signal?.aborted) {
+            await reader.cancel();
+            const abortError = new Error("The operation was aborted");
+            abortError.name = "AbortError";
+            throw abortError;
+          }
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = Buffer.from(value);
+          receivedBytes += chunk.length;
+          if (!writer.write(chunk)) {
+            await once(writer, "drain");
+          }
+          report?.({ receivedBytes, totalBytes });
+        }
+        writer.end();
+        await finished;
+        return;
+      } catch (error) {
+        writer.destroy();
+        throw error;
+      }
+    }
+    const payload = Buffer.from(await response.arrayBuffer());
+    await this.fs.promises.writeFile(input.destinationPath, payload);
+    report?.({ receivedBytes: payload.length, totalBytes: totalBytes ?? payload.length });
   }
 
   async runFfmpeg(input) {

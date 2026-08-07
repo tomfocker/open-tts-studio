@@ -562,6 +562,12 @@ export type BilibiliSamplerState = {
     qn: number | null;
   };
   audioOptionSummary: BilibiliAudioOptionSummary | null;
+  downloadProgress: {
+    receivedBytes: number;
+    totalBytes: number | null;
+    percent: number | null;
+    bytesPerSecond: number | null;
+  };
   taskStage: BilibiliSamplerStage;
   error: string | null;
 };

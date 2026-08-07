@@ -3,7 +3,7 @@ import { type PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import QRCode from "qrcode";
 
 import { createTranscriptionJob, fetchTranscriptionExport, fetchTranscriptionJobs } from "./api";
-import type { BilibiliAudioOptionsResult, BilibiliLoginQrPayload, BilibiliLoginSession, BilibiliMediaHistoryEntry, BilibiliMediaHistoryItem, BilibiliParsedLink, TranscriptionJob } from "./types";
+import type { BilibiliAudioOptionsResult, BilibiliLoginQrPayload, BilibiliLoginSession, BilibiliMediaHistoryEntry, BilibiliMediaHistoryItem, BilibiliParsedLink, BilibiliSamplerState, TranscriptionJob } from "./types";
 import "./media-sampler-workspace.css";
 
 type VoiceSample = { audioPath: string; name: string; durationSeconds: number };
@@ -137,6 +137,11 @@ function formatBytes(value: number) {
   return value > 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(value / 1024)} KB`;
 }
 
+function formatTransferRate(value: number | null | undefined) {
+  if (!value || value <= 0) return "速度计算中";
+  return `${formatBytes(value)}/s`;
+}
+
 function safeSampleName(value: string | null | undefined) {
   const cleaned = (value ?? "B站片段").replace(/[\\/:*?"<>|]/g, " ").replace(/\s+/g, " ").trim();
   return cleaned || "B站片段";
@@ -162,11 +167,14 @@ function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void;
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [mediaOptions, setMediaOptions] = useState<BilibiliAudioOptionsResult | null>(null);
   const [pending, setPending] = useState<"login" | "parse" | "load" | "download" | null>(null);
+  const [samplerState, setSamplerState] = useState<BilibiliSamplerState | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const items = useMemo(() => parsedLinkItems(parsed), [parsed]);
   const qualityOptions = useMemo(() => videoQualityOptions(mediaOptions), [mediaOptions]);
   const selectedItem = useMemo(() => items.find((item) => item.id === selectedItemId) ?? items[0] ?? null, [items, selectedItemId]);
+  const downloadProgress = samplerState?.downloadProgress;
+  const downloadStage = samplerState?.taskStage;
 
   const refreshSession = async () => {
     const bridge = window.desktopBilibiliSampler;
@@ -187,7 +195,11 @@ function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void;
       }
       setMediaOptions(response.data);
       setSelectedItemId(response.data.itemId);
-      setNotice(response.data.summary.hasVideo ? "音视频流已就绪，可下载为本地 MP4。" : response.data.summary.videoDisabledReason ?? "当前条目没有可用视频流。");
+      if (response.data.selectedVideo?.fellBack) {
+        setNotice(`B 站只返回 ${response.data.selectedVideo.label}（请求 ${response.data.selectedVideo.requestedQn} 未获授权或当前视频不提供）；可在登录后重试更高清晰度。`);
+      } else {
+        setNotice(response.data.summary.hasVideo ? "音视频流已就绪，可下载为本地 MP4。" : response.data.summary.videoDisabledReason ?? "当前条目没有可用视频流。");
+      }
     } finally { setPending(null); }
   };
   const parse = async () => {
@@ -235,6 +247,11 @@ function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void;
 
   useEffect(() => { void refreshSession().catch((reason) => setError(reason instanceof Error ? reason.message : "无法读取登录状态")); }, []);
   useEffect(() => {
+    const bridge = window.desktopBilibiliSampler;
+    if (!bridge?.onStateChanged) return undefined;
+    return bridge.onStateChanged((state) => setSamplerState(state));
+  }, []);
+  useEffect(() => {
     let disposed = false;
     if (!qrPayload?.qrUrl) { setQrCodeUrl(null); return undefined; }
     void QRCode.toDataURL(qrPayload.qrUrl, { margin: 1, width: 128, color: { dark: "#263441", light: "#f7fbff" } }).then((value) => { if (!disposed) setQrCodeUrl(value); }).catch(() => { if (!disposed) setQrCodeUrl(null); });
@@ -265,6 +282,16 @@ function BilibiliDownloadPanel({ onClose, onDownloaded }: { onClose: () => void;
     <div className="mediaSamplerDownloadControls"><label><span>B 站链接</span><input value={link} placeholder="粘贴 bilibili.com 视频链接" onChange={(event) => setLink(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void parse(); }} /></label><button type="button" disabled={Boolean(pending) || !link.trim()} onClick={() => void parse()}>{pending === "parse" ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}解析</button><button type="button" className="quiet" disabled={Boolean(pending)} onClick={() => void startLogin()}>{pending === "login" ? <Loader2 className="spin" size={15} /> : <History size={15} />}{qrPayload ? "刷新二维码" : session?.isLoggedIn ? "重新登录" : "扫码登录"}</button></div>
     {qrPayload && <div className="mediaSamplerQr"><div>{qrCodeUrl ? <img src={qrCodeUrl} alt="B站登录二维码" /> : <Loader2 className="spin" size={18} />}</div><span>扫码后请在手机确认；Cookie 不会传出本机。</span></div>}
     {parsed && <div className="mediaSamplerDownloadResult"><div><strong>{parsed.title ?? "B站视频"}</strong><small>{selectedItem?.title ?? "正在选择条目"}</small></div><label>条目<select value={selectedItemId ?? ""} disabled={Boolean(pending)} onChange={(event) => { const id = event.target.value; setSelectedItemId(id); setError(null); void loadOptions(parsed, id).catch((reason) => setError(reason instanceof Error ? reason.message : "无法读取视频流")); }}>{items.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>{qualityOptions.length ? <label>清晰度<select value={mediaOptions?.selectedVideo?.qn ?? ""} disabled={Boolean(pending)} onChange={(event) => { const qn = Number(event.target.value); if (selectedItemId) void loadOptions(parsed, selectedItemId, qn).catch((reason) => setError(reason instanceof Error ? reason.message : "无法切换清晰度")); }}>{qualityOptions.map((option) => <option key={option.qn} value={option.qn}>{option.label}</option>)}</select></label> : null}<button className="primary" type="button" disabled={Boolean(pending) || !mediaOptions?.summary.hasVideo} onClick={() => void download()}>{pending === "download" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}下载 MP4</button></div>}
+    {pending === "download" && (
+      <div className={`mediaSamplerDownloadProgress${downloadProgress?.percent === null || downloadStage === "merging" ? " indeterminate" : ""}`} aria-live="polite">
+        <div className="mediaSamplerDownloadProgressHeading">
+          <span><strong>{downloadStage === "downloading-audio" ? "正在下载音频流" : downloadStage === "merging" ? "正在封装 MP4" : "正在下载视频流"}</strong><small>{downloadProgress?.totalBytes ? `${formatBytes(downloadProgress.receivedBytes)} / ${formatBytes(downloadProgress.totalBytes)}` : "CDN 未提供总大小，仍在持续下载"}</small></span>
+          <strong>{downloadStage === "merging" ? "处理中" : downloadProgress?.percent === null || downloadProgress?.percent === undefined ? "进行中" : `${downloadProgress.percent}%`}</strong>
+        </div>
+        <div className="mediaSamplerDownloadProgressTrack" role="progressbar" aria-label="B站下载进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={downloadStage === "merging" ? undefined : downloadProgress?.percent ?? undefined}><span style={{ width: `${downloadStage === "merging" ? 100 : downloadProgress?.percent ?? 100}%` }} /></div>
+        <small className="mediaSamplerDownloadProgressMeta">{formatTransferRate(downloadProgress?.bytesPerSecond)}{downloadStage === "merging" ? " · 正在合并视频和音频" : ""}</small>
+      </div>
+    )}
     {(notice || error) && <p className={error ? "error" : ""}>{error ?? notice}</p>}
   </section>;
 }

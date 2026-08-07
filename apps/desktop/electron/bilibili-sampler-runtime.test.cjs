@@ -131,6 +131,12 @@ test("createDefaultBilibiliSamplerState returns an idle logged-out state", () =>
       qn: null
     },
     audioOptionSummary: null,
+    downloadProgress: {
+      receivedBytes: 0,
+      totalBytes: null,
+      percent: null,
+      bytesPerSecond: null
+    },
     taskStage: "idle",
     error: null
   });
@@ -309,11 +315,11 @@ test("loadAudioOptions stores selected play payload and reports audio availabili
       width: null,
       height: null,
       codec: null,
-      requestedQn: 120,
-      fellBack: true
+      requestedQn: 80,
+      fellBack: false
     }
   });
-  assert.equal(fetchCalls[1], "https://api.bilibili.com/x/player/playurl?bvid=BV1xK4y1m7aA&cid=101&fnval=4048&qn=120&fourk=1");
+  assert.equal(fetchCalls[1], "https://api.bilibili.com/x/player/playurl?bvid=BV1xK4y1m7aA&cid=101&fnval=4048&qn=80&fourk=1");
 });
 
 test("extractSample downloads audio and runs ffmpeg with clipping options", async () => {
@@ -481,6 +487,46 @@ test("downloadVideo downloads DASH tracks and remuxes a local MP4 without re-enc
       fellBack: false
     }
   });
+});
+
+test("downloadVideo publishes real byte progress for each DASH track", async () => {
+  const fsMock = createFsMock();
+  const stateChanges = [];
+  let timestamp = 0;
+  const service = new BilibiliSamplerService({
+    app: createTestApp(),
+    fs: fsMock,
+    now: () => (timestamp += 200),
+    fetch: createFixtureFetch({
+      metadataPayload: { code: 0, data: { pages: [{ page: 1, part: "Intro", cid: 101 }] } },
+      playPayload: {
+        code: 0,
+        data: {
+          quality: 80,
+          dash: {
+            video: [{ id: 80, baseUrl: "https://cdn.example.com/video.m4s" }],
+            audio: [{ id: 30280, baseUrl: "https://cdn.example.com/audio.m4s" }]
+          }
+        }
+      }
+    }),
+    downloadBinary: async ({ url, destinationPath, onProgress }) => {
+      onProgress({ receivedBytes: 0, totalBytes: 100 });
+      onProgress({ receivedBytes: 55, totalBytes: 100 });
+      onProgress({ receivedBytes: 100, totalBytes: 100 });
+      await fsMock.promises.writeFile(destinationPath, Buffer.from(`track:${url}`));
+    },
+    mergeFfmpeg: async (input) => fsMock.promises.writeFile(input.outputPath, Buffer.from("mp4"))
+  });
+  service.onStateChanged((state) => stateChanges.push(state));
+
+  await service.parseLink({ url: "https://www.bilibili.com/video/BV1xK4y1m7aA" });
+  await service.loadAudioOptions({ kind: "video", itemId: "page:1" });
+  const result = await service.downloadVideo({ fileName: "Progress Export" });
+
+  assert.equal(result.success, true);
+  assert.equal(stateChanges.some((state) => state.taskStage === "downloading-video" && state.downloadProgress.percent === 55 && state.downloadProgress.totalBytes === 100), true);
+  assert.equal(stateChanges.some((state) => state.taskStage === "downloading-audio" && state.downloadProgress.percent === 100 && state.downloadProgress.receivedBytes === 100), true);
 });
 
 test("downloadVideo chooses a new MP4 name when a playing preview locks the previous file", async () => {
