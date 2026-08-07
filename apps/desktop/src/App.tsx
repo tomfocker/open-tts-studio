@@ -1299,6 +1299,10 @@ function hasFeature(model: ModelInfo | undefined, feature: string) {
   return Boolean(model?.features.includes(feature));
 }
 
+function supportsRequestCapability(model: ModelInfo | undefined, capability: string) {
+  return Boolean(model?.request_capabilities.includes(capability));
+}
+
 function featureLabel(feature: string) {
   return featureLabels[feature] ?? feature;
 }
@@ -3641,8 +3645,12 @@ export function App() {
         voice: batchProjectModel === "gptsovits" ? batchProjectVoiceInfo?.id : undefined,
         response_format: "wav",
         reference_audio: batchProjectVoiceInfo?.referenceAudio,
-        reference_text: batchProjectReferenceText || undefined,
-        emotion: batchProjectShowsControlPrompt ? controlPrompt.trim() || undefined : undefined,
+        reference_text: supportsRequestCapability(batchProjectModelInfo, "reference_text")
+          ? batchProjectReferenceText || undefined
+          : undefined,
+        emotion: batchProjectShowsControlPrompt && supportsRequestCapability(batchProjectModelInfo, "control_prompt")
+          ? controlPrompt.trim() || undefined
+          : undefined,
         speed: batchProjectShowsSpeedControl ? speed : 1,
         cfg: batchProjectModel === "voxcpm2" ? cfg : undefined,
         inference_steps: batchProjectModel === "voxcpm2" ? steps : undefined,
@@ -5064,10 +5072,17 @@ export function App() {
 
   function createCurrentSpeechOptions(): GenerateSpeechOptions {
     return {
-      voice: selectedModel === "gptsovits" ? selectedVoice : undefined,
-      referenceAudio: needsReferenceAudio ? selectedVoiceInfo.referenceAudio : undefined,
-      referenceText: needsExtremeReferenceText || selectedModel === "gptsovits" ? effectiveReferenceText.trim() || undefined : undefined,
-      emotion: showControlPrompt ? controlPrompt.trim() || undefined : undefined,
+      voice: supportsRequestCapability(selectedModelInfo, "voice") ? selectedVoice : undefined,
+      referenceAudio: needsReferenceAudio && supportsRequestCapability(selectedModelInfo, "reference_audio")
+        ? selectedVoiceInfo.referenceAudio
+        : undefined,
+      referenceText: supportsRequestCapability(selectedModelInfo, "reference_text")
+        && (needsExtremeReferenceText || selectedModel === "gptsovits")
+        ? effectiveReferenceText.trim() || undefined
+        : undefined,
+      emotion: showControlPrompt && supportsRequestCapability(selectedModelInfo, "control_prompt")
+        ? controlPrompt.trim() || undefined
+        : undefined,
       speed: showSpeedControl ? speed : 1,
       responseFormat: "wav",
       cfg: showCfgSteps ? cfg : undefined,
