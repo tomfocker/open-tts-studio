@@ -86,6 +86,49 @@ def test_qwen_srt_job_uses_real_monotonic_token_boundaries(tmp_path: Path, monke
     assert "你好，世界。" in srt
 
 
+def test_qwen_srt_uses_aligned_text_when_raw_chunk_merge_loses_a_repeated_tail(tmp_path: Path, monkeypatch):
+    settings = _settings(tmp_path)
+    input_id = _input(settings)
+
+    class FakeQwen:
+        model_name = "qwen3-asr-1.7b"
+        runtime_model_id = "qwen3-asr"
+
+        def __init__(self, _settings):
+            pass
+
+        def transcribe_timestamped_path(self, _path, language="zh", on_process=None):
+            return TimestampedQwenTranscription(
+                text="前段重复尾部",
+                raw_text="前段重复",
+                tokens=list("前段重复尾部"),
+                timestamps=[0.0, 0.1, 0.2, 0.3, 0.4, 0.5],
+                duration_seconds=0.6,
+                language=language,
+                model="qwen3-asr-1.7b+qwen3-forced-aligner-0.6b",
+            )
+
+    monkeypatch.setattr(transcription, "QwenASRTranscriber", FakeQwen)
+    monkeypatch.setattr(transcription, "probe_audio_metadata", lambda _path, _ffmpeg: (16000, 0.6))
+    monkeypatch.setattr(transcription, "release_conflicting_runtimes", lambda *_args: [])
+    store = transcription.TranscriptionJobStore(settings.transcription_jobs_file)
+    runner = transcription.TranscriptionRunner(store, settings)
+
+    queued = runner.enqueue(
+        TranscriptionJobRequest(
+            input_id=input_id,
+            source_file_name="重复尾句.mp4",
+            backend=TranscriptionBackend.qwen3,
+            output_format=TranscriptionOutputFormat.srt,
+            language="zh",
+        )
+    )
+    completed = _wait(store, queued.id)
+
+    assert completed.status.value == "completed"
+    assert completed.text == "前段重复尾部"
+
+
 def test_srt_rejects_out_of_range_qwen_timestamp_instead_of_clamping(tmp_path: Path, monkeypatch):
     settings = _settings(tmp_path)
     input_id = _input(settings)

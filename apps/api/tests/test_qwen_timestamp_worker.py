@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 WORKER_PATH = Path(__file__).resolve().parents[1] / "tools" / "run_qwen_timestamped_asr.py"
 SPEC = importlib.util.spec_from_file_location("qwen_timestamp_worker", WORKER_PATH)
@@ -39,3 +41,23 @@ def test_timestamp_worker_falls_back_to_the_measured_monotonic_suffix():
     assert used_fallback is True
     assert tokens == ["甲", "乙", "丙"]
     assert timestamps == [58.0, 60.0, 61.0]
+
+
+def test_timestamp_worker_keeps_the_non_overlapping_tail_when_text_merge_is_ambiguous():
+    def greedy_text_merge(**kwargs):
+        return kwargs["prev_tokens"], kwargs["prev_timestamps"]
+
+    tokens, timestamps, used_fallback = worker._merge_monotonic_chunk(
+        greedy_text_merge,
+        ["重"],
+        [114.76],
+        ["叠", "尾", "部"],
+        [4.8, 5.2, 22.08],
+        110.0,
+        5.0,
+        False,
+    )
+
+    assert used_fallback is True
+    assert tokens == ["重", "尾", "部"]
+    assert timestamps == pytest.approx([114.76, 115.2, 132.08])

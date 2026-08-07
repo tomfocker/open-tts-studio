@@ -13,6 +13,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+
+
+SAMPLE_RATE = 16_000
+CHUNK_SECONDS = 60
+OVERLAP_SECONDS = 5
+
 
 class WorkerFailure(RuntimeError):
     pass
@@ -86,6 +93,41 @@ def _load_audio(audio_path: Path, ffmpeg_path: str):
     return samples
 
 
+def _iter_audio_chunks(samples, *, chunk_seconds: int = CHUNK_SECONDS, overlap_seconds: float = OVERLAP_SECONDS):
+    """Yield bounded windows so the Qwen encoder never drops long-media tails."""
+
+    chunk_samples = max(1, int(chunk_seconds * SAMPLE_RATE))
+    overlap_samples = min(
+        max(0, int(overlap_seconds * SAMPLE_RATE)),
+        max(0, chunk_samples - SAMPLE_RATE // 2),
+    )
+    stride = max(1, chunk_samples - overlap_samples)
+    for start in range(0, len(samples), stride):
+        chunk = samples[start : start + chunk_samples]
+        if len(chunk) == 0:
+            break
+        yield chunk
+        if start + chunk_samples >= len(samples):
+            break
+
+
+def _merge_chunk_text(previous: str, current: str, language: str) -> str:
+    previous = previous.strip()
+    current = current.strip()
+    if not previous:
+        return current
+    if not current:
+        return previous
+    # Only remove an exact suffix/prefix overlap from the duplicated acoustic
+    # window. Similar-looking text is kept because repeated phrases are valid.
+    max_overlap = min(80, len(previous), len(current))
+    for overlap in range(max_overlap, 1, -1):
+        if previous[-overlap:] == current[:overlap]:
+            return previous + current[overlap:]
+    separator = "" if language.lower().startswith(("zh", "yue", "ja", "ko")) else " "
+    return previous + separator + current
+
+
 def _transcribe(samples, model_dir: Path, provider: str, use_gpu: bool, language: str) -> str:
     from core.server.engines.qwen_asr_gguf.asr_engine import QwenASREngine
     from core.server.engines.qwen_asr_gguf.inference.schema import ASREngineConfig
@@ -104,13 +146,17 @@ def _transcribe(samples, model_dir: Path, provider: str, use_gpu: bool, language
         )
     )
     try:
-        stream = recognizer.create_stream()
-        stream.accept_waveform(16000, samples)
-        recognizer.decode_stream(stream, context="", language=language)
-        text = str(stream.result.text or "").strip()
-        if not text:
+        merged = ""
+        for chunk in _iter_audio_chunks(samples):
+            stream = recognizer.create_stream()
+            stream.accept_waveform(SAMPLE_RATE, chunk)
+            recognizer.decode_stream(stream, context=merged[-120:], language=language)
+            text = str(stream.result.text or "").strip()
+            if text:
+                merged = _merge_chunk_text(merged, text, language)
+        if not merged:
             raise WorkerFailure("Qwen3-ASR 没有识别出可用文本。")
-        return text
+        return merged
     finally:
         recognizer.cleanup()
 

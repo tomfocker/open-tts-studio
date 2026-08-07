@@ -138,6 +138,8 @@ class SenseVoiceServiceManager:
                     self.settings.sensevoice_device,
                     "--work-dir",
                     str(self.work_dir),
+                    "--ffmpeg-path",
+                    str(self.settings.ffmpeg_path),
                 ],
                 cwd=str(SENSEVOICE_SERVER.parent),
                 env=self.build_environment(),

@@ -202,6 +202,25 @@ def _merge_monotonic_chunk(
     overlapped tokens; no timestamp is generated or adjusted.
     """
 
+    new_global = [float(value) + offset for value in new_timestamps]
+    if is_first_segment or not prev_tokens:
+        return new_tokens, new_global, False
+    if not new_tokens:
+        return prev_tokens, prev_timestamps, False
+
+    # The text-only matcher can mistake a repeated phrase later in the new
+    # window for the physical overlap at its beginning.  It is allowed to
+    # remove duplicated audio only; every measured token after the overlap
+    # must survive, otherwise a long video's tail can silently disappear.
+    last_previous = float(prev_timestamps[-1]) if prev_timestamps else float("-inf")
+    # Keep a small guard inside the overlap when the preceding window ended
+    # early. This avoids dropping a word around the boundary merely because
+    # its earlier recognition pass omitted it.
+    required_after = max(last_previous + 0.1, offset + max(0.0, overlap - 0.5))
+    suffix_start = next((index for index, value in enumerate(new_global) if value > required_after), len(new_global))
+    required_tokens = new_tokens[suffix_start:]
+    required_timestamps = new_global[suffix_start:]
+
     merged_tokens, merged_timestamps = merge(
         prev_tokens=prev_tokens,
         prev_timestamps=prev_timestamps,
@@ -211,13 +230,24 @@ def _merge_monotonic_chunk(
         overlap=overlap,
         is_first_segment=is_first_segment,
     )
-    if len(merged_tokens) == len(merged_timestamps) and _timestamps_are_monotonic(merged_timestamps):
+    candidate_keeps_measured_suffix = (
+        not required_tokens
+        or (
+            len(merged_tokens) >= len(required_tokens)
+            and merged_tokens[-len(required_tokens) :] == required_tokens
+            and merged_timestamps[-len(required_timestamps) :] == required_timestamps
+        )
+    )
+    if (
+        len(merged_tokens) == len(merged_timestamps)
+        and _timestamps_are_monotonic(merged_timestamps)
+        and candidate_keeps_measured_suffix
+    ):
         return merged_tokens, merged_timestamps, False
 
-    global_new = [float(value) + offset for value in new_timestamps]
-    last = prev_timestamps[-1] if prev_timestamps else float("-inf")
-    start = next((index for index, value in enumerate(global_new) if value >= last), len(global_new))
-    return prev_tokens + new_tokens[start:], prev_timestamps + global_new[start:], True
+    # Prefer a small duplicate at the boundary to ever losing a measured
+    # suffix. The following subtitle compaction keeps this visually harmless.
+    return prev_tokens + required_tokens, prev_timestamps + required_timestamps, True
 
 
 def _run(request: dict) -> dict:
