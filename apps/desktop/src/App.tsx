@@ -141,13 +141,25 @@ import type {
   SpeechJob,
   SettingsBackup,
   SystemStatus,
+  TaskResult,
   TaskSummary,
   VoiceInfo,
   VoiceQualityReport,
   WorkerStatus
 } from "./types";
 
-type PrimaryWorkspace = "creation" | "doubao" | "transcription" | "sampler" | "enhancement" | "separation";
+type PrimaryWorkspace = "creation" | "doubao" | "transcription" | "sampler" | "enhancement" | "separation" | "assets";
+
+type TaskCenterView = "overview" | "results";
+type TaskCenterResult = TaskResult & {
+  task_id: string;
+  task_title: string;
+  source: string;
+  status: string;
+  created_at: string;
+  asset: AudioAsset | null;
+  bilibili_history_id?: string;
+};
 
 declare global {
   interface Window {
@@ -1415,7 +1427,73 @@ function taskSourceLabel(source: TaskSummary["source"]) {
   if (source === "bilibili") {
     return "B 站取样";
   }
-  return "本地任务";
+  if (source === "transcription") {
+    return "音视频转写";
+  }
+  if (source === "audio_enhancement") {
+    return "语音增强";
+  }
+  if (source === "audio_separation") {
+    return "人声/伴奏分轨";
+  }
+  if (source === "alignment") {
+    return "强制对齐";
+  }
+  return "监控目录";
+}
+
+function taskResultKindLabel(kind: string) {
+  if (kind === "video") {
+    return "视频";
+  }
+  if (kind === "audio") {
+    return "音频";
+  }
+  if (kind === "transcript") {
+    return "TXT 转写";
+  }
+  if (kind === "subtitle") {
+    return "SRT 字幕";
+  }
+  if (kind === "alignment") {
+    return "时间轴";
+  }
+  if (kind === "enhancement") {
+    return "增强音频";
+  }
+  if (kind === "separation") {
+    return "分轨音频";
+  }
+  return "文件";
+}
+
+function taskResultIcon(kind: string) {
+  if (kind === "video") {
+    return <Film size={15} strokeWidth={1.9} />;
+  }
+  if (kind === "audio" || kind === "enhancement" || kind === "separation") {
+    return <Volume2 size={15} strokeWidth={1.9} />;
+  }
+  if (kind === "subtitle" || kind === "transcript" || kind === "alignment") {
+    return <FileText size={15} strokeWidth={1.9} />;
+  }
+  return <FileText size={15} strokeWidth={1.9} />;
+}
+
+function taskResultContextLabel(result: Pick<TaskCenterResult, "file_name" | "label" | "task_title">) {
+  const label = result.label?.trim();
+  const taskTitle = result.task_title?.trim();
+  const context = taskTitle && taskTitle !== result.file_name && taskTitle !== label
+    ? `任务：${taskTitle}`
+    : null;
+  return [label, context].filter(Boolean).join(" · ") || "成果文件";
+}
+
+function resolveTaskResultUrl(url: string) {
+  if (/^(?:[a-z][a-z\d+.-]*:)?\/\//i.test(url) || /^(?:blob|data|file):/i.test(url)) {
+    return url;
+  }
+  return toAudioUrl(url);
 }
 
 function buildTaskDiagnosticText(task: TaskSummary) {
@@ -1535,6 +1613,12 @@ function audioAssetSourceLabel(source: AudioAsset["source"]) {
   }
   if (source === "batch_project") {
     return "批量旁白";
+  }
+  if (source === "audio_enhancement") {
+    return "语音增强";
+  }
+  if (source === "audio_separation") {
+    return "人声/伴奏分轨";
   }
   return "输出目录文件";
 }
@@ -1857,6 +1941,13 @@ export function App() {
   const [drawCandidates, setDrawCandidates] = useState<DrawCandidate[]>([]);
   const [selectedDrawCandidateId, setSelectedDrawCandidateId] = useState<string | null>(null);
   const [taskCenterOpen, setTaskCenterOpen] = useState(false);
+  const [taskCenterView, setTaskCenterView] = useState<TaskCenterView>("results");
+  const [taskCenterSearch, setTaskCenterSearch] = useState("");
+  const [taskCenterResultFilter, setTaskCenterResultFilter] = useState("all");
+  const [taskCenterSourceFilter, setTaskCenterSourceFilter] = useState("all");
+  const [selectedTaskResultIds, setSelectedTaskResultIds] = useState<string[]>([]);
+  const [selectedTaskResultId, setSelectedTaskResultId] = useState<string | null>(null);
+  const [bilibiliHistoryItems, setBilibiliHistoryItems] = useState<BilibiliMediaHistoryItem[]>([]);
   const [remoteTasks, setRemoteTasks] = useState<TaskSummary[]>([]);
   const [taskCenterAction, setTaskCenterAction] = useState<string | null>(null);
   const [taskCenterError, setTaskCenterError] = useState<string | null>(null);
@@ -2254,13 +2345,147 @@ export function App() {
       error: samplerState.error,
       retryable: status === "failed" || status === "cancelled",
       cancelable: ["downloading-video", "downloading-audio", "converting", "merging"].includes(stage),
-      events: [{ occurred_at: now, stage, message, level: samplerState.error ? "error" : "info" }]
+      events: [{ occurred_at: now, stage, message, level: samplerState.error ? "error" : "info" }],
+      results: []
     };
   }, [samplerPendingAction, samplerState]);
   const taskCenterTasks = useMemo(() => {
     const allTasks = samplerTask ? [samplerTask, ...remoteTasks] : remoteTasks;
     return [...allTasks].sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
   }, [remoteTasks, samplerTask]);
+  const taskCenterResults = useMemo<TaskCenterResult[]>(() => {
+    const results: TaskCenterResult[] = [];
+    const representedFilePaths = new Set<string>();
+    for (const task of taskCenterTasks) {
+      for (const result of task.results ?? []) {
+        if (result.file_path) {
+          representedFilePaths.add(result.file_path);
+        }
+        results.push({
+          ...result,
+          task_id: task.id,
+          task_title: task.title,
+          source: task.source,
+          status: task.status,
+          created_at: task.completed_at ?? task.updated_at,
+          asset: result.file_path ? audioAssets.find((asset) => asset.file_path === result.file_path) ?? null : null
+        });
+      }
+    }
+    for (const asset of audioAssets) {
+      if (representedFilePaths.has(asset.file_path)) {
+        continue;
+      }
+      results.push({
+        id: `asset:${asset.asset_id}`,
+        kind: "audio",
+        label: audioAssetSourceLabel(asset.source),
+        file_name: asset.file_name,
+        file_path: asset.file_path,
+        url: asset.audio_url,
+        mime_type: null,
+        size_bytes: asset.file_size_bytes,
+        duration_seconds: asset.duration_seconds,
+        model: asset.model,
+        text: asset.text,
+        exists: true,
+        downloadable: true,
+        task_id: asset.task_id ?? `asset:${asset.asset_id}`,
+        task_title: asset.project_title ?? asset.file_name,
+        source: asset.source,
+        status: "completed",
+        created_at: asset.modified_at,
+        asset
+      });
+    }
+    for (const item of bilibiliHistoryItems) {
+      results.push({
+        id: `bilibili:${item.id}`,
+        kind: "video",
+        label: "B 站视频下载",
+        file_name: `${item.title ?? item.itemTitle ?? "B站视频"}.mp4`,
+        file_path: null,
+        url: item.previewUrl,
+        mime_type: "video/mp4",
+        size_bytes: item.fileSizeBytes,
+        duration_seconds: null,
+        model: item.videoQuality?.label ?? "B 站下载",
+        text: item.itemTitle ?? item.title,
+        exists: item.exists,
+        downloadable: true,
+        task_id: `bilibili:${item.id}`,
+        task_title: item.title ?? item.itemTitle ?? "B 站视频",
+        source: "bilibili",
+        status: "completed",
+        created_at: item.downloadedAt,
+        asset: null,
+        bilibili_history_id: item.id
+      });
+    }
+    return results.sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+  }, [audioAssets, bilibiliHistoryItems, taskCenterTasks]);
+  const visibleTaskCenterResults = useMemo(() => {
+    const search = taskCenterSearch.trim().toLocaleLowerCase();
+    return taskCenterResults.filter((result) => {
+      const matchesKind = taskCenterResultFilter === "all"
+        || result.kind === taskCenterResultFilter
+        || (taskCenterResultFilter === "audio_family" && ["audio", "enhancement", "separation"].includes(result.kind))
+        || (taskCenterResultFilter === "documents" && ["transcript", "subtitle", "alignment"].includes(result.kind))
+        || (taskCenterResultFilter === "media" && ["audio", "enhancement", "separation", "video"].includes(result.kind));
+      if (!matchesKind) {
+        return false;
+      }
+      if (taskCenterSourceFilter !== "all" && result.source !== taskCenterSourceFilter) {
+        return false;
+      }
+      if (!search) {
+        return true;
+      }
+      return [result.file_name, result.label, result.task_title, result.model, result.text, taskSourceLabel(result.source)]
+        .filter((value): value is string => Boolean(value))
+        .some((value) => value.toLocaleLowerCase().includes(search));
+    });
+  }, [taskCenterResultFilter, taskCenterResults, taskCenterSearch, taskCenterSourceFilter]);
+  const selectedTaskResults = useMemo(
+    () => taskCenterResults.filter((result) => selectedTaskResultIds.includes(result.id)),
+    [selectedTaskResultIds, taskCenterResults]
+  );
+  const allVisibleTaskResultsSelected = visibleTaskCenterResults.length > 0
+    && visibleTaskCenterResults.every((result) => selectedTaskResultIds.includes(result.id));
+  const activeTaskCount = useMemo(
+    () => taskCenterTasks.filter((task) => task.status === "queued" || task.status === "running" || task.status === "cancelling").length,
+    [taskCenterTasks]
+  );
+  const retryableTaskCount = useMemo(
+    () => taskCenterTasks.filter((task) => task.retryable).length,
+    [taskCenterTasks]
+  );
+  const missingTaskResultCount = useMemo(
+    () => taskCenterResults.filter((result) => !result.exists).length,
+    [taskCenterResults]
+  );
+  const selectedTaskResult = useMemo(
+    () => taskCenterResults.find((result) => result.id === selectedTaskResultId) ?? visibleTaskCenterResults[0] ?? null,
+    [selectedTaskResultId, taskCenterResults, visibleTaskCenterResults]
+  );
+  const activeQueueTasks = useMemo(
+    () => taskCenterTasks.filter((task) => ["queued", "running", "cancelling"].includes(task.status)),
+    [taskCenterTasks]
+  );
+  const attentionQueueTasks = useMemo(
+    () => taskCenterTasks.filter((task) => task.retryable),
+    [taskCenterTasks]
+  );
+  const taskResultSources = useMemo(
+    () => [...new Set(taskCenterResults.map((result) => result.source))]
+      .map((source) => ({ source, count: taskCenterResults.filter((result) => result.source === source).length }))
+      .sort((left, right) => right.count - left.count),
+    [taskCenterResults]
+  );
+  const taskQueueItems = useMemo(() => {
+    const items = [...activeQueueTasks, ...attentionQueueTasks];
+    return items.filter((task, index) => items.findIndex((candidate) => candidate.id === task.id) === index);
+  }, [activeQueueTasks, attentionQueueTasks]);
   const clearableSpeechTaskCount = useMemo(
     () => remoteTasks.filter(
       (task) => task.source === "speech" && ["succeeded", "failed", "cancelled"].includes(task.status)
@@ -3623,11 +3848,45 @@ export function App() {
     }
   }
 
-  function openAudioLibrary() {
+  async function loadBilibiliHistory() {
+    const bridge = window.desktopBilibiliSampler;
+    if (!bridge) {
+      setBilibiliHistoryItems([]);
+      return;
+    }
+    try {
+      const listed = await bridge.listHistory();
+      if (!listed.success || !listed.data) {
+        throw new Error(listed.error ?? "无法读取 B 站下载历史");
+      }
+      const details = await Promise.all(
+        listed.data
+          .filter((entry) => entry.exists)
+          .slice(0, 120)
+          .map(async (entry) => {
+            const detail = await bridge.getHistoryItem(entry.id);
+            return detail.success && detail.data ? detail.data : null;
+          })
+      );
+      setBilibiliHistoryItems(details.filter((item): item is BilibiliMediaHistoryItem => Boolean(item)));
+    } catch (err) {
+      if (window.desktopBilibiliSampler) {
+        setTaskCenterError(err instanceof Error ? err.message : "无法读取 B 站下载历史");
+      }
+      setBilibiliHistoryItems([]);
+    }
+  }
+
+  function openAudioLibrary(selectedResultId?: string | null) {
     setAudioLibraryError(null);
     setAudioLibraryMessage(null);
-    setAudioLibraryOpen(true);
+    setTaskCenterError(null);
+    setTaskCenterMessage(null);
+    setSelectedTaskResultId(selectedResultId ?? null);
+    selectWorkspace("assets");
+    void loadTaskSummaries();
     void loadAudioAssets();
+    void loadBilibiliHistory();
   }
 
   async function onOpenAudioAsset(asset: AudioAsset) {
@@ -5179,6 +5438,206 @@ export function App() {
     }
   }
 
+  async function onOpenTaskResult(result: TaskCenterResult) {
+    if (result.bilibili_history_id) {
+      setSamplerOpen(true);
+      setTaskCenterOpen(false);
+      setSamplerMessage("已打开媒体采样工作台；可在下载历史中继续预览、取样或转写该视频。");
+      return;
+    }
+    if (!result.file_path || !window.desktopFiles?.openPath) {
+      await onDownloadTaskResult(result);
+      return;
+    }
+    setTaskCenterAction(`open-result-${result.id}`);
+    setTaskCenterError(null);
+    try {
+      const errorMessage = await window.desktopFiles.openPath(result.file_path);
+      if (errorMessage) {
+        throw new Error(errorMessage);
+      }
+      setTaskCenterMessage(`已打开 ${result.file_name}。`);
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "打开结果文件失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
+  async function onRevealTaskResult(result: TaskCenterResult) {
+    if (!result.file_path || !window.desktopFiles?.revealInFolder) {
+      setTaskCenterError("该结果尚未生成本地实体文件，无法定位目录。");
+      return;
+    }
+    setTaskCenterAction(`reveal-result-${result.id}`);
+    setTaskCenterError(null);
+    try {
+      await window.desktopFiles.revealInFolder(result.file_path);
+      setTaskCenterMessage(`已在资源管理器中定位 ${result.file_name}。`);
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "打开所在目录失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
+  async function onDownloadTaskResult(result: TaskCenterResult) {
+    if (!result.url) {
+      setTaskCenterError("该结果没有可导出的内容地址。");
+      return;
+    }
+    setTaskCenterAction(`download-result-${result.id}`);
+    setTaskCenterError(null);
+    try {
+      const anchor = document.createElement("a");
+      anchor.href = resolveTaskResultUrl(result.url);
+      anchor.download = result.file_name;
+      anchor.rel = "noopener";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      setTaskCenterMessage(`${result.file_name} 已开始导出。`);
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "导出结果失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
+  async function onDeleteTaskResult(result: TaskCenterResult) {
+    if (result.bilibili_history_id) {
+      const bridge = window.desktopBilibiliSampler;
+      if (!bridge) {
+        setTaskCenterError("请在桌面软件中管理 B 站下载历史。");
+        return;
+      }
+      const confirmed = window.confirm(`移除“${result.file_name}”的 B 站下载记录？\n\n本地 MP4 文件会保留，不会被删除。`);
+      if (!confirmed) {
+        return;
+      }
+      setTaskCenterAction(`delete-result-${result.id}`);
+      setTaskCenterError(null);
+      try {
+        const response = await bridge.removeHistory(result.bilibili_history_id);
+        if (!response.success) {
+          throw new Error(response.error ?? "移除 B 站下载记录失败");
+        }
+        setBilibiliHistoryItems((items) => items.filter((item) => item.id !== result.bilibili_history_id));
+        setSelectedTaskResultIds((ids) => ids.filter((id) => id !== result.id));
+        setTaskCenterMessage(`已移除下载记录：${result.file_name}；本地 MP4 文件仍保留。`);
+      } catch (err) {
+        setTaskCenterError(err instanceof Error ? err.message : "移除 B 站下载记录失败");
+      } finally {
+        setTaskCenterAction(null);
+      }
+      return;
+    }
+    if (!result.asset) {
+      setTaskCenterError("该结果不是受监控输出目录中的音频文件，暂不能从这里删除实体文件。");
+      return;
+    }
+    const confirmed = window.confirm(`删除“${result.file_name}”？\n\n这会同时删除本地实体文件，无法撤销。`);
+    if (!confirmed) {
+      return;
+    }
+    setTaskCenterAction(`delete-result-${result.id}`);
+    setTaskCenterError(null);
+    try {
+      audioAssetRef.current?.pause();
+      await deleteAudioAsset(result.asset.asset_id);
+      setAudioAssets((current) => current.filter((asset) => asset.asset_id !== result.asset?.asset_id));
+      setTaskCenterMessage(`已删除本地文件：${result.file_name}`);
+      await loadAudioAssets();
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "删除本地文件失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
+  function toggleTaskResultSelection(resultId: string) {
+    setSelectedTaskResultIds((ids) => ids.includes(resultId) ? ids.filter((id) => id !== resultId) : [...ids, resultId]);
+  }
+
+  function toggleAllVisibleTaskResults() {
+    setSelectedTaskResultIds((ids) => {
+      if (allVisibleTaskResultsSelected) {
+        const visibleIds = new Set(visibleTaskCenterResults.map((result) => result.id));
+        return ids.filter((id) => !visibleIds.has(id));
+      }
+      return [...new Set([...ids, ...visibleTaskCenterResults.map((result) => result.id)])];
+    });
+  }
+
+  async function onBatchDownloadTaskResults() {
+    const downloadable = selectedTaskResults.filter((result) => result.url && result.exists);
+    if (!downloadable.length) {
+      setTaskCenterError("所选结果没有可导出的内容。");
+      return;
+    }
+    setTaskCenterAction("batch-download");
+    setTaskCenterError(null);
+    try {
+      for (const result of downloadable) {
+        const anchor = document.createElement("a");
+        anchor.href = resolveTaskResultUrl(result.url!);
+        anchor.download = result.file_name;
+        anchor.rel = "noopener";
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        await new Promise((resolve) => window.setTimeout(resolve, 80));
+      }
+      setTaskCenterMessage(`已开始导出 ${downloadable.length} 个结果。`);
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "批量导出失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
+  async function onBatchDeleteTaskResults() {
+    const audioResults = selectedTaskResults.filter((result) => result.asset);
+    const historyResults = selectedTaskResults.filter((result) => result.bilibili_history_id);
+    if (!audioResults.length && !historyResults.length) {
+      setTaskCenterError("所选结果没有可清理的本地文件或 B 站下载记录。");
+      return;
+    }
+    const warning = [
+      audioResults.length ? `删除 ${audioResults.length} 个本地音频文件` : "",
+      historyResults.length ? `移除 ${historyResults.length} 条 B 站下载记录（MP4 文件保留）` : ""
+    ].filter(Boolean).join("；");
+    if (!window.confirm(`${warning}？\n\n此操作不可撤销，请确认。`)) {
+      return;
+    }
+    setTaskCenterAction("batch-delete");
+    setTaskCenterError(null);
+    try {
+      for (const result of audioResults) {
+        await deleteAudioAsset(result.asset!.asset_id);
+      }
+      const bridge = window.desktopBilibiliSampler;
+      if (historyResults.length && !bridge) {
+        throw new Error("请在桌面软件中管理 B 站下载记录。");
+      }
+      for (const result of historyResults) {
+        const response = await bridge!.removeHistory(result.bilibili_history_id!);
+        if (!response.success) {
+          throw new Error(response.error ?? `移除 ${result.file_name} 失败`);
+        }
+      }
+      setAudioAssets((assets) => assets.filter((asset) => !audioResults.some((result) => result.asset?.asset_id === asset.asset_id)));
+      setBilibiliHistoryItems((items) => items.filter((item) => !historyResults.some((result) => result.bilibili_history_id === item.id)));
+      setSelectedTaskResultIds([]);
+      setTaskCenterMessage(`已完成清理：${warning}。`);
+      await loadAudioAssets();
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "批量清理失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
   async function togglePlayback() {
     if (!audioRef.current || !result) {
       return;
@@ -5544,14 +6003,14 @@ export function App() {
     const hasActiveBatch = batchProjects.some(
       (project) => project.status === "queued" || project.status === "running" || project.status === "cancelling"
     );
-    const shouldPoll = taskCenterOpen || Boolean(activeSpeechJob) || hasActiveBatch || samplerBusy;
+    const shouldPoll = taskCenterOpen || activeWorkspace === "assets" || Boolean(activeSpeechJob) || hasActiveBatch || samplerBusy;
     if (!shouldPoll) {
       return undefined;
     }
     void loadTaskSummaries();
     const timer = window.setInterval(() => void loadTaskSummaries(), 1200);
     return () => window.clearInterval(timer);
-  }, [activeSpeechJob, batchProjects, samplerBusy, taskCenterOpen]);
+  }, [activeSpeechJob, activeWorkspace, batchProjects, samplerBusy, taskCenterOpen]);
 
   useEffect(() => {
     if (generationWorkspace !== "batch") {
@@ -5584,15 +6043,18 @@ export function App() {
   }, [selectedAudioAsset?.file_path]);
 
   useEffect(() => {
-    if (!audioLibraryOpen || audioLibraryAction) {
+    if ((!audioLibraryOpen && !taskCenterOpen && activeWorkspace !== "assets") || audioLibraryAction) {
       return undefined;
     }
     // The library is a live view of the monitored output directory.  A short
     // poll catches files created or removed outside this window without
     // relying on an Electron file watcher or taking control of the desktop.
-    const timer = window.setInterval(() => void loadAudioAssets(), 5_000);
+    const timer = window.setInterval(() => {
+      void loadAudioAssets();
+      void loadBilibiliHistory();
+    }, 5_000);
     return () => window.clearInterval(timer);
-  }, [audioLibraryAction, audioLibraryOpen]);
+  }, [activeWorkspace, audioLibraryAction, audioLibraryOpen, taskCenterOpen]);
 
   useEffect(() => {
     if (!audioUrl) {
@@ -5983,6 +6445,177 @@ export function App() {
     );
   }
 
+  function renderAssetCenterWorkspace() {
+    const selected = selectedTaskResult;
+    const selectedIsAudio = selected ? ["audio", "enhancement", "separation"].includes(selected.kind) : false;
+    const selectedIsVideo = selected?.kind === "video";
+    const typeFilters = [
+      { id: "all", label: "全部成果", count: taskCenterResults.length, icon: <Library size={16} strokeWidth={1.9} /> },
+      { id: "audio_family", label: "音频", count: taskCenterResults.filter((result) => ["audio", "enhancement", "separation"].includes(result.kind)).length, icon: <Volume2 size={16} strokeWidth={1.9} /> },
+      { id: "video", label: "视频", count: taskCenterResults.filter((result) => result.kind === "video").length, icon: <Film size={16} strokeWidth={1.9} /> },
+      { id: "documents", label: "文字与时间轴", count: taskCenterResults.filter((result) => ["transcript", "subtitle", "alignment"].includes(result.kind)).length, icon: <FileText size={16} strokeWidth={1.9} /> }
+    ];
+
+    return (
+      <section className="assetCenterWorkspace" aria-label="成果中心">
+        <header className="assetCenterHeader">
+          <div className="assetCenterHeading">
+            <span className="assetCenterHeadingIcon"><Library size={21} strokeWidth={1.9} /></span>
+            <div>
+              <span>OpenTTS Studio</span>
+              <h1>成果中心</h1>
+              <p>统一查看、试听和管理本机生成的所有音频、视频与转写文件。</p>
+            </div>
+          </div>
+          <div className="assetCenterHeaderActions">
+            <button className="pathPickButton" disabled={taskCenterAction !== null || audioLibraryLoading} onClick={() => {
+              void loadTaskSummaries();
+              void loadAudioAssets();
+              void loadBilibiliHistory();
+            }}>
+              <RefreshCw size={16} strokeWidth={1.9} />
+              <span>刷新</span>
+            </button>
+            <button className={retryableTaskCount > 0 ? "assetCenterQueueButton attention" : "assetCenterQueueButton"} onClick={() => {
+              setTaskCenterError(null);
+              setTaskCenterMessage(null);
+              setTaskHistoryClearConfirmOpen(false);
+              void loadTaskSummaries();
+              setTaskCenterOpen(true);
+            }}>
+              <Gauge size={16} strokeWidth={1.9} />
+              <span>任务队列</span>
+              <em>{activeTaskCount + retryableTaskCount}</em>
+            </button>
+            <button className="assetCenterReturnButton" onClick={() => selectWorkspace("creation")}>
+              <ChevronLeft size={16} strokeWidth={1.9} />
+              <span>返回合成</span>
+            </button>
+          </div>
+        </header>
+
+        <div className="assetCenterSummary" aria-label="成果概览">
+          <button className={taskCenterResultFilter === "all" ? "active" : ""} onClick={() => setTaskCenterResultFilter("all")}>
+            <span>所有成果</span><strong>{taskCenterResults.length}</strong>
+          </button>
+          <button className={taskCenterResultFilter === "audio_family" ? "active" : ""} onClick={() => setTaskCenterResultFilter("audio_family")}>
+            <span>音频</span><strong>{taskCenterResults.filter((result) => ["audio", "enhancement", "separation"].includes(result.kind)).length}</strong>
+          </button>
+          <button className={taskCenterResultFilter === "documents" ? "active" : ""} onClick={() => setTaskCenterResultFilter("documents")}>
+            <span>转写与时间轴</span><strong>{taskCenterResults.filter((result) => ["transcript", "subtitle", "alignment"].includes(result.kind)).length}</strong>
+          </button>
+          <button className={retryableTaskCount > 0 || missingTaskResultCount > 0 ? "attention" : ""} onClick={() => setTaskCenterOpen(true)}>
+            <span>需要处理</span><strong>{retryableTaskCount + missingTaskResultCount}</strong>
+          </button>
+        </div>
+
+        <div className="assetCenterLayout">
+          <aside className="assetCenterFilters" aria-label="成果筛选">
+            <div className="assetFilterHeading">
+              <strong>筛选成果</strong>
+              {(taskCenterSearch || taskCenterResultFilter !== "all" || taskCenterSourceFilter !== "all") && (
+                <button type="button" onClick={() => {
+                  setTaskCenterSearch("");
+                  setTaskCenterResultFilter("all");
+                  setTaskCenterSourceFilter("all");
+                }}>重置</button>
+              )}
+            </div>
+            <label className="assetCenterSearch">
+              <Search size={16} strokeWidth={1.9} />
+              <input value={taskCenterSearch} placeholder="搜索文件、原文或模型" onChange={(event) => setTaskCenterSearch(event.target.value)} />
+            </label>
+            <div className="assetFilterGroup" role="group" aria-label="成果类型">
+              <span>内容类型</span>
+              {typeFilters.map((filter) => (
+                <button key={filter.id} type="button" className={taskCenterResultFilter === filter.id ? "active" : ""} onClick={() => setTaskCenterResultFilter(filter.id)}>
+                  {filter.icon}<strong>{filter.label}</strong><em>{filter.count}</em>
+                </button>
+              ))}
+            </div>
+            <div className="assetFilterGroup" role="group" aria-label="成果来源">
+              <span>来源</span>
+              <button type="button" className={taskCenterSourceFilter === "all" ? "active" : ""} onClick={() => setTaskCenterSourceFilter("all")}>
+                <Library size={16} strokeWidth={1.9} /><strong>全部来源</strong><em>{taskCenterResults.length}</em>
+              </button>
+              {taskResultSources.map(({ source, count }) => (
+                <button key={source} type="button" className={taskCenterSourceFilter === source ? "active" : ""} onClick={() => setTaskCenterSourceFilter(source)}>
+                  <span className={`assetSourceDot source-${source}`} aria-hidden="true" /><strong>{taskSourceLabel(source)}</strong><em>{count}</em>
+                </button>
+              ))}
+            </div>
+          </aside>
+
+          <section className="assetCenterListPanel" aria-label="成果列表">
+            <header className="assetCenterListHeader">
+              <div><strong>{taskCenterSearch || taskCenterResultFilter !== "all" || taskCenterSourceFilter !== "all" ? "筛选结果" : "最近成果"}</strong><span>{visibleTaskCenterResults.length} 项文件</span></div>
+              <label className="assetListSelectAll"><input type="checkbox" checked={allVisibleTaskResultsSelected} onChange={toggleAllVisibleTaskResults} /><span>全选</span></label>
+            </header>
+            {selectedTaskResults.length > 0 && (
+              <div className="assetCenterBatchBar">
+                <span>已选择 {selectedTaskResults.length} 项</span>
+                <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onBatchDownloadTaskResults()}><Download size={15} strokeWidth={1.9} /><span>导出</span></button>
+                <button className="pathPickButton audioAssetDeleteButton" disabled={taskCenterAction !== null} onClick={() => void onBatchDeleteTaskResults()}><Trash2 size={15} strokeWidth={1.9} /><span>清理</span></button>
+                <button className="assetCenterTextButton" disabled={taskCenterAction !== null} onClick={() => setSelectedTaskResultIds([])}>取消</button>
+              </div>
+            )}
+            <div className="assetCenterRows">
+              {audioLibraryLoading && taskCenterResults.length === 0 ? (
+                <div className="assetCenterLoading" aria-label="正在读取成果"><span /><span /><span /></div>
+              ) : visibleTaskCenterResults.length === 0 ? (
+                <div className="assetCenterEmpty"><Library size={26} strokeWidth={1.7} /><strong>{taskCenterResults.length === 0 ? "还没有可管理的成果" : "没有符合筛选条件的成果"}</strong><span>{taskCenterResults.length === 0 ? "语音生成、转写、增强或取样完成后，文件会自动汇集到这里。" : "尝试更换类型、来源或关键词。"}</span></div>
+              ) : visibleTaskCenterResults.map((result) => {
+                const selectedForBatch = selectedTaskResultIds.includes(result.id);
+                const current = selected?.id === result.id;
+                const opening = taskCenterAction === `open-result-${result.id}`;
+                const downloading = taskCenterAction === `download-result-${result.id}`;
+                return (
+                  <article key={result.id} className={`assetCenterRow ${current ? "current" : ""} ${result.exists ? "" : "missing"}`}>
+                    <label className="assetRowCheckbox" title={`选择 ${result.file_name}`}><input type="checkbox" checked={selectedForBatch} onChange={() => toggleTaskResultSelection(result.id)} /><span className="srOnly">选择 {result.file_name}</span></label>
+                    <button className="assetCenterRowMain" type="button" onClick={() => setSelectedTaskResultId(result.id)}>
+                      <span className={`assetResultKindIcon kind-${result.kind}`}>{taskResultIcon(result.kind)}</span>
+                      <span><strong title={result.file_name}>{result.file_name}</strong><small>{taskResultContextLabel(result)}</small></span>
+                    </button>
+                    <div className="assetCenterRowTags"><span className={`taskSourceTag source-${result.source}`}>{taskSourceLabel(result.source)}</span><span className={`taskResultKindTag kind-${result.kind}`}>{taskResultKindLabel(result.kind)}</span></div>
+                    <div className="assetCenterRowMeta"><span>{result.model ?? "未关联模型"}</span><time>{formatHistoryTime(result.created_at)}</time></div>
+                    <button className="assetRowOpenButton" title={result.bilibili_history_id ? "打开媒体采样" : result.file_path ? "打开文件" : "导出文件"} disabled={taskCenterAction !== null || !result.exists} onClick={() => void onOpenTaskResult(result)}>
+                      {opening || downloading ? <Loader2 className="spin" size={16} /> : result.file_path || result.bilibili_history_id ? <FolderOpen size={16} strokeWidth={1.9} /> : <Download size={16} strokeWidth={1.9} />}<span className="srOnly">打开成果</span>
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          <aside className="assetCenterInspector" aria-label="成果详情">
+            {selected ? (
+              <>
+                <header className="assetInspectorHeader"><div><span className={`assetResultKindIcon kind-${selected.kind}`}>{taskResultIcon(selected.kind)}</span><div><span>{taskResultKindLabel(selected.kind)} · {taskSourceLabel(selected.source)}</span><strong title={selected.file_name}>{selected.file_name}</strong></div></div>{!selected.exists && <em>文件缺失</em>}</header>
+                <div className="assetInspectorPreview">
+                  {selectedIsAudio && selected.url && selected.exists ? <audio controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : selectedIsVideo && selected.url && selected.exists ? <video controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : <div className="assetInspectorPreviewEmpty">{taskResultIcon(selected.kind)}<span>{selected.exists ? selected.text || "此成果可通过下方操作打开或导出。" : "原始文件已不存在，可从任务记录中确认来源。"}</span></div>}
+                </div>
+                {selected.text && !selectedIsAudio && !selectedIsVideo && <p className="assetInspectorText">{selected.text}</p>}
+                <dl className="assetInspectorMeta">
+                  <div><dt>来源</dt><dd>{taskSourceLabel(selected.source)}</dd></div>
+                  <div><dt>关联任务</dt><dd title={selected.task_title}>{selected.task_title}</dd></div>
+                  <div><dt>模型</dt><dd>{selected.model ?? "未关联模型"}</dd></div>
+                  <div><dt>文件信息</dt><dd>{selected.duration_seconds ? formatDuration(selected.duration_seconds) : selected.size_bytes !== null && selected.size_bytes !== undefined ? formatAssetSize(selected.size_bytes) : "可导出结果"}</dd></div>
+                  <div><dt>创建时间</dt><dd>{formatHistoryTime(selected.created_at)}</dd></div>
+                </dl>
+                <div className="assetInspectorActions">
+                  <button className="primaryAction" disabled={taskCenterAction !== null || !selected.exists} onClick={() => void onOpenTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "进入媒体采样" : selected.file_path ? "打开文件" : "导出文件"}</span></button>
+                  {selected.file_path && <button className="secondaryAction" disabled={taskCenterAction !== null || !selected.exists} onClick={() => void onRevealTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>所在目录</span></button>}
+                  {selected.asset && <button className="secondaryAction" disabled={taskCenterAction !== null} onClick={() => onAddAudioAssetToVoiceLibrary(selected.asset!)}><Save size={16} strokeWidth={1.9} /><span>加入音色库</span></button>}
+                  {(selected.asset || selected.bilibili_history_id) && <button className="secondaryAction assetInspectorDelete" disabled={taskCenterAction !== null || (!selected.exists && Boolean(selected.asset))} onClick={() => void onDeleteTaskResult(selected)}><Trash2 size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "移除记录" : "删除文件"}</span></button>}
+                </div>
+              </>
+            ) : <div className="assetInspectorEmpty"><Library size={28} strokeWidth={1.7} /><strong>选择一项成果</strong><span>在左侧列表中选择文件，即可查看预览、来源和管理操作。</span></div>}
+          </aside>
+        </div>
+      </section>
+    );
+  }
+
   function toggleTheme(event: ReactMouseEvent<HTMLButtonElement>) {
     if (themeTransitioning) {
       return;
@@ -6092,6 +6725,10 @@ export function App() {
               <Waves size={16} strokeWidth={1.9} />
               <span>音频分轨</span>
             </button>
+            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "assets"} onClick={openAudioLibrary}>
+              <Library size={16} strokeWidth={1.9} />
+              <span>成果中心</span>
+            </button>
           </div>
           <button className="workbenchNavScroll" type="button" title="显示后面的工作台" aria-label="显示后面的工作台" onClick={() => scrollWorkbenchNavigation(1)}>
             <ChevronRight size={16} strokeWidth={2} />
@@ -6116,7 +6753,7 @@ export function App() {
             }}>
               <RefreshCw size={17} strokeWidth={1.9} />
             </button>
-            <button className="toolButton" title="任务中心" onClick={() => {
+            <button className="toolButton taskQueueToolButton" title="任务队列" onClick={() => {
               setTaskCenterError(null);
               setTaskCenterMessage(null);
               setTaskHistoryClearConfirmOpen(false);
@@ -6124,9 +6761,7 @@ export function App() {
               setTaskCenterOpen(true);
             }}>
               <Gauge size={17} strokeWidth={1.9} />
-            </button>
-            <button className="toolButton" title="音频资产库" onClick={openAudioLibrary}>
-              <Library size={17} strokeWidth={1.9} />
+              {(activeTaskCount > 0 || retryableTaskCount > 0) && <span className={retryableTaskCount > 0 ? "taskQueueToolBadge attention" : "taskQueueToolBadge"}>{activeTaskCount + retryableTaskCount}</span>}
             </button>
             <button
               className={`toolButton themeToggleButton ${theme === "dark" ? "isDark" : "isLight"}${themeTransitioning ? " isTransitioning" : ""}`}
@@ -6903,6 +7538,8 @@ export function App() {
                 <MediaSamplerWorkspace onClose={() => selectWorkspace("creation")} onCreateVoiceFromSample={onMediaSamplerCreateVoice} />
               ) : activeWorkspace === "enhancement" ? (
                 <EnhancementWorkspace onClose={() => selectWorkspace("creation")} />
+              ) : activeWorkspace === "assets" ? (
+                renderAssetCenterWorkspace()
               ) : (
                 <SeparationWorkspace onClose={() => selectWorkspace("creation")} />
               )}
@@ -7661,12 +8298,60 @@ export function App() {
       )}
 
       {taskCenterOpen && (
-        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="任务中心">
+        <div className="taskQueueOverlay" role="dialog" aria-modal="true" aria-label="任务队列" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) {
+            setTaskCenterOpen(false);
+          }
+        }}>
+          <aside className="taskQueueDrawer">
+            <header className="taskQueueHeader">
+              <div>
+                <strong>任务队列</strong>
+                <span>{activeTaskCount > 0 ? `${activeTaskCount} 项任务正在运行` : "当前没有运行中的任务"}</span>
+              </div>
+              <button className="modalClose" title="关闭任务队列" onClick={() => setTaskCenterOpen(false)}><X size={18} strokeWidth={2} /></button>
+            </header>
+            <div className="taskQueueSummary">
+              <div className={activeTaskCount > 0 ? "active" : ""}><span>进行中</span><strong>{activeTaskCount}</strong></div>
+              <div className={retryableTaskCount > 0 ? "attention" : ""}><span>待处理</span><strong>{retryableTaskCount}</strong></div>
+              <button onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}>查看全部成果<ChevronRight size={15} strokeWidth={1.9} /></button>
+            </div>
+            <div className="taskQueueBody">
+              {taskQueueItems.length === 0 ? (
+                <div className="taskQueueEmpty"><CheckCircle2 size={25} strokeWidth={1.8} /><strong>队列是空的</strong><span>新生成、转写或媒体采样开始后，会在这里显示实时进度。</span></div>
+              ) : (
+                taskQueueItems.map((task) => {
+                  const latestEvent = task.events[task.events.length - 1];
+                  const isCancelling = taskCenterAction === `cancel-${task.id}`;
+                  const isRetrying = taskCenterAction === `retry-${task.id}`;
+                  const retryLabel = task.source === "batch_project" && task.status === "cancelled" ? "继续" : "重试";
+                  return (
+                    <article key={task.id} className={`taskQueueItem ${task.status}`}>
+                      <header><div><span className={`taskSourceTag source-${task.source}`}>{taskSourceLabel(task.source)}</span><strong title={task.title}>{task.title}</strong></div><em className={task.status}>{taskStatusLabel(task.status)}</em></header>
+                      {task.status === "queued" || task.status === "running" || task.status === "cancelling" ? <div className="taskQueueProgress"><span style={{ width: `${task.progress_percent}%` }} /></div> : null}
+                      <div className="taskQueueMeta"><span>{task.error ?? latestEvent?.message ?? "等待任务事件"}</span><strong>{task.status === "queued" || task.status === "running" || task.status === "cancelling" ? `${task.progress_percent}%` : "需要处理"}</strong></div>
+                      <div className="taskQueueActions">
+                        {(task.results?.length ?? 0) > 0 && <button className="taskQueueLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(task.results?.[0]?.id ?? null); }}>查看成果 <ChevronRight size={14} strokeWidth={1.9} /></button>}
+                        <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void copyTaskDiagnostics(task)}><Copy size={15} strokeWidth={1.9} /><span>复制诊断</span></button>
+                        {task.cancelable && <button className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onCancelTask(task)}>{isCancelling ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}<span>{isCancelling ? "取消中" : "取消"}</span></button>}
+                        {task.retryable && <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onRetryTask(task)}>{isRetrying ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{isRetrying ? `${retryLabel}中` : retryLabel}</span></button>}
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {false && taskCenterOpen && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="任务与资产中心">
           <section className="settingsDialog taskCenterDialog">
             <header className="settingsHeader">
               <div>
-                <strong>任务中心</strong>
-                <span>真实后端阶段 · 串行队列 · 失败诊断</span>
+                <strong>任务与资产中心</strong>
+                <span>运行状态 · 完成结果 · 本地文件统一管理</span>
               </div>
               <button className="modalClose" title="关闭" onClick={() => {
                 setTaskHistoryClearConfirmOpen(false);
@@ -7679,19 +8364,26 @@ export function App() {
             <div className="settingsBody taskCenterBody">
               <div className="taskCenterSummary">
                 <div>
-                  <span>当前任务</span>
-                  <strong>{taskCenterTasks.length}</strong>
-                </div>
-                <div>
                   <span>进行中</span>
-                  <strong>{taskCenterTasks.filter((task) => task.status === "queued" || task.status === "running" || task.status === "cancelling").length}</strong>
+                  <strong>{activeTaskCount}</strong>
                 </div>
                 <div>
-                  <span>可重试</span>
-                  <strong>{taskCenterTasks.filter((task) => task.retryable).length}</strong>
+                  <span>完成结果</span>
+                  <strong>{taskCenterResults.length}</strong>
+                </div>
+                <div>
+                  <span>待重试</span>
+                  <strong>{retryableTaskCount}</strong>
+                </div>
+                <div className={missingTaskResultCount > 0 ? "hasIssue" : ""}>
+                  <span>文件缺失</span>
+                  <strong>{missingTaskResultCount}</strong>
                 </div>
                 <span className="taskCenterSummaryActions">
-                  <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void loadTaskSummaries()}>
+                  <button className="pathPickButton" disabled={taskCenterAction !== null || audioLibraryLoading} onClick={() => {
+                    void loadTaskSummaries();
+                    void loadAudioAssets();
+                  }}>
                     <RefreshCw size={15} strokeWidth={1.9} />
                     <span>刷新</span>
                   </button>
@@ -7709,6 +8401,82 @@ export function App() {
                   </button>
                 </span>
               </div>
+
+              <div className="taskCenterTabs" role="tablist" aria-label="任务与资产视图">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={taskCenterView === "results"}
+                  className={taskCenterView === "results" ? "active" : ""}
+                  onClick={() => setTaskCenterView("results")}
+                >
+                  <Library size={16} strokeWidth={1.9} />
+                  <span>完成结果</span>
+                  <em>{taskCenterResults.length}</em>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={taskCenterView === "overview"}
+                  className={taskCenterView === "overview" ? "active" : ""}
+                  onClick={() => setTaskCenterView("overview")}
+                >
+                  <Gauge size={16} strokeWidth={1.9} />
+                  <span>运行任务</span>
+                  <em>{activeTaskCount}</em>
+                </button>
+              </div>
+
+              {taskCenterView === "results" && (
+                <div className="taskResultControls">
+                  <label className="audioLibraryField taskResultSearchField">
+                    <span>搜索成果</span>
+                    <input
+                      value={taskCenterSearch}
+                      placeholder="文件名、任务、模型、原文或项目名称"
+                      onChange={(event) => setTaskCenterSearch(event.target.value)}
+                    />
+                  </label>
+                  <label className="audioLibraryField">
+                    <span>结果类型</span>
+                    <select value={taskCenterResultFilter} onChange={(event) => setTaskCenterResultFilter(event.target.value)}>
+                      <option value="all">全部结果</option>
+                      <option value="video">B 站视频</option>
+                      <option value="audio">语音成品</option>
+                      <option value="enhancement">语音增强</option>
+                      <option value="separation">人声/伴奏分轨</option>
+                      <option value="transcript">TXT 转写</option>
+                      <option value="subtitle">SRT 字幕</option>
+                      <option value="alignment">强制对齐时间轴</option>
+                    </select>
+                  </label>
+                  <span className="taskResultControlsHint">
+                    <Info size={14} strokeWidth={1.9} />
+                    <span>已关联任务的结果优先显示；受监控输出目录中的音频会自动纳入。</span>
+                  </span>
+                </div>
+              )}
+
+              {taskCenterView === "results" && visibleTaskCenterResults.length > 0 && (
+                <div className="taskResultBatchBar">
+                  <label className="taskResultSelectAll">
+                    <input type="checkbox" checked={allVisibleTaskResultsSelected} onChange={toggleAllVisibleTaskResults} />
+                    <span>全选当前结果</span>
+                  </label>
+                  <span className="taskResultBatchCount">已选 {selectedTaskResults.length} 项</span>
+                  <span className="taskResultBatchActions">
+                    <button className="pathPickButton" disabled={!selectedTaskResults.length || taskCenterAction !== null} onClick={() => void onBatchDownloadTaskResults()}>
+                      {taskCenterAction === "batch-download" ? <Loader2 className="spin" size={15} /> : <Download size={15} strokeWidth={1.9} />}
+                      <span>批量导出</span>
+                    </button>
+                    <button className="pathPickButton audioAssetDeleteButton" disabled={!selectedTaskResults.length || taskCenterAction !== null} onClick={() => void onBatchDeleteTaskResults()}>
+                      {taskCenterAction === "batch-delete" ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
+                      <span>批量清理</span>
+                    </button>
+                    {selectedTaskResults.length > 0 && <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => setSelectedTaskResultIds([])}>取消选择</button>}
+                  </span>
+                </div>
+              )}
 
               {taskHistoryClearConfirmOpen && (
                 <div className="taskHistoryClearConfirm" role="alertdialog" aria-label="确认清理生成历史">
@@ -7729,7 +8497,90 @@ export function App() {
                 </div>
               )}
 
-              {taskCenterTasks.length === 0 ? (
+              {taskCenterView === "results" ? (
+                audioLibraryLoading && taskCenterResults.length === 0 ? (
+                  <div className="audioLibrarySkeleton" aria-label="正在读取完成结果"><span /><span /><span /></div>
+                ) : visibleTaskCenterResults.length === 0 ? (
+                  <div className="taskCenterEmpty">
+                    <Library size={22} strokeWidth={1.7} />
+                    <strong>{taskCenterResults.length === 0 ? "暂无完成结果" : "没有匹配的完成结果"}</strong>
+                    <span>{taskCenterResults.length === 0 ? "语音生成、转写、增强和分轨完成后，成果会自动汇集到这里。" : "尝试调整关键词或结果类型筛选。"}</span>
+                  </div>
+                ) : (
+                  <div className="taskResultGrid" aria-label="完成结果列表">
+                    {visibleTaskCenterResults.map((result) => {
+                      const isAudio = ["audio", "enhancement", "separation"].includes(result.kind);
+                      const isVideo = result.kind === "video";
+                      const selected = selectedTaskResultIds.includes(result.id);
+                      const opening = taskCenterAction === `open-result-${result.id}`;
+                      const revealing = taskCenterAction === `reveal-result-${result.id}`;
+                      const downloading = taskCenterAction === `download-result-${result.id}`;
+                      const deleting = taskCenterAction === `delete-result-${result.id}`;
+                      return (
+                        <article key={result.id} className={`taskResultCard source-${result.source} ${selected ? "selected" : ""} ${result.exists ? "" : "missing"}`}>
+                          <div className="taskResultCardHeader">
+                            <div>
+                              <label className="taskResultSelect" title={`选择 ${result.file_name}`}>
+                                <input type="checkbox" checked={selected} onChange={() => toggleTaskResultSelection(result.id)} />
+                                <span className="srOnly">选择 {result.file_name}</span>
+                              </label>
+                              <span className={`taskSourceTag source-${result.source}`}>{taskSourceLabel(result.source)}</span>
+                              <span className={`taskResultKindTag kind-${result.kind}`}>{taskResultIcon(result.kind)}{taskResultKindLabel(result.kind)}</span>
+                            </div>
+                            <time>{formatHistoryTime(result.created_at)}</time>
+                          </div>
+                          <div className="taskResultTitle">
+                            <strong title={result.file_name}>{result.file_name}</strong>
+                            <span>{taskResultContextLabel(result)}</span>
+                          </div>
+                          <div className="taskResultMeta">
+                            <span>{result.model ?? "未关联模型"}</span>
+                            <span>{result.duration_seconds ? formatDuration(result.duration_seconds) : result.size_bytes !== null && result.size_bytes !== undefined ? formatAssetSize(result.size_bytes) : "可导出结果"}</span>
+                            {!result.exists && <em>文件已缺失</em>}
+                          </div>
+                          {isAudio && result.url && result.exists && (
+                            <audio className="taskResultAudio" controls preload="metadata" src={resolveTaskResultUrl(result.url)} />
+                          )}
+                          {isVideo && result.url && result.exists && (
+                            <video className="taskResultVideo" controls preload="metadata" src={resolveTaskResultUrl(result.url)} />
+                          )}
+                          {!isAudio && result.text && <p className="taskResultText">{result.text}</p>}
+                          <div className="taskResultActions">
+                            <button className="pathPickButton taskResultPrimaryAction" disabled={taskCenterAction !== null || !result.exists} onClick={() => void onOpenTaskResult(result)}>
+                              {opening || downloading ? <Loader2 className="spin" size={15} /> : result.file_path || result.bilibili_history_id ? <FolderOpen size={15} strokeWidth={1.9} /> : <Download size={15} strokeWidth={1.9} />}
+                              <span>{result.bilibili_history_id ? "媒体采样" : result.file_path ? "打开文件" : "导出"}</span>
+                            </button>
+                            {result.file_path && (
+                              <button className="pathPickButton" disabled={taskCenterAction !== null || !result.exists} onClick={() => void onRevealTaskResult(result)}>
+                                {revealing ? <Loader2 className="spin" size={15} /> : <FolderOpen size={15} strokeWidth={1.9} />}
+                                <span>所在目录</span>
+                              </button>
+                            )}
+                            {result.asset && (
+                              <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => onAddAudioAssetToVoiceLibrary(result.asset!)}>
+                                <Save size={15} strokeWidth={1.9} />
+                                <span>加入音色库</span>
+                              </button>
+                            )}
+                            {result.bilibili_history_id && (
+                              <button className="pathPickButton audioAssetDeleteButton" disabled={taskCenterAction !== null} onClick={() => void onDeleteTaskResult(result)}>
+                                {deleting ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
+                                <span>移除记录</span>
+                              </button>
+                            )}
+                            {result.asset && (
+                              <button className="pathPickButton audioAssetDeleteButton" disabled={taskCenterAction !== null || !result.exists} onClick={() => void onDeleteTaskResult(result)}>
+                                {deleting ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
+                                <span>删除文件</span>
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )
+              ) : taskCenterTasks.length === 0 ? (
                 <div className="taskCenterEmpty">
                   <Gauge size={22} strokeWidth={1.7} />
                   <strong>暂无可追踪任务</strong>
@@ -7739,6 +8590,7 @@ export function App() {
                 <div className="taskCenterList">
                   {taskCenterTasks.map((task) => {
                     const latestEvent = task.events[task.events.length - 1];
+                    const resultCount = task.results?.length ?? 0;
                     const isCancelling = taskCenterAction === `cancel-${task.id}`;
                     const isRetrying = taskCenterAction === `retry-${task.id}`;
                     const retryLabel = task.source === "batch_project" && task.status === "cancelled" ? "继续" : "重试";
@@ -7747,7 +8599,7 @@ export function App() {
                         <div className="taskCenterItemHeader">
                           <div>
                             <strong>{task.title}</strong>
-                            <span>{taskSourceLabel(task.source)} · {task.stage}</span>
+                            <span><em className={`taskSourceTag source-${task.source}`}>{taskSourceLabel(task.source)}</em> · {task.stage}</span>
                           </div>
                           <span className={`taskCenterStatus ${task.status}`}>{taskStatusLabel(task.status)}</span>
                         </div>
@@ -7769,6 +8621,13 @@ export function App() {
                               </div>
                             ))}
                           </div>
+                        )}
+                        {resultCount > 0 && (
+                          <button className="taskInlineResults" type="button" onClick={() => setTaskCenterView("results")}>
+                            <Library size={15} strokeWidth={1.9} />
+                            <span>已产出 {resultCount} 个结果，前往统一成果管理</span>
+                            <ChevronRight size={15} strokeWidth={1.9} />
+                          </button>
                         )}
                         <div className="taskCenterActions">
                           <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void copyTaskDiagnostics(task)}>

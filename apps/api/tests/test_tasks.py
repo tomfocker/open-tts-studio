@@ -42,6 +42,9 @@ def test_sync_speech_is_recorded_in_persistent_task_history(tmp_path: Path, monk
     assert speech_task["stage"] == "completed"
     assert speech_task["events"][-1]["stage"] == "completed"
     assert Path(speech_task["log_file"]).exists()
+    assert len(speech_task["results"]) == 1
+    assert speech_task["results"][0]["kind"] == "audio"
+    assert speech_task["results"][0]["exists"] is True
 
 
 def test_task_center_includes_completed_batch_projects(tmp_path: Path, monkeypatch):
@@ -64,6 +67,8 @@ def test_task_center_includes_completed_batch_projects(tmp_path: Path, monkeypat
     assert task["source"] == "batch_project"
     assert task["status"] == "completed"
     assert task["progress_percent"] == 100
+    assert len(task["results"]) == 2
+    assert all(item["kind"] == "audio" and item["exists"] for item in task["results"])
 
 
 def test_failed_job_can_be_retried_from_task_api(tmp_path: Path, monkeypatch):

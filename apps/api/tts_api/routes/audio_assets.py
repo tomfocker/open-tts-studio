@@ -8,6 +8,8 @@ from fastapi.responses import FileResponse
 from tts_api.config import get_settings
 from tts_api.jobs import get_job_store
 from tts_api.projects import get_project_store
+from tts_api.enhancement import get_audio_enhancement_store
+from tts_api.separation import get_audio_separation_store
 from tts_api.schemas import AudioAsset
 
 
@@ -97,6 +99,40 @@ def _asset_metadata(root: Path) -> dict[str, dict]:
                     "duration_seconds": segment.result.duration_seconds,
                     "project_id": project.id,
                     "project_title": project.title,
+                },
+            )
+    for job in get_audio_enhancement_store().list():
+        for output in job.outputs:
+            try:
+                asset_id = _asset_id(root, Path(output.file_path))
+            except (OSError, ValueError):
+                continue
+            metadata.setdefault(
+                asset_id,
+                {
+                    "source": "audio_enhancement",
+                    "origin": "local",
+                    "model": output.model,
+                    "text": job.source_file_name,
+                    "duration_seconds": output.duration_seconds,
+                    "task_id": f"audio-enhancement:{job.id}",
+                },
+            )
+    for job in get_audio_separation_store().list():
+        for output in job.outputs:
+            try:
+                asset_id = _asset_id(root, Path(output.file_path))
+            except (OSError, ValueError):
+                continue
+            metadata.setdefault(
+                asset_id,
+                {
+                    "source": "audio_separation",
+                    "origin": "local",
+                    "model": job.model_display_name,
+                    "text": job.source_file_name,
+                    "duration_seconds": output.duration_seconds,
+                    "task_id": f"audio-separation:{job.id}",
                 },
             )
     return metadata

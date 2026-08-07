@@ -1,15 +1,115 @@
+from pathlib import Path
+
 from fastapi import APIRouter
 
 from tts_api.alignment import get_alignment_store
 from tts_api.jobs import get_job_store
 from tts_api.projects import get_project_store
-from tts_api.schemas import TaskEvent, TaskSummary
+from tts_api.schemas import TaskEvent, TaskResult, TaskSummary
 from tts_api.transcription import get_transcription_store
 from tts_api.enhancement import get_audio_enhancement_store
 from tts_api.separation import get_audio_separation_store
 
 
 router = APIRouter()
+
+
+def _file_result(
+    result_id: str,
+    kind: str,
+    label: str,
+    file_path: str,
+    url: str | None = None,
+    *,
+    model: str | None = None,
+    text: str | None = None,
+    duration_seconds: float | None = None,
+) -> TaskResult:
+    path = Path(file_path)
+    try:
+        exists = path.is_file()
+        size_bytes = path.stat().st_size if exists else None
+    except OSError:
+        exists = False
+        size_bytes = None
+    suffix = path.suffix.lower()
+    mime_type = {
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".flac": "audio/flac",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".txt": "text/plain",
+        ".srt": "application/x-subrip",
+        ".json": "application/json",
+    }.get(suffix)
+    return TaskResult(
+        id=result_id,
+        kind=kind,
+        label=label,
+        file_name=path.name,
+        file_path=str(path),
+        url=url,
+        mime_type=mime_type,
+        size_bytes=size_bytes,
+        duration_seconds=duration_seconds,
+        model=model,
+        text=text,
+        exists=exists,
+        downloadable=exists,
+    )
+
+
+def _virtual_result(
+    result_id: str,
+    kind: str,
+    label: str,
+    file_name: str,
+    url: str,
+    *,
+    text: str | None = None,
+    mime_type: str | None = None,
+) -> TaskResult:
+    return TaskResult(
+        id=result_id,
+        kind=kind,
+        label=label,
+        file_name=file_name,
+        url=url,
+        mime_type=mime_type,
+        text=text,
+        exists=True,
+        downloadable=True,
+    )
+
+
+def _speech_results(job) -> list[TaskResult]:
+    if job.result is None:
+        return []
+    results = [
+        _file_result(
+            f"speech:{job.id}:audio",
+            "audio",
+            "语音成品",
+            job.result.file_path,
+            job.result.audio_url,
+            model=job.result.model,
+            text=job.request.input,
+            duration_seconds=job.result.duration_seconds,
+        )
+    ]
+    if job.result.alignment_url:
+        results.append(
+            _virtual_result(
+                f"speech:{job.id}:alignment",
+                "alignment",
+                "强制对齐时间轴",
+                f"alignment-{job.id[:8]}.json",
+                job.result.alignment_url,
+                mime_type="application/json",
+            )
+        )
+    return results
 
 
 def _project_task_summary(project) -> TaskSummary:
@@ -52,6 +152,20 @@ def _project_task_summary(project) -> TaskSummary:
         retryable=project.status.value in {"failed", "cancelled"},
         cancelable=project.status.value in {"queued", "running"},
         events=[TaskEvent(occurred_at=project.updated_at, stage=stage, message=message, level="error" if project.status == "failed" else "info")],
+        results=[
+            _file_result(
+                f"project:{project.id}:segment:{segment.id}",
+                "audio",
+                f"第 {segment.position} 段",
+                segment.result.file_path,
+                segment.result.audio_url,
+                model=segment.result.model,
+                text=segment.text,
+                duration_seconds=segment.result.duration_seconds,
+            )
+            for segment in project.segments
+            if segment.result is not None
+        ],
     )
 
 
@@ -74,6 +188,7 @@ def list_tasks() -> dict:
             retryable=job.status.value in {"failed", "cancelled"},
             cancelable=job.status.value in {"queued", "running"},
             events=job.events,
+            results=_speech_results(job),
         )
         for job in get_job_store().list()
     ]
@@ -98,6 +213,20 @@ def list_tasks() -> dict:
             retryable=job.status.value in {"failed", "cancelled"},
             cancelable=job.status.value in {"queued", "running"},
             events=[],
+            results=(
+                [
+                    _virtual_result(
+                        f"alignment:{job.id}:timeline",
+                        "alignment",
+                        "强制对齐时间轴",
+                        f"alignment-{job.id[:8]}.json",
+                        job.alignment_url,
+                        mime_type="application/json",
+                    )
+                ]
+                if job.status.value == "completed"
+                else []
+            ),
         )
         for job in get_alignment_store().list()
     ]
@@ -117,6 +246,21 @@ def list_tasks() -> dict:
             retryable=job.status.value in {"failed", "cancelled"},
             cancelable=job.status.value in {"queued", "running"},
             events=[],
+            results=(
+                [
+                    _virtual_result(
+                        f"transcription:{job.id}:export",
+                        "subtitle" if job.output_format.value == "srt" else "transcript",
+                        "SRT 字幕" if job.output_format.value == "srt" else "TXT 转写",
+                        f"{Path(job.source_file_name).stem}.{job.output_format.value}",
+                        f"/v1/transcriptions/{job.id}/export.{job.output_format.value}",
+                        text=job.text,
+                        mime_type="application/x-subrip" if job.output_format.value == "srt" else "text/plain",
+                    )
+                ]
+                if job.status.value == "completed" and job.text
+                else []
+            ),
         )
         for job in get_transcription_store().list()
     ]
@@ -136,6 +280,18 @@ def list_tasks() -> dict:
             retryable=job.status.value in {"failed", "cancelled"},
             cancelable=job.status.value in {"queued", "running"},
             events=[],
+            results=[
+                _file_result(
+                    f"audio-enhancement:{job.id}:{index}",
+                    "enhancement",
+                    f"增强 · {output.model}",
+                    output.file_path,
+                    output.audio_url,
+                    model=output.model,
+                    duration_seconds=output.duration_seconds,
+                )
+                for index, output in enumerate(job.outputs)
+            ],
         )
         for job in get_audio_enhancement_store().list()
     ]
@@ -155,6 +311,18 @@ def list_tasks() -> dict:
             retryable=job.status.value in {"failed", "cancelled"},
             cancelable=job.status.value in {"queued", "running"},
             events=[],
+            results=[
+                _file_result(
+                    f"audio-separation:{job.id}:{output.stem}",
+                    "separation",
+                    "人声" if output.stem == "vocals" else "伴奏",
+                    output.file_path,
+                    output.audio_url,
+                    model=job.model_display_name,
+                    duration_seconds=output.duration_seconds,
+                )
+                for output in job.outputs
+            ],
         )
         for job in get_audio_separation_store().list()
     ]

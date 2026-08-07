@@ -183,6 +183,22 @@ export type TaskEvent = {
   level: string;
 };
 
+export type TaskResult = {
+  id: string;
+  kind: string;
+  label: string;
+  file_name: string;
+  file_path?: string | null;
+  url?: string | null;
+  mime_type?: string | null;
+  size_bytes?: number | null;
+  duration_seconds?: number | null;
+  model?: string | null;
+  text?: string | null;
+  exists: boolean;
+  downloadable: boolean;
+};
+
 export type SpeechJob = {
   id: string;
   status: JobStatus;
@@ -232,6 +248,7 @@ export type TaskSummary = {
   retryable: boolean;
   cancelable: boolean;
   events: TaskEvent[];
+  results: TaskResult[];
 };
 
 export type SpeechRequest = {

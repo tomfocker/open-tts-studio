@@ -305,3 +305,6 @@ def test_upload_job_and_export_surface_use_opaque_input_id(tmp_path: Path, monke
         assert client.get(f"/v1/transcriptions/{job_id}/export.txt").text == "接口文本"
         task = next(item for item in client.get("/v1/tasks").json()["tasks"] if item["id"] == f"transcription:{job_id}")
         assert task["source"] == "transcription"
+        assert task["results"][0]["kind"] == "transcript"
+        assert task["results"][0]["file_name"] == "source.txt"
+        assert task["results"][0]["downloadable"] is True

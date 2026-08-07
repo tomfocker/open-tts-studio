@@ -355,6 +355,29 @@ class JobInfo(BaseModel):
     retry_of: str | None = None
 
 
+class TaskResult(BaseModel):
+    """A concrete or exportable result produced by a managed task.
+
+    ``file_path`` is present only for files already written under the managed
+    output directory.  Text and subtitle exports remain virtual until the user
+    explicitly exports them, but still appear in the same result collection.
+    """
+
+    id: str
+    kind: str
+    label: str
+    file_name: str
+    file_path: str | None = None
+    url: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
+    duration_seconds: float | None = Field(default=None, ge=0)
+    model: str | None = None
+    text: str | None = None
+    exists: bool = True
+    downloadable: bool = False
+
+
 class TaskSummary(BaseModel):
     id: str
     source: str
@@ -371,6 +394,7 @@ class TaskSummary(BaseModel):
     retryable: bool = False
     cancelable: bool = False
     events: list[TaskEvent] = Field(default_factory=list)
+    results: list[TaskResult] = Field(default_factory=list)
 
 
 class AudioAsset(BaseModel):
