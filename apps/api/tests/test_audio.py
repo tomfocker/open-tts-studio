@@ -32,3 +32,40 @@ def test_probe_uses_real_file_fallback_for_float_wav(tmp_path: Path, monkeypatch
 
     assert (sample_rate, duration) == (48000, 1.0)
     assert calls
+
+
+def test_create_output_path_uses_timestamp_and_first_sentence(tmp_path: Path, monkeypatch):
+    class FixedDateTime:
+        @classmethod
+        def now(cls):
+            from datetime import datetime
+
+            return datetime(2026, 8, 8, 15, 30, 12)
+
+    monkeypatch.setattr(audio, "datetime", FixedDateTime)
+
+    output = audio.create_output_path(
+        tmp_path,
+        ".wav",
+        '这是第一句。这里是第二句，不能进入文件名。<非法字符>',
+        first_sentence=True,
+    )
+
+    assert output.name == "20260808-153012-这是第一句.wav"
+
+
+def test_create_output_path_adds_short_sequence_only_on_collision(tmp_path: Path, monkeypatch):
+    class FixedDateTime:
+        @classmethod
+        def now(cls):
+            from datetime import datetime
+
+            return datetime(2026, 8, 8, 15, 30, 12)
+
+    monkeypatch.setattr(audio, "datetime", FixedDateTime)
+    first = audio.create_output_path(tmp_path, ".wav", "同一段文本")
+    first.touch()
+    second = audio.create_output_path(tmp_path, ".wav", "同一段文本")
+
+    assert first.name == "20260808-153012-同一段文本.wav"
+    assert second.name == "20260808-153012-同一段文本-02.wav"

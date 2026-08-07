@@ -18,6 +18,7 @@ const {
   openLocalPath,
   revealLocalItem,
   resolveBilibiliInputsDirectory,
+  resolveBilibiliOutputDirectory,
   resolveDesktopSettings,
   resolveManagedStorage,
   resolvePreferredStorageRoot,
@@ -315,6 +316,16 @@ test("resolveBilibiliInputsDirectory points at the local Bilibili input cache", 
   );
 });
 
+test("resolveBilibiliOutputDirectory points at the unified managed output folder", () => {
+  const workspaceRoot = path.resolve("D:/code/tts");
+  const paths = createDesktopPaths(__dirname, workspaceRoot);
+
+  assert.equal(
+    resolveBilibiliOutputDirectory(paths),
+    path.join(workspaceRoot, "data", "outputs")
+  );
+});
+
 test("resolveFfmpegPath prefers an explicit environment path", () => {
   const workspaceRoot = path.resolve("D:/code/tts");
   const paths = createDesktopPaths(__dirname, workspaceRoot);
@@ -485,6 +496,17 @@ test("saveTranscriptionExport writes UTF-8 TXT and respects cancellation", async
     "txt"
   );
   assert.equal(cancelled, null);
+
+  const defaultPathCalls = [];
+  await saveTranscriptionExport(
+    { showSaveDialog: async (options) => { defaultPathCalls.push(options.defaultPath); return { canceled: true }; } },
+    { writeFile: async () => assert.fail("must not write") },
+    "文本",
+    "20260808-153012-原始媒体.txt",
+    "txt",
+    "D:/OpenTTS/data/outputs"
+  );
+  assert.deepEqual(defaultPathCalls, [path.join("D:/OpenTTS/data/outputs", "20260808-153012-原始媒体.txt")]);
 });
 
 test("selectVoicePackage returns the ZIP selected through the native dialog", async () => {

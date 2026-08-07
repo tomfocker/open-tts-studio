@@ -462,7 +462,7 @@ class AudioSeparationRunner:
             generated = stems.get(stem)
             if generated is None:
                 continue
-            output = create_output_path(self.settings.output_dir, ".wav", f"{Path(work.request.source_file_name).stem}_{stem}_{work.request.model.value}")
+            output = create_output_path(self.settings.output_dir, ".wav", Path(work.request.source_file_name).stem)
             shutil.move(str(generated), output)
             sample_rate, duration_seconds = probe_audio_metadata(output, self.settings.ffmpeg_path)
             if duration_seconds <= 0:

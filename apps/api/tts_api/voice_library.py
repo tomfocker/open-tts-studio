@@ -12,6 +12,7 @@ from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 
 from fastapi import HTTPException
 
+from tts_api.audio import create_output_path
 from tts_api.config import Settings
 from tts_api.schemas import VoiceInfo, VoiceReference
 
@@ -294,8 +295,7 @@ def create_voice_package(voice: VoiceInfo, settings: Settings) -> Path:
         },
         "exported_at": utc_now().isoformat(),
     }
-    safe_name = re.sub(r"[^A-Za-z0-9_-]+", "-", voice.name).strip("-") or "voice"
-    destination = settings.voice_export_dir / f"OpenTTS-voice-{safe_name}-{uuid4().hex[:8]}.zip"
+    destination = create_output_path(settings.voice_export_dir, ".zip", voice.name)
     destination.parent.mkdir(parents=True, exist_ok=True)
     try:
         with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:

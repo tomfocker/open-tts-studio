@@ -29,6 +29,7 @@ const SOURCE_AUDIO_FILE_NAME = "source.audio";
 const SOURCE_VIDEO_FILE_NAME = "source.video";
 const DEFAULT_SAMPLE_RATE = 24000;
 const DEFAULT_CHANNELS = 1;
+const OUTPUT_TITLE_MAX_LENGTH = 48;
 
 const BILIBILI_VIDEO_REGEX = /\/video\/(BV[0-9A-Za-z]+)/i;
 const BILIBILI_BANGUMI_EP_REGEX = /\/bangumi\/play\/(ep\d+)/i;
@@ -322,7 +323,13 @@ function sanitizeFileName(value) {
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 120) || "bilibili-sample";
+    .slice(0, OUTPUT_TITLE_MAX_LENGTH) || "bilibili-sample";
+}
+
+function formatOutputTimestamp(timestamp) {
+  const date = new Date(timestamp);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 
 function getResourceUrl(resource) {
@@ -670,15 +677,16 @@ class BilibiliSamplerService {
     const controller = new AbortController();
     const tempDirectory = this.getTaskDirectory();
     const outputDirectory = request.outputDirectory || this.defaultOutputDirectory || this.app.getPath("downloads");
-    const sampleBaseName = sanitizeFileName(request.sampleName || this.getDefaultSampleName());
+    const sampleBaseName = this.createPublishedBaseName(outputDirectory, request.sampleName || this.getDefaultSampleName(), ".wav");
     const sourceExtension = getExtensionFromUrl(audioUrl);
     const sourceTempPath = path.join(tempDirectory, `${SOURCE_AUDIO_FILE_NAME}${sourceExtension}`);
     const outputPath = path.join(outputDirectory, `${sampleBaseName}.wav`);
-    const sourceOutputPath = path.join(outputDirectory, `${sampleBaseName}.source${sourceExtension}`);
+    const sourceOutputPath = path.join(this.userDataRoot, "sources", `${sampleBaseName}.source${sourceExtension}`);
 
     this.activeExtractTask = { controller, tempDirectory };
     this.fs.mkdirSync(tempDirectory, { recursive: true });
     this.fs.mkdirSync(outputDirectory, { recursive: true });
+    this.fs.mkdirSync(path.dirname(sourceOutputPath), { recursive: true });
 
     try {
       this.updateState({ taskStage: "downloading-audio", downloadProgress: this.emptyDownloadProgress(), error: null });
@@ -757,7 +765,7 @@ class BilibiliSamplerService {
     }
 
     const outputDirectory = request.outputDirectory || this.defaultOutputDirectory || this.app.getPath("downloads");
-    const sampleBaseName = sanitizeFileName(request.sampleName || this.getDefaultSampleName());
+    const sampleBaseName = this.createPublishedBaseName(outputDirectory, request.sampleName || this.getDefaultSampleName(), ".wav");
     const outputPath = this.prepareLocalSampleOutputPath(outputDirectory, sampleBaseName);
     this.fs.mkdirSync(outputDirectory, { recursive: true });
 
@@ -821,7 +829,7 @@ class BilibiliSamplerService {
     const controller = new AbortController();
     const tempDirectory = this.getTaskDirectory();
     const outputDirectory = request.outputDirectory || this.app.getPath("downloads");
-    const outputBaseName = sanitizeFileName(request.fileName || this.getDefaultSampleName());
+    const outputBaseName = this.createPublishedBaseName(outputDirectory, request.fileName || this.getDefaultSampleName(), ".mp4");
     const videoTempPath = path.join(tempDirectory, `${SOURCE_VIDEO_FILE_NAME}${getExtensionFromUrl(videoUrl)}`);
     const audioTempPath = path.join(tempDirectory, `${SOURCE_AUDIO_FILE_NAME}${getExtensionFromUrl(audioUrl)}`);
     let outputPath = path.join(outputDirectory, `${outputBaseName}.mp4`);
@@ -1335,6 +1343,22 @@ class BilibiliSamplerService {
   getDefaultSampleName() {
     const selectedItem = this.getSelectedItem();
     return [this.state.parsedLink?.title, selectedItem?.title].filter(Boolean).join(" - ") || "bilibili-sample";
+  }
+
+  createPublishedBaseName(outputDirectory, title, extension) {
+    const baseName = `${formatOutputTimestamp(this.now())}-${sanitizeFileName(title)}`;
+    const normalizedExtension = extension.startsWith(".") ? extension : `.${extension}`;
+    const preferredPath = path.join(outputDirectory, `${baseName}${normalizedExtension}`);
+    if (!this.fs.existsSync(preferredPath)) {
+      return baseName;
+    }
+    for (let sequence = 2; sequence <= 999; sequence += 1) {
+      const candidate = path.join(outputDirectory, `${baseName}-${String(sequence).padStart(2, "0")}${normalizedExtension}`);
+      if (!this.fs.existsSync(candidate)) {
+        return `${baseName}-${String(sequence).padStart(2, "0")}`;
+      }
+    }
+    throw new Error("无法为产出文件选择可用文件名");
   }
 
   updateState(patch) {

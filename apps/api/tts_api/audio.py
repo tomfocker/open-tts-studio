@@ -6,25 +6,48 @@ import subprocess
 import wave
 from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
 
 
-OUTPUT_TEXT_PREVIEW_LENGTH = 18
+OUTPUT_TITLE_MAX_LENGTH = 48
 _INVALID_WINDOWS_FILE_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
-def output_text_preview(text: str | None, max_length: int = OUTPUT_TEXT_PREVIEW_LENGTH) -> str:
-    """Create a readable, Windows-safe filename prefix from generated text."""
-    normalized = re.sub(r"\s+", "", text or "")
+def output_title(text: str | None, max_length: int = OUTPUT_TITLE_MAX_LENGTH, first_sentence: bool = False) -> str:
+    """Return the human-readable title used by a published output filename.
+
+    The title is deliberately the only semantic part of the filename. Model,
+    task type and settings belong to the task/asset metadata shown in the
+    成果中心, while the timestamp keeps files sortable and the collision
+    suffix below keeps repeated requests safe.
+    """
+    normalized = re.sub(r"\s+", " ", text or "")
+    if first_sentence:
+        sentence_end = re.search(r"[。！？!?；;]", normalized)
+        if sentence_end:
+            normalized = normalized[:sentence_end.start()]
     normalized = _INVALID_WINDOWS_FILE_CHARS.sub("_", normalized).strip(" ._")
-    return normalized[:max(1, max_length)] or "语音"
+    return normalized[:max(1, max_length)] or "未命名"
 
 
-def create_output_path(output_dir: Path, suffix: str = ".wav", text: str | None = None) -> Path:
+def create_output_path(
+    output_dir: Path,
+    suffix: str = ".wav",
+    text: str | None = None,
+    *,
+    first_sentence: bool = False,
+) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     extension = suffix if suffix.startswith(".") else f".{suffix}"
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    return output_dir / f"{output_text_preview(text)}_{timestamp}_{uuid4().hex[:8]}{extension}"
+    base_name = f"{timestamp}-{output_title(text, first_sentence=first_sentence)}"
+    candidate = output_dir / f"{base_name}{extension}"
+    if not candidate.exists():
+        return candidate
+    for sequence in range(2, 1000):
+        candidate = output_dir / f"{base_name}-{sequence:02d}{extension}"
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError("无法为产出文件选择可用文件名。")
 
 
 def read_wav_metadata(path: Path) -> tuple[int, float]:

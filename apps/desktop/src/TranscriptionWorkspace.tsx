@@ -70,9 +70,20 @@ function statusLabel(status: TranscriptionJob["status"]): string {
   }[status];
 }
 
-function outputBaseName(value: string): string {
+function outputTitle(value: string): string {
   const noExtension = value.replace(/\.[^/.]+$/, "").trim();
-  return noExtension || "transcription";
+  const safe = noExtension
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 48);
+  return safe || "未命名";
+}
+
+function publishedExportName(sourceFileName: string, extension: "txt" | "srt", now = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `${timestamp}-${outputTitle(sourceFileName)}.${extension}`;
 }
 
 function isActive(job: TranscriptionJob | null): boolean {
@@ -248,7 +259,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
     setError(null);
     try {
       const content = await fetchTranscriptionExport(selectedJob.id, format);
-      const defaultName = `${outputBaseName(selectedJob.source_file_name)}.${format}`;
+      const defaultName = publishedExportName(selectedJob.source_file_name, format);
       let saved: string | null = null;
       if (window.desktopFiles?.saveTranscriptionExport) {
         saved = await window.desktopFiles.saveTranscriptionExport(content, defaultName, format);

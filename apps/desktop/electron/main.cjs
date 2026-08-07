@@ -15,6 +15,7 @@ const {
   openLocalPath,
   revealLocalItem,
   resolveBilibiliInputsDirectory,
+  resolveBilibiliOutputDirectory,
   resolveDesktopSettings,
   resolvePreferredStorageRoot,
   resolveFfmpegPath,
@@ -83,7 +84,7 @@ let desktopSettings = resolveDesktopSettings(paths, { backendToken });
 const bilibiliSamplerService = new BilibiliSamplerService({
   app,
   userDataRoot: path.join(paths.dataRoot, "bilibili"),
-  defaultOutputDirectory: resolveBilibiliInputsDirectory(paths),
+  defaultOutputDirectory: resolveBilibiliOutputDirectory(paths),
   getFfmpegPath: () => resolveFfmpegPath(paths)
 });
 const updateService = createUpdateService({
@@ -244,7 +245,7 @@ ipcMain.handle("file:select-audio-separation-media", () => (
 ));
 
 ipcMain.handle("file:save-transcription-export", (_event, content, defaultName, extension) => (
-  saveTranscriptionExport(dialog, fs, content, defaultName, extension)
+  saveTranscriptionExport(dialog, fs, content, defaultName, extension, resolveBilibiliOutputDirectory(paths))
 ));
 
 ipcMain.handle("file:read-selected-audio", async (_event, targetPath) => {
@@ -389,7 +390,7 @@ ipcMain.handle("bilibili-sampler:extract-history-sample", async (_event, history
     startSeconds: payload?.startSeconds,
     endSeconds: payload?.endSeconds,
     sampleName: payload?.sampleName,
-    outputDirectory: resolveBilibiliInputsDirectory(paths)
+    outputDirectory: resolveBilibiliOutputDirectory(paths)
   });
 });
 

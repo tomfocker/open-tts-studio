@@ -404,7 +404,7 @@ class GptSoVitsAdapter(TtsAdapter):
         elif weight_pair is not None:
             self._switch_weight_pair(weight_pair)
 
-        output_path = create_output_path(self.settings.output_dir, ".wav", request.input)
+        output_path = create_output_path(self.settings.output_dir, ".wav", request.input, first_sentence=True)
         try:
             response = self.http_client.post(f"{self.api_base}/tts", json=payload, timeout=600.0)
             response.raise_for_status()

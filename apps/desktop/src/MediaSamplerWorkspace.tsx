@@ -147,6 +147,12 @@ function safeSampleName(value: string | null | undefined) {
   return cleaned || "B站片段";
 }
 
+function publishedExportName(title: string | null | undefined, extension: "txt" | "srt", now = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  return `${timestamp}-${safeSampleName(title).slice(0, 48)}.${extension}`;
+}
+
 function parsedLinkItems(parsed: BilibiliParsedLink | null): BilibiliParsedLink["items"] {
   // The native bridge is an IPC boundary, so do not let a partial payload turn
   // into a renderer exception. This keeps an invalid B 站 response visible as
@@ -388,8 +394,8 @@ export function MediaSamplerWorkspace({ onClose, onCreateVoiceFromSample }: Prop
     setError(null);
     try {
       const content = await fetchTranscriptionExport(selectedJob.id, format);
-      const baseName = `${safeSampleName(selected?.title ?? selected?.itemTitle)}-${format.toUpperCase()}`;
-      const target = await window.desktopFiles?.saveTranscriptionExport(content, baseName, format);
+      const defaultName = publishedExportName(selected?.title ?? selected?.itemTitle, format);
+      const target = await window.desktopFiles?.saveTranscriptionExport(content, defaultName, format);
       setMessage(target ? `已导出 ${format.toUpperCase()} 文件。` : "已取消导出。");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "导出失败"); }
     finally { setPending(null); }

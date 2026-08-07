@@ -303,8 +303,8 @@ def _default_voice_export_dir() -> Path:
         return Path(explicit_path)
     configured_library = os.environ.get("OPEN_TTS_VOICE_LIBRARY_FILE")
     if configured_library:
-        return Path(configured_library).parent / "voice-exports"
-    return WORKSPACE_ROOT / "data" / "exports" / "voices"
+        return Path(configured_library).parent.parent / "outputs"
+    return WORKSPACE_ROOT / "data" / "outputs"
 
 
 def _default_doubao_cookie_file() -> Path:

@@ -11,7 +11,7 @@ class MockTtsAdapter(TtsAdapter):
         self.settings = settings or get_settings()
 
     def synthesize(self, request: SpeechRequest) -> SpeechResult:
-        output_path = create_output_path(self.settings.output_dir, ".wav", request.input)
+        output_path = create_output_path(self.settings.output_dir, ".wav", request.input, first_sentence=True)
         write_sine_wav(output_path, sample_rate=24000, duration_seconds=0.6)
         return SpeechResult(
             audio_url=f"/outputs/{Path(output_path).name}",

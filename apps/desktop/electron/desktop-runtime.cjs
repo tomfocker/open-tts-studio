@@ -283,7 +283,7 @@ function buildBackendLaunchOptions(paths, port = DEFAULT_API_PORT) {
       OPEN_TTS_OUTPUT_DIR: path.join(paths.dataRoot, "outputs"),
       OPEN_TTS_VOICE_LIBRARY_FILE: path.join(paths.dataRoot, "config", "voices.json"),
       OPEN_TTS_VOICE_ASSET_DIR: path.join(paths.dataRoot, "voices"),
-      OPEN_TTS_VOICE_EXPORT_DIR: path.join(paths.dataRoot, "exports", "voices"),
+      OPEN_TTS_VOICE_EXPORT_DIR: path.join(paths.dataRoot, "outputs"),
       OPEN_TTS_PROJECTS_FILE: path.join(paths.dataRoot, "config", "projects.json"),
       OPEN_TTS_MODEL_PACKAGES_FILE: path.join(paths.dataRoot, "config", "model-packages.json"),
       OPEN_TTS_TASKS_FILE: path.join(paths.dataRoot, "config", "tasks.json"),
@@ -464,6 +464,10 @@ function resolveDesktopSettings(paths, options = {}) {
 
 function resolveBilibiliInputsDirectory(paths) {
   return path.join(paths.dataRoot, "inputs", "bilibili");
+}
+
+function resolveBilibiliOutputDirectory(paths) {
+  return path.join(paths.dataRoot, "outputs");
 }
 
 function resolveFfmpegPath(paths, options = {}) {
@@ -861,15 +865,18 @@ async function selectAudioSeparationMedia(dialogImpl, fsPromises, inputDirectory
   return selectManagedMedia(dialogImpl, fsPromises, inputDirectory, "选择要分离人声与伴奏的音频或视频", idFactory);
 }
 
-async function saveTranscriptionExport(dialogImpl, fsPromises, content, defaultName, extension) {
+async function saveTranscriptionExport(dialogImpl, fsPromises, content, defaultName, extension, defaultDirectory = null) {
   if (typeof content !== "string" || !content.trim()) {
     throw new Error("没有可导出的转写内容");
   }
   const normalizedExtension = extension === "srt" ? "srt" : "txt";
   const safeName = path.basename(String(defaultName || `transcription.${normalizedExtension}`));
+  const defaultPath = defaultDirectory
+    ? path.join(defaultDirectory, safeName.endsWith(`.${normalizedExtension}`) ? safeName : `${safeName}.${normalizedExtension}`)
+    : safeName.endsWith(`.${normalizedExtension}`) ? safeName : `${safeName}.${normalizedExtension}`;
   const result = await dialogImpl.showSaveDialog({
     title: `导出 ${normalizedExtension.toUpperCase()}`,
-    defaultPath: safeName.endsWith(`.${normalizedExtension}`) ? safeName : `${safeName}.${normalizedExtension}`,
+    defaultPath,
     filters: [{ name: normalizedExtension.toUpperCase(), extensions: [normalizedExtension] }]
   });
   if (result.canceled || !result.filePath) {
@@ -1001,6 +1008,7 @@ module.exports = {
   openLocalPath,
   revealLocalItem,
   resolveBilibiliInputsDirectory,
+  resolveBilibiliOutputDirectory,
   resolveDesktopSettings,
   resolvePreferredStorageRoot,
   resolveManagedStorage,

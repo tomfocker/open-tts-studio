@@ -375,7 +375,7 @@ class AudioEnhancementRunner:
                     output_path = create_output_path(
                         settings.output_dir,
                         ".wav",
-                        f"{Path(work.request.source_file_name).stem}_{backend.value}",
+                        Path(work.request.source_file_name).stem,
                     )
                     self._run_backend(job_id, backend, prepared_input, output_path, model_dir, work.request.preset.value)
                     output_sample_rate, output_duration = probe_audio_metadata(output_path, settings.ffmpeg_path)
