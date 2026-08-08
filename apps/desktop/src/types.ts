@@ -812,6 +812,32 @@ export type AppSettings = {
   restart_required_fields: string[];
 };
 
+export type GlobalLlmSettings = {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  apiKey: string;
+  systemPrompt: string;
+  temperature: number;
+  maxTokens: number;
+};
+
+export type LlmPolishResult = {
+  prompt: string;
+  summary: string;
+  suggestions: string[];
+  model: string;
+};
+
+export type LlmTextTransformOperation = "rewrite_script" | "proofread" | "summarize" | "translate";
+
+export type LlmTextTransformResult = {
+  text: string;
+  operation: LlmTextTransformOperation;
+  target_language: string;
+  model: string;
+};
+
 export type QwenRuntimeResolution = {
   requested_device: "auto" | "cuda" | "dml" | "cpu";
   active_device: "cuda" | "dml" | "cpu" | null;

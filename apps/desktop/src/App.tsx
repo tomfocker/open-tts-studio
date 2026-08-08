@@ -42,6 +42,7 @@ import {
   Volume2,
   Wand2,
   Waves,
+  Wifi,
   X
 } from "lucide-react";
 import QRCode from "qrcode";
@@ -82,6 +83,7 @@ import {
   importVoicePackage,
   inspectModelPackage,
   prewarmRealtimeRuntime,
+  polishVoicePrompt,
   registerModelPackage,
   releaseRealtimeRuntime,
   reserveRealtimeRuntime,
@@ -92,6 +94,8 @@ import {
   runBatchProject,
   resumeBatchProject,
   saveAppSettings,
+  testLlmConnection,
+  transformLlmText,
   startModelRuntime,
   stopModelRuntime,
   toAudioUrl,
@@ -145,7 +149,10 @@ import type {
   TaskSummary,
   VoiceInfo,
   VoiceQualityReport,
-  WorkerStatus
+  WorkerStatus,
+  GlobalLlmSettings,
+  LlmPolishResult,
+  LlmTextTransformResult
 } from "./types";
 
 type PrimaryWorkspace = "creation" | "doubao" | "transcription" | "sampler" | "enhancement" | "separation" | "assets";
@@ -170,6 +177,10 @@ declare global {
     };
     desktopBackend?: {
       ensureOnline: () => Promise<{ ready: boolean; status: string; message?: string | null }>;
+    };
+    desktopLlmSettings?: {
+      load: () => Promise<GlobalLlmSettings>;
+      save: (settings: GlobalLlmSettings) => Promise<unknown>;
     };
     desktopFiles?: {
       openPath: (targetPath: string) => Promise<string>;
@@ -650,6 +661,16 @@ type SettingsDraft = {
   gptsovits_api_port: number;
   default_model_id: "indextts2" | "voxcpm2" | "gptsovits";
   prewarm_default_model_on_startup: boolean;
+};
+
+const defaultGlobalLlmSettings: GlobalLlmSettings = {
+  enabled: true,
+  baseUrl: "https://api.cdn-krill-ai.com/codex/v1",
+  model: "gpt-5.6-luna",
+  apiKey: "",
+  systemPrompt: "你是一个自然、简洁的中文语音助手。回答适合直接朗读，避免使用 Markdown。",
+  temperature: 0.7,
+  maxTokens: 512
 };
 
 type ModelProfileDraft = {
@@ -1982,6 +2003,18 @@ export function App() {
   const [audioAssetPlaying, setAudioAssetPlaying] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [globalLlmSettings, setGlobalLlmSettings] = useState<GlobalLlmSettings>(defaultGlobalLlmSettings);
+  const [globalLlmLoading, setGlobalLlmLoading] = useState(false);
+  const [globalLlmSaving, setGlobalLlmSaving] = useState(false);
+  const [globalLlmTesting, setGlobalLlmTesting] = useState(false);
+  const [globalLlmMessage, setGlobalLlmMessage] = useState<string | null>(null);
+  const [globalLlmError, setGlobalLlmError] = useState<string | null>(null);
+  const [promptPolishBusy, setPromptPolishBusy] = useState(false);
+  const [promptPolishResult, setPromptPolishResult] = useState<LlmPolishResult | null>(null);
+  const [promptPolishError, setPromptPolishError] = useState<string | null>(null);
+  const [scriptRewriteBusy, setScriptRewriteBusy] = useState(false);
+  const [scriptRewriteResult, setScriptRewriteResult] = useState<LlmTextTransformResult | null>(null);
+  const [scriptRewriteError, setScriptRewriteError] = useState<string | null>(null);
   const [modelInstances, setModelInstances] = useState<ModelInstanceProfile[]>([]);
   const [modelPackages, setModelPackages] = useState<ModelPackageRecord[]>([]);
   const [modelProfileDrafts, setModelProfileDrafts] = useState<Record<string, ModelProfileDraft>>({});
@@ -3908,6 +3941,20 @@ export function App() {
     }
   }
 
+  async function loadGlobalLlmSettings() {
+    const bridge = window.desktopLlmSettings;
+    if (!bridge) return;
+    setGlobalLlmLoading(true);
+    try {
+      const settings = await bridge.load();
+      setGlobalLlmSettings({ ...defaultGlobalLlmSettings, ...settings });
+    } catch (err) {
+      setGlobalLlmError(err instanceof Error ? err.message : "读取全局 LLM 配置失败");
+    } finally {
+      setGlobalLlmLoading(false);
+    }
+  }
+
   async function loadBilibiliHistory() {
     const bridge = window.desktopBilibiliSampler;
     if (!bridge) {
@@ -4646,11 +4693,109 @@ export function App() {
 
   function openSettings() {
     setSettingsDraft(createSettingsDraft(appSettings));
+    void loadGlobalLlmSettings();
     setSettingsError(null);
     setSettingsMessage(null);
     void loadModelInstances();
     void loadModelPackages();
     setSettingsOpen(true);
+  }
+
+  async function onSaveGlobalLlmSettings() {
+    const bridge = window.desktopLlmSettings;
+    if (!bridge) {
+      setGlobalLlmError("请在桌面软件中保存全局 LLM 配置。");
+      return;
+    }
+    if (!globalLlmSettings.baseUrl.trim() || !globalLlmSettings.model.trim()) {
+      setGlobalLlmError("LLM 地址和模型名不能为空。");
+      return;
+    }
+    setGlobalLlmSaving(true);
+    setGlobalLlmError(null);
+    setGlobalLlmMessage(null);
+    try {
+      await bridge.save({ ...globalLlmSettings, baseUrl: globalLlmSettings.baseUrl.trim(), model: globalLlmSettings.model.trim() });
+      setGlobalLlmMessage("全局 LLM 配置已保存；实时语音会话会自动复用。");
+      window.dispatchEvent(new Event("opentts:llm-settings-changed"));
+    } catch (err) {
+      setGlobalLlmError(err instanceof Error ? err.message : "保存全局 LLM 配置失败");
+    } finally {
+      setGlobalLlmSaving(false);
+    }
+  }
+
+  async function onTestGlobalLlm() {
+    if (!globalLlmSettings.baseUrl.trim() || !globalLlmSettings.model.trim()) {
+      setGlobalLlmError("请先填写 LLM 地址和模型名。");
+      return;
+    }
+    setGlobalLlmTesting(true);
+    setGlobalLlmError(null);
+    setGlobalLlmMessage(null);
+    try {
+      const result = await testLlmConnection(globalLlmSettings);
+      setGlobalLlmMessage(`连接成功：${result.model} · ${result.reply}`);
+    } catch (err) {
+      setGlobalLlmError(err instanceof Error ? err.message : "LLM 连接测试失败");
+    } finally {
+      setGlobalLlmTesting(false);
+    }
+  }
+
+  async function onPolishControlPrompt() {
+    const keywords = controlPrompt.trim();
+    if (!keywords) {
+      setPromptPolishError("先在提示词框输入几个关键词，例如“温柔 少女 轻声”。");
+      setPromptPolishResult(null);
+      return;
+    }
+    if (!globalLlmSettings.baseUrl.trim() || !globalLlmSettings.model.trim()) {
+      setPromptPolishError("请先在设置 → 全局 LLM 中填写接口地址和模型名。");
+      setPromptPolishResult(null);
+      return;
+    }
+    setPromptPolishBusy(true);
+    setPromptPolishError(null);
+    try {
+      const polished = await polishVoicePrompt(globalLlmSettings, keywords, {
+        modelName: selectedModelInfo?.display_name ?? selectedModel,
+        mode: cloneMode
+      });
+      setPromptPolishResult(polished);
+    } catch (err) {
+      setPromptPolishError(err instanceof Error ? err.message : "AI 润色失败");
+      setPromptPolishResult(null);
+    } finally {
+      setPromptPolishBusy(false);
+    }
+  }
+
+  async function onRewriteScript() {
+    const source = input.trim();
+    if (!source) {
+      setScriptRewriteError("先在文本框输入一段内容。");
+      setScriptRewriteResult(null);
+      return;
+    }
+    if (!globalLlmSettings.baseUrl.trim() || !globalLlmSettings.model.trim()) {
+      setScriptRewriteError("请先在设置 → 全局 LLM 中填写接口地址和模型名。");
+      setScriptRewriteResult(null);
+      return;
+    }
+    setScriptRewriteBusy(true);
+    setScriptRewriteError(null);
+    try {
+      const rewritten = await transformLlmText(globalLlmSettings, source, "rewrite_script", {
+        style: "自然、顺口、适合直接朗读；保留原文事实，不要添加 Markdown"
+      });
+      setScriptRewriteResult(rewritten);
+    } catch (err) {
+      setScriptRewriteError(err instanceof Error ? err.message : "配音稿改写失败");
+      setScriptRewriteResult(null);
+    } finally {
+      setScriptRewriteBusy(false);
+    }
   }
 
   async function onSaveSettings() {
@@ -5892,6 +6037,7 @@ export function App() {
     void loadDoubaoState();
     loadSystemStatus();
     loadAppSettings();
+    loadGlobalLlmSettings();
     loadModelInstances();
     loadModelPackages();
     loadTaskSummaries();
@@ -7090,6 +7236,18 @@ export function App() {
             )}
             {showControlPrompt ? (
               <>
+                <div className="controlPromptToolbar">
+                  <span><Sparkles size={15} strokeWidth={1.9} />用关键词描述，AI 帮你整理成模型提示词</span>
+                  <button
+                    type="button"
+                    className="secondaryAction promptPolishButton"
+                    onClick={() => void onPolishControlPrompt()}
+                    disabled={promptPolishBusy || loading}
+                  >
+                    {promptPolishBusy ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} strokeWidth={1.9} />}
+                    <span>{promptPolishBusy ? "润色中" : "AI 润色"}</span>
+                  </button>
+                </div>
                 <textarea
                   className="controlPrompt"
                   value={controlPrompt}
@@ -7097,6 +7255,20 @@ export function App() {
                   placeholder={controlPromptPlaceholder(selectedModelInfo, cloneMode)}
                   aria-label={`${selectedModelInfo?.display_name ?? selectedModel} ${cloneMode}提示词`}
                 />
+                {promptPolishError && <div className="promptPolishFeedback error"><AlertCircle size={14} /><span>{promptPolishError}</span></div>}
+                {promptPolishResult && (
+                  <div className="promptPolishPreview">
+                    <div className="promptPolishPreviewHeader">
+                      <div><strong>AI 建议</strong><span>{promptPolishResult.summary}</span></div>
+                      <div className="promptPolishActions">
+                        <button type="button" className="secondaryAction" onClick={() => void onPolishControlPrompt()} disabled={promptPolishBusy}>重新生成</button>
+                        <button type="button" className="primaryAction" onClick={() => { setControlPrompt(promptPolishResult.prompt); setPromptPolishResult(null); setPromptPolishError(null); }}>采用结果</button>
+                      </div>
+                    </div>
+                    <p>{promptPolishResult.prompt}</p>
+                    {promptPolishResult.suggestions.length > 0 && <div className="promptPolishSuggestions">{promptPolishResult.suggestions.map((suggestion) => <span key={suggestion}>{suggestion}</span>)}</div>}
+                  </div>
+                )}
                 {controlPromptPresets.length > 0 && (
                   <div className="promptPresetSection">
                     <div className="promptPresetHeader">
@@ -7525,6 +7697,10 @@ export function App() {
                   <Trash2 size={17} strokeWidth={1.9} />
                   <span>清空文本</span>
                 </button>
+                <button className="dockButton" type="button" onClick={() => void onRewriteScript()} disabled={scriptRewriteBusy || loading || !input.trim()}>
+                  {scriptRewriteBusy ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} strokeWidth={1.9} />}
+                  <span>{scriptRewriteBusy ? "改写中" : "AI 改写配音稿"}</span>
+                </button>
                 <div
                   className="generateSplitAction"
                   ref={drawMenuRef}
@@ -7585,6 +7761,19 @@ export function App() {
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="目标文本"
               />
+              {scriptRewriteError && <div className="scriptRewriteFeedback error"><AlertCircle size={14} /><span>{scriptRewriteError}</span></div>}
+              {scriptRewriteResult && (
+                <div className="scriptRewritePreview">
+                  <div className="scriptRewriteHeader">
+                    <div><strong>AI 配音稿建议</strong><span>{scriptRewriteResult.model}</span></div>
+                    <div className="scriptRewriteActions">
+                      <button type="button" className="secondaryAction" onClick={() => void onRewriteScript()} disabled={scriptRewriteBusy}>重新生成</button>
+                      <button type="button" className="primaryAction" onClick={() => { setInput(scriptRewriteResult.text); setScriptRewriteResult(null); setScriptRewriteError(null); }}>采用结果</button>
+                    </div>
+                  </div>
+                  <p>{scriptRewriteResult.text}</p>
+                </div>
+              )}
               <div className="editorFoot">
                 <span>{input.trim().length} 字</span>
                 {showNormalizeToggle && <span>{normalizeText ? "文本正则化开" : "文本正则化关"}</span>}
@@ -9446,6 +9635,47 @@ export function App() {
                 )}
               </div>
               </details>
+
+              <div className="settingsGroup">
+                <div className="settingsGroupTitle">
+                  <Sparkles size={16} strokeWidth={1.9} />
+                  <span>全局 LLM</span>
+                  <em>实时语音与 AI 润色共用</em>
+                </div>
+                <div className="llmSettingsIntro">
+                  <strong>一次配置，多个功能复用</strong>
+                  <span>支持 Ollama、LM Studio、OpenAI、DeepSeek 以及其他 OpenAI 兼容服务。API Key 只会加密保存在本机。</span>
+                </div>
+                <div className="settingsInline">
+                  <label className="settingsField">
+                    <span>OpenAI 兼容地址</span>
+                    <input value={globalLlmSettings.baseUrl} onChange={(event) => setGlobalLlmSettings((current) => ({ ...current, baseUrl: event.target.value }))} placeholder="http://127.0.0.1:11434/v1" />
+                  </label>
+                  <label className="settingsField">
+                    <span>模型名</span>
+                    <input value={globalLlmSettings.model} onChange={(event) => setGlobalLlmSettings((current) => ({ ...current, model: event.target.value }))} placeholder="例如 qwen3:4b" />
+                  </label>
+                </div>
+                <label className="settingsField">
+                  <span>API Key（可选，本机加密保存）</span>
+                  <input type="password" autoComplete="off" value={globalLlmSettings.apiKey} onChange={(event) => setGlobalLlmSettings((current) => ({ ...current, apiKey: event.target.value }))} placeholder="本地 Ollama 可留空" />
+                </label>
+                <label className="settingsField">
+                  <span>默认系统提示词</span>
+                  <textarea rows={3} value={globalLlmSettings.systemPrompt} onChange={(event) => setGlobalLlmSettings((current) => ({ ...current, systemPrompt: event.target.value }))} />
+                </label>
+                <div className="llmSettingsActions">
+                  <button type="button" className="secondaryAction settingsAction" onClick={() => void onTestGlobalLlm()} disabled={globalLlmTesting || globalLlmLoading}>
+                    {globalLlmTesting ? <Loader2 className="spin" size={16} /> : <Wifi size={16} strokeWidth={1.9} />}
+                    <span>{globalLlmTesting ? "测试中" : "测试连接"}</span>
+                  </button>
+                  <button type="button" className="primaryAction settingsAction" onClick={() => void onSaveGlobalLlmSettings()} disabled={globalLlmSaving || globalLlmLoading}>
+                    {globalLlmSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
+                    <span>{globalLlmSaving ? "保存中" : "保存 LLM"}</span>
+                  </button>
+                </div>
+                {(globalLlmError || globalLlmMessage) && <div className={globalLlmError ? "settingsFeedback error" : "settingsFeedback"}><span>{globalLlmError ?? globalLlmMessage}</span></div>}
+              </div>
 
               <div className="settingsGroup">
                 <div className="settingsGroupTitle">

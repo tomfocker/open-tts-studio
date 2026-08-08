@@ -56,7 +56,11 @@ import type {
   VoiceAudioRepair,
   VoicePackageExport,
   VoiceQualityReport,
-  VoiceInfo
+  VoiceInfo,
+  GlobalLlmSettings,
+  LlmPolishResult,
+  LlmTextTransformOperation,
+  LlmTextTransformResult
 } from "./types";
 
 declare global {
@@ -740,6 +744,69 @@ export async function saveAppSettings(update: AppSettingsUpdate): Promise<AppSet
     throw new Error(`Failed to save settings: ${response.status}`);
   }
   return response.json();
+}
+
+export type LlmRequestOptions = {
+  modelName?: string;
+  mode?: string;
+};
+
+async function llmRequest<T>(path: string, body: Record<string, unknown>, timeoutMs = 90_000): Promise<T> {
+  const response = await fetchWithTimeout(`${getApiBase()}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  }, timeoutMs);
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { detail?: string } | null;
+    throw new Error(payload?.detail ?? `LLM 请求失败：${response.status}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export async function testLlmConnection(settings: GlobalLlmSettings): Promise<{ ok: boolean; model: string; reply: string }> {
+  return llmRequest("/v1/llm/test", {
+    base_url: settings.baseUrl.trim(),
+    model: settings.model.trim(),
+    api_key: settings.apiKey,
+    system_prompt: settings.systemPrompt,
+    temperature: settings.temperature,
+    max_tokens: 16
+  }, 35_000);
+}
+
+export async function polishVoicePrompt(settings: GlobalLlmSettings, keywords: string, options: LlmRequestOptions = {}): Promise<LlmPolishResult> {
+  return llmRequest("/v1/llm/polish-prompt", {
+    base_url: settings.baseUrl.trim(),
+    model: settings.model.trim(),
+    api_key: settings.apiKey,
+    system_prompt: settings.systemPrompt,
+    temperature: settings.temperature,
+    max_tokens: Math.max(settings.maxTokens, 256),
+    keywords,
+    model_name: options.modelName ?? "VoxCPM2",
+    mode: options.mode ?? "音色设计"
+  });
+}
+
+export async function transformLlmText(
+  settings: GlobalLlmSettings,
+  text: string,
+  operation: LlmTextTransformOperation,
+  options: { targetLanguage?: string; style?: string } = {}
+): Promise<LlmTextTransformResult> {
+  return llmRequest("/v1/llm/transform-text", {
+    base_url: settings.baseUrl.trim(),
+    model: settings.model.trim(),
+    api_key: settings.apiKey,
+    system_prompt: settings.systemPrompt,
+    temperature: settings.temperature,
+    max_tokens: settings.maxTokens,
+    operation,
+    text,
+    target_language: options.targetLanguage ?? "中文",
+    style: options.style ?? "自然、适合直接朗读"
+  }, 130_000);
 }
 
 export async function exportSettingsBackup(): Promise<SettingsBackup> {

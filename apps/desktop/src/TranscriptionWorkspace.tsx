@@ -10,6 +10,7 @@ import {
   RefreshCw,
   RotateCw,
   ShieldCheck,
+  Sparkles,
   Square,
   Upload,
   X
@@ -23,14 +24,18 @@ import {
   fetchTranscriptionExport,
   fetchTranscriptionJobs,
   retryTranscriptionJob,
-  uploadTranscriptionInput
+  uploadTranscriptionInput,
+  transformLlmText
 } from "./api";
 import type {
   AppSettings,
   TranscriptionBackend,
   TranscriptionInputInfo,
   TranscriptionJob,
-  TranscriptionOutputFormat
+  TranscriptionOutputFormat,
+  GlobalLlmSettings,
+  LlmTextTransformOperation,
+  LlmTextTransformResult
 } from "./types";
 
 import "./transcription-workspace.css";
@@ -100,6 +105,12 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [runtimeReadiness, setRuntimeReadiness] = useState<Pick<AppSettings, "sensevoice_ready" | "qwen_asr_model_installed"> | null>(null);
+  const [llmSettings, setLlmSettings] = useState<GlobalLlmSettings | null>(null);
+  const [editedText, setEditedText] = useState<string | null>(null);
+  const [transformBusy, setTransformBusy] = useState<LlmTextTransformOperation | null>(null);
+  const [transformResult, setTransformResult] = useState<LlmTextTransformResult | null>(null);
+  const [transformTargetLanguage, setTransformTargetLanguage] = useState("英文");
+  const [transformError, setTransformError] = useState<string | null>(null);
   const browserFileRef = useRef<HTMLInputElement | null>(null);
 
   const selectedJob = useMemo(
@@ -140,6 +151,22 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
   }, []);
 
   useEffect(() => {
+    const bridge = window.desktopLlmSettings;
+    if (!bridge) return undefined;
+    const load = () => void bridge.load().then(setLlmSettings).catch(() => setLlmSettings(null));
+    load();
+    const listener = () => load();
+    window.addEventListener("opentts:llm-settings-changed", listener);
+    return () => window.removeEventListener("opentts:llm-settings-changed", listener);
+  }, []);
+
+  useEffect(() => {
+    setEditedText(null);
+    setTransformResult(null);
+    setTransformError(null);
+  }, [selectedJobId]);
+
+  useEffect(() => {
     if (outputFormat === "srt") {
       setBackend("qwen3");
     }
@@ -148,6 +175,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
   const selectedBackendReady = backend === "qwen3"
     ? runtimeReadiness?.qwen_asr_model_installed
     : runtimeReadiness?.sensevoice_ready;
+  const displayedText = editedText ?? selectedJob?.text ?? "";
   const selectedJobHasLegacyQwenPathError = Boolean(
     selectedJob?.backend === "qwen3"
     && selectedJob.status === "failed"
@@ -253,12 +281,40 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
     }
   };
 
+  const transformSelectedText = async (operation: LlmTextTransformOperation) => {
+    const source = (editedText ?? selectedJob?.text ?? "").trim();
+    if (!source) {
+      setTransformError("当前没有可处理的转写文本。");
+      return;
+    }
+    if (!llmSettings?.baseUrl.trim() || !llmSettings.model.trim()) {
+      setTransformError("请先在设置 → 全局 LLM 中配置接口地址和模型名。");
+      return;
+    }
+    setTransformBusy(operation);
+    setTransformError(null);
+    setTransformResult(null);
+    try {
+      const result = await transformLlmText(llmSettings, source, operation, {
+        targetLanguage: operation === "translate" ? transformTargetLanguage : "中文",
+        style: operation === "proofread" ? "尽量保留原说话风格，只修正识别错误和标点" : undefined
+      });
+      setTransformResult(result);
+    } catch (reason) {
+      setTransformError(reason instanceof Error ? reason.message : "文本处理失败");
+    } finally {
+      setTransformBusy(null);
+    }
+  };
+
   const exportResult = async (format: "txt" | "srt") => {
     if (!selectedJob) return;
     setPendingAction(`export-${format}`);
     setError(null);
     try {
-      const content = await fetchTranscriptionExport(selectedJob.id, format);
+      const content = format === "txt" && editedText !== null
+        ? editedText
+        : await fetchTranscriptionExport(selectedJob.id, format);
       const defaultName = publishedExportName(selectedJob.source_file_name, format);
       let saved: string | null = null;
       if (window.desktopFiles?.saveTranscriptionExport) {
@@ -355,7 +411,20 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
 
                 {selectedJob.status === "completed" ? (
                   <>
-                    <article className="transcriptionTextResult"><pre>{selectedJob.text || "未识别到文本。"}</pre></article>
+                    <div className="transcriptionAiToolbar">
+                      <span><Sparkles size={14} /> LLM 后处理</span>
+                      <button type="button" onClick={() => void transformSelectedText("proofread")} disabled={transformBusy !== null || !displayedText.trim()}>{transformBusy === "proofread" ? <Loader2 className="spin" size={14} /> : <CheckCircle2 size={14} />}校对</button>
+                      <button type="button" onClick={() => void transformSelectedText("summarize")} disabled={transformBusy !== null || !displayedText.trim()}>{transformBusy === "summarize" ? <Loader2 className="spin" size={14} /> : <FileText size={14} />}摘要</button>
+                      <label className="transcriptionTranslateControl"><select value={transformTargetLanguage} onChange={(event) => setTransformTargetLanguage(event.target.value)}><option>英文</option><option>日文</option><option>韩文</option></select><button type="button" onClick={() => void transformSelectedText("translate")} disabled={transformBusy !== null || !displayedText.trim()}>{transformBusy === "translate" ? <Loader2 className="spin" size={14} /> : <Download size={14} />}翻译</button></label>
+                    </div>
+                    {transformError && <div className="transcriptionFeedback error"><AlertCircle size={15} /><span>{transformError}</span></div>}
+                    <article className="transcriptionTextResult"><pre>{displayedText || "未识别到文本。"}</pre></article>
+                    {transformResult && (
+                      <div className="transcriptionTransformPreview">
+                        <header><div><strong>{transformResult.operation === "proofread" ? "校对结果" : transformResult.operation === "summarize" ? "摘要结果" : `${transformResult.target_language}翻译`}</strong><small>{transformResult.model}</small></div><div><button type="button" onClick={() => void transformSelectedText(transformResult.operation)} disabled={transformBusy !== null}>重新生成</button><button type="button" className="primary" onClick={() => { setEditedText(transformResult.text); setTransformResult(null); setTransformError(null); }}>采用结果</button></div></header>
+                        <pre>{transformResult.text}</pre>
+                      </div>
+                    )}
                     {selectedJob.segments.length > 0 && <div className="transcriptionCuePreview">{selectedJob.segments.slice(0, 6).map((segment) => <span key={segment.id}><code>{formatTime(segment.start_seconds)}</code>{segment.text}</span>)}{selectedJob.segments.length > 6 && <small>另有 {selectedJob.segments.length - 6} 条字幕</small>}</div>}
                     <div className="transcriptionActions">
                       <button type="button" onClick={() => void exportResult("txt")} disabled={pendingAction === "export-txt"}>{pendingAction === "export-txt" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}导出 TXT</button>

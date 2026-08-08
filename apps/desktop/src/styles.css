@@ -4503,6 +4503,96 @@ audio {
   background: rgba(230, 247, 237, 0.86);
 }
 
+.controlPromptToolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 0 7px;
+  color: #6f8190;
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.controlPromptToolbar > span,
+.promptPolishFeedback,
+.promptPolishSuggestions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.promptPolishButton {
+  min-height: 29px;
+  padding: 0 9px;
+  gap: 5px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.promptPolishFeedback {
+  margin-top: 7px;
+  color: #a5514d;
+  font-size: 11px;
+}
+
+.promptPolishPreview {
+  margin-top: 9px;
+  padding: 11px 12px;
+  border: 1px solid rgba(74, 155, 103, 0.22);
+  border-radius: 10px;
+  background: rgba(228, 246, 234, 0.55);
+}
+
+.promptPolishPreviewHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.promptPolishPreviewHeader > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.promptPolishPreviewHeader strong { color: #2f7b51; font-size: 12px; }
+.promptPolishPreviewHeader span { color: #6c8277; font-size: 11px; }
+.promptPolishPreview p { margin: 9px 0 0; color: #435e52; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.promptPolishActions { display: flex; flex: 0 0 auto; gap: 6px; }
+.promptPolishActions button { min-height: 27px; padding: 0 8px; border-radius: 7px; font-size: 11px; }
+.promptPolishSuggestions { flex-wrap: wrap; margin-top: 8px; }
+.promptPolishSuggestions span { padding: 3px 7px; border-radius: 99px; color: #4e7861; background: rgba(203, 234, 213, 0.75); font-size: 10px; }
+
+.llmSettingsIntro { display: grid; gap: 4px; margin-bottom: 10px; }
+.llmSettingsIntro strong { color: #405766; font-size: 13px; }
+.llmSettingsIntro span { color: #748692; font-size: 11px; line-height: 1.5; }
+.llmSettingsActions { display: flex; gap: 8px; margin-top: 10px; }
+
+.scriptRewriteFeedback { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: #a5514d; font-size: 11px; }
+.scriptRewritePreview { margin-top: 9px; padding: 11px 12px; border: 1px solid rgba(76, 153, 103, 0.22); border-radius: 10px; background: rgba(228, 246, 234, 0.55); }
+.scriptRewriteHeader { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.scriptRewriteHeader > div:first-child { display: grid; gap: 2px; }
+.scriptRewriteHeader strong { color: #2f7b51; font-size: 12px; }
+.scriptRewriteHeader span { color: #6c8277; font-size: 10px; }
+.scriptRewriteActions { display: flex; flex: 0 0 auto; gap: 6px; }
+.scriptRewriteActions button { min-height: 27px; padding: 0 8px; border-radius: 7px; font-size: 11px; }
+.scriptRewritePreview p { margin: 9px 0 0; color: #435e52; font-size: 12px; line-height: 1.6; white-space: pre-wrap; }
+:root[data-theme="dark"] .scriptRewritePreview { border-color: rgba(105, 190, 133, 0.3); background: rgba(35, 79, 53, 0.32); }
+:root[data-theme="dark"] .scriptRewriteHeader strong,
+:root[data-theme="dark"] .scriptRewritePreview p { color: #c3d8ca; }
+:root[data-theme="dark"] .scriptRewriteHeader span { color: #a7c3ad; }
+
+:root[data-theme="dark"] .controlPromptToolbar { color: #a7b7c0; }
+:root[data-theme="dark"] .promptPolishPreview { border-color: rgba(105, 190, 133, 0.3); background: rgba(35, 79, 53, 0.32); }
+:root[data-theme="dark"] .promptPolishPreviewHeader strong { color: #a9e5ba; }
+:root[data-theme="dark"] .promptPolishPreviewHeader span,
+:root[data-theme="dark"] .promptPolishPreview p { color: #c3d8ca; }
+:root[data-theme="dark"] .promptPolishSuggestions span { color: #bce9c9; background: rgba(47, 102, 67, 0.52); }
+:root[data-theme="dark"] .llmSettingsIntro strong { color: #d1dee5; }
+:root[data-theme="dark"] .llmSettingsIntro span { color: #a5b5be; }
+
 .samplerDownloadProgress {
   display: grid;
   gap: 7px;

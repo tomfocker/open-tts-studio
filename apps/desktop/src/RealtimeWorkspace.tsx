@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 
 import { fetchVoices, getApiBase } from "./api";
-import type { VoiceInfo } from "./types";
+import type { GlobalLlmSettings, VoiceInfo } from "./types";
 import "./realtime-workspace.css";
 
 type ConnectionState = "offline" | "connecting" | "ready" | "error";
@@ -56,6 +56,10 @@ type RealtimeSessionSettings = {
 
 declare global {
   interface Window {
+    desktopLlmSettings?: {
+      load: () => Promise<GlobalLlmSettings>;
+      save: (settings: GlobalLlmSettings) => Promise<unknown>;
+    };
     desktopRealtimeSettings?: {
       load: () => Promise<RealtimeSessionSettings>;
       save: (settings: RealtimeSessionSettings) => Promise<unknown>;
@@ -70,8 +74,17 @@ type ChatMessage = {
   pending?: boolean;
 };
 
-const DEFAULT_LLM_BASE_URL = "http://127.0.0.1:11434/v1";
+const DEFAULT_LLM_BASE_URL = "https://api.cdn-krill-ai.com/codex/v1";
 const DEFAULT_SYSTEM_PROMPT = "你是一个自然、简洁的中文语音助手。回答适合直接朗读，避免使用 Markdown。";
+const DEFAULT_LLM_SETTINGS: GlobalLlmSettings = {
+  enabled: true,
+  baseUrl: DEFAULT_LLM_BASE_URL,
+  model: "gpt-5.6-luna",
+  apiKey: "",
+  systemPrompt: DEFAULT_SYSTEM_PROMPT,
+  temperature: 0.7,
+  maxTokens: 512
+};
 
 function toRealtimeUrl(apiBase: string): string {
   const url = new URL(apiBase);
@@ -142,32 +155,46 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
   const playbackStartedRef = useRef(false);
   const playbackAudioIdRef = useRef<string | null>(null);
   const settingsSaveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const llmAdvancedSettingsRef = useRef({ temperature: DEFAULT_LLM_SETTINGS.temperature, maxTokens: DEFAULT_LLM_SETTINGS.maxTokens, enabled: true });
 
   useEffect(() => {
-    const bridge = window.desktopRealtimeSettings;
-    if (!bridge) {
+    const legacyBridge = window.desktopRealtimeSettings;
+    const llmBridge = window.desktopLlmSettings;
+    if (!legacyBridge && !llmBridge) {
       setStatusText("填写本地或云端 LLM 后连接。");
       setSettingsReady(true);
       return;
     }
     let cancelled = false;
-    void bridge.load()
-      .then((settings) => {
+    void Promise.all([
+      llmBridge?.load().catch(() => null),
+      legacyBridge?.load().catch(() => null)
+    ])
+      .then(([globalSettings, legacySettings]) => {
         if (cancelled) return;
-        setLlmBaseUrl(settings.llmBaseUrl || DEFAULT_LLM_BASE_URL);
-        setLlmModel(settings.llmModel);
-        setLlmApiKey(settings.llmApiKey);
-        setSystemPrompt(settings.systemPrompt || DEFAULT_SYSTEM_PROMPT);
-        setVoiceId(settings.voiceId);
-        setTtsEnabled(settings.ttsEnabled);
-        setTtsBackend(settings.ttsBackend || "auto");
-        setStatusText(settings.llmBaseUrl && settings.llmModel
+        const legacy = legacySettings as RealtimeSessionSettings | null;
+        const global = (globalSettings as GlobalLlmSettings | null) ?? {
+          ...DEFAULT_LLM_SETTINGS,
+          baseUrl: legacy?.llmBaseUrl || DEFAULT_LLM_BASE_URL,
+          model: legacy?.llmModel || "",
+          apiKey: legacy?.llmApiKey || "",
+          systemPrompt: legacy?.systemPrompt || DEFAULT_SYSTEM_PROMPT
+        };
+        llmAdvancedSettingsRef.current = { temperature: global.temperature, maxTokens: global.maxTokens, enabled: global.enabled };
+        setLlmBaseUrl(global.baseUrl || DEFAULT_LLM_BASE_URL);
+        setLlmModel(global.model);
+        setLlmApiKey(global.apiKey);
+        setSystemPrompt(global.systemPrompt || DEFAULT_SYSTEM_PROMPT);
+        setVoiceId(legacy?.voiceId || "");
+        setTtsEnabled(legacy?.ttsEnabled ?? true);
+        setTtsBackend(legacy?.ttsBackend || "auto");
+        if (!globalSettings && llmBridge && (legacy?.llmModel || legacy?.llmApiKey)) {
+          void llmBridge.save(global);
+        }
+        setStatusText(global.baseUrl && global.model
           ? "已恢复上次的模型接口，可直接开始对话。"
           : "填写本地或云端 LLM 后连接。"
         );
-      })
-      .catch(() => {
-        if (!cancelled) setStatusText("未能恢复上次设置，请填写本地或云端 LLM 后连接。");
       })
       .finally(() => {
         if (!cancelled) setSettingsReady(true);
@@ -178,22 +205,33 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
   }, []);
 
   useEffect(() => {
-    if (!settingsReady) return;
-    const bridge = window.desktopRealtimeSettings;
-    if (!bridge) return;
-    const snapshot: RealtimeSessionSettings = {
-      llmBaseUrl,
-      llmModel,
-      llmApiKey,
-      systemPrompt,
-      voiceId,
-      ttsEnabled,
-      ttsBackend
+    const listener = () => {
+      void window.desktopLlmSettings?.load().then((settings) => {
+        llmAdvancedSettingsRef.current = { temperature: settings.temperature, maxTokens: settings.maxTokens, enabled: settings.enabled };
+        setLlmBaseUrl(settings.baseUrl || DEFAULT_LLM_BASE_URL);
+        setLlmModel(settings.model);
+        setLlmApiKey(settings.apiKey);
+        setSystemPrompt(settings.systemPrompt || DEFAULT_SYSTEM_PROMPT);
+        setStatusText(settings.baseUrl && settings.model ? "全局 LLM 设置已更新。" : "填写本地或云端 LLM 后连接。");
+      }).catch(() => undefined);
     };
+    window.addEventListener("opentts:llm-settings-changed", listener);
+    return () => window.removeEventListener("opentts:llm-settings-changed", listener);
+  }, []);
+
+  useEffect(() => {
+    if (!settingsReady) return;
+    const legacyBridge = window.desktopRealtimeSettings;
+    const llmBridge = window.desktopLlmSettings;
+    const snapshot: RealtimeSessionSettings = { llmBaseUrl: "", llmModel: "", llmApiKey: "", systemPrompt: "", voiceId, ttsEnabled, ttsBackend };
+    const llmSnapshot: GlobalLlmSettings = { ...llmAdvancedSettingsRef.current, baseUrl: llmBaseUrl, model: llmModel, apiKey: llmApiKey, systemPrompt };
     const timer = window.setTimeout(() => {
       settingsSaveQueueRef.current = settingsSaveQueueRef.current
         .catch(() => undefined)
-        .then(() => bridge.save(snapshot));
+        .then(async () => {
+          if (llmBridge) await llmBridge.save(llmSnapshot);
+          if (legacyBridge) await legacyBridge.save(snapshot);
+        });
       void settingsSaveQueueRef.current.catch(() => {
         setStatusText("实时会话设置未能保存到本机；请检查系统凭据服务。");
       });
@@ -650,17 +688,17 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
         </div>
 
         <label className="realtimeField">
-          <span>OpenAI 兼容 LLM 地址</span>
+          <span>全局 LLM 地址</span>
           <input value={llmBaseUrl} onChange={(event) => setLlmBaseUrl(event.target.value)} placeholder="http://127.0.0.1:11434/v1" />
         </label>
         <label className="realtimeField">
-          <span>模型名</span>
+          <span>全局 LLM 模型</span>
           <input value={llmModel} onChange={(event) => setLlmModel(event.target.value)} placeholder="例如 qwen3:4b" />
         </label>
         <label className="realtimeField">
-          <span><KeyRound size={13} /> API Key（本机加密保存）</span>
+          <span><KeyRound size={13} /> API Key（全局加密保存）</span>
           <input type="password" autoComplete="off" value={llmApiKey} onChange={(event) => setLlmApiKey(event.target.value)} placeholder="本地服务可留空" />
-          <small>地址、模型、音色和提示词会自动恢复；密钥仅加密保存在当前 Windows 用户中，不会导出到设置备份。</small>
+          <small>地址、模型和密钥与“设置 → 全局 LLM”共用；密钥仅加密保存在当前 Windows 用户中，不会导出到设置备份。</small>
         </label>
         <label className="realtimeField">
           <span>回答音色</span>

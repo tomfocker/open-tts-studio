@@ -19,6 +19,11 @@ contextBridge.exposeInMainWorld("desktopRealtimeSettings", {
   save: (settings) => ipcRenderer.invoke("realtime-settings:save", settings)
 });
 
+contextBridge.exposeInMainWorld("desktopLlmSettings", {
+  load: () => ipcRenderer.invoke("llm-settings:load"),
+  save: (settings) => ipcRenderer.invoke("llm-settings:save", settings)
+});
+
 contextBridge.exposeInMainWorld("desktopFiles", {
   openPath: (targetPath) => ipcRenderer.invoke("file:open-path", targetPath),
   revealInFolder: (targetPath) => ipcRenderer.invoke("file:reveal-in-folder", targetPath),

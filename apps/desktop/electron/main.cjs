@@ -39,6 +39,7 @@ const { BilibiliSamplerService } = require("./bilibili-sampler-runtime.cjs");
 const { LOCAL_MEDIA_SCHEME, createLocalMediaRegistry, parseByteRange } = require("./local-media-runtime.cjs");
 const { createUpdateService } = require("./updater-runtime.cjs");
 const { createRealtimeSettingsStore } = require("./realtime-settings-runtime.cjs");
+const { createLlmSettingsStore } = require("./llm-settings-runtime.cjs");
 
 protocol.registerSchemesAsPrivileged([{
   scheme: LOCAL_MEDIA_SCHEME,
@@ -96,6 +97,23 @@ const realtimeSettingsStore = createRealtimeSettingsStore({
   fs,
   safeStorage,
   getUserDataPath: () => path.join(paths.dataRoot, "config")
+});
+const llmSettingsStore = createLlmSettingsStore({
+  fs,
+  safeStorage,
+  getUserDataPath: () => path.join(paths.dataRoot, "config"),
+  loadLegacySettings: async () => {
+    const legacy = await realtimeSettingsStore.load();
+    return {
+      enabled: true,
+      baseUrl: legacy.llmBaseUrl,
+      model: legacy.llmModel,
+      apiKey: legacy.llmApiKey,
+      systemPrompt: legacy.systemPrompt,
+      temperature: 0.7,
+      maxTokens: 512
+    };
+  }
 });
 
 updateService.subscribe((state) => {
@@ -301,6 +319,10 @@ ipcMain.handle("file:select-settings-backup", () => selectSettingsBackup(dialog,
 ipcMain.handle("realtime-settings:load", () => realtimeSettingsStore.load());
 
 ipcMain.handle("realtime-settings:save", (_event, settings) => realtimeSettingsStore.save(settings));
+
+ipcMain.handle("llm-settings:load", () => llmSettingsStore.load());
+
+ipcMain.handle("llm-settings:save", (_event, settings) => llmSettingsStore.save(settings));
 
 ipcMain.handle("backend:ensure-online", async () => {
   const result = await ensureLocalBackend();

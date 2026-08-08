@@ -27,7 +27,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
 from typing import Iterator
-from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
@@ -45,6 +44,7 @@ from tts_api.adapters.whispera_streaming import (
 )
 from tts_api.config import MODEL_STORE_ROOT, Settings, get_settings
 from tts_api.model_health import check_model_instance
+from tts_api.llm import normalize_base_url
 from tts_api.model_instances import get_model_instance
 from tts_api.realtime_vad import RealtimeSession as WhisperaRealtimeSession
 from tts_api.runtime_memory import (
@@ -292,15 +292,7 @@ def _next_or_done(iterator: Iterator[str]) -> tuple[bool, str]:
 
 
 def _normalise_llm_endpoint(raw_value: object) -> str:
-    value = str(raw_value or "").strip().rstrip("/")
-    if not value:
-        return ""
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc or parsed.username or parsed.password:
-        raise ValueError("LLM 地址必须是完整的 http(s) OpenAI 兼容地址，例如 http://127.0.0.1:11434/v1。")
-    if parsed.query or parsed.fragment:
-        raise ValueError("LLM 地址不能包含查询参数或片段。")
-    return value
+    return normalize_base_url(raw_value)
 
 
 def _stream_openai_compatible(options: RealtimeOptions, messages: list[dict[str, str]]) -> Iterator[str]:
