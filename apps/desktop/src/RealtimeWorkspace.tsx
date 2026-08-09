@@ -8,7 +8,6 @@ import {
   MicOff,
   Radio,
   Send,
-  SlidersHorizontal,
   Square,
   Trash2,
   UserRound,
@@ -48,7 +47,7 @@ type RealtimeSessionSettings = {
   llmBaseUrl: string;
   llmModel: string;
   llmApiKey: string;
-  systemPrompt: string;
+  systemPrompt?: string;
   voiceId: string;
   ttsEnabled: boolean;
   ttsBackend: string;
@@ -75,7 +74,7 @@ type ChatMessage = {
 };
 
 const DEFAULT_LLM_BASE_URL = "https://api.cdn-krill-ai.com/codex/v1";
-const DEFAULT_SYSTEM_PROMPT = "你是一个自然、简洁的中文语音助手。回答适合直接朗读，避免使用 Markdown。";
+const DEFAULT_SYSTEM_PROMPT = "你是 OpenTTS Studio 的实时中文语音助手。用自然、友好、简洁的口语直接回答。避免 Markdown、标题、列表符号、代码块、表情和括号说明。每次优先一到三句，需要补充时用短句说明；不要复述用户的问题。";
 const DEFAULT_LLM_SETTINGS: GlobalLlmSettings = {
   enabled: true,
   baseUrl: DEFAULT_LLM_BASE_URL,
@@ -127,7 +126,6 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
   const [llmBaseUrl, setLlmBaseUrl] = useState(DEFAULT_LLM_BASE_URL);
   const [llmModel, setLlmModel] = useState("");
   const [llmApiKey, setLlmApiKey] = useState("");
-  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [ttsBackend, setTtsBackend] = useState("auto");
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
@@ -178,13 +176,12 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
           baseUrl: legacy?.llmBaseUrl || DEFAULT_LLM_BASE_URL,
           model: legacy?.llmModel || "",
           apiKey: legacy?.llmApiKey || "",
-          systemPrompt: legacy?.systemPrompt || DEFAULT_SYSTEM_PROMPT
+          systemPrompt: DEFAULT_SYSTEM_PROMPT
         };
         llmAdvancedSettingsRef.current = { temperature: global.temperature, maxTokens: global.maxTokens, enabled: global.enabled };
         setLlmBaseUrl(global.baseUrl || DEFAULT_LLM_BASE_URL);
         setLlmModel(global.model);
         setLlmApiKey(global.apiKey);
-        setSystemPrompt(global.systemPrompt || DEFAULT_SYSTEM_PROMPT);
         setVoiceId(legacy?.voiceId || "");
         setTtsEnabled(legacy?.ttsEnabled ?? true);
         setTtsBackend(legacy?.ttsBackend || "auto");
@@ -211,7 +208,6 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
         setLlmBaseUrl(settings.baseUrl || DEFAULT_LLM_BASE_URL);
         setLlmModel(settings.model);
         setLlmApiKey(settings.apiKey);
-        setSystemPrompt(settings.systemPrompt || DEFAULT_SYSTEM_PROMPT);
         setStatusText(settings.baseUrl && settings.model ? "全局 LLM 设置已更新。" : "填写本地或云端 LLM 后连接。");
       }).catch(() => undefined);
     };
@@ -223,8 +219,8 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
     if (!settingsReady) return;
     const legacyBridge = window.desktopRealtimeSettings;
     const llmBridge = window.desktopLlmSettings;
-    const snapshot: RealtimeSessionSettings = { llmBaseUrl: "", llmModel: "", llmApiKey: "", systemPrompt: "", voiceId, ttsEnabled, ttsBackend };
-    const llmSnapshot: GlobalLlmSettings = { ...llmAdvancedSettingsRef.current, baseUrl: llmBaseUrl, model: llmModel, apiKey: llmApiKey, systemPrompt };
+    const snapshot: RealtimeSessionSettings = { llmBaseUrl: "", llmModel: "", llmApiKey: "", voiceId, ttsEnabled, ttsBackend };
+    const llmSnapshot: GlobalLlmSettings = { ...llmAdvancedSettingsRef.current, baseUrl: llmBaseUrl, model: llmModel, apiKey: llmApiKey, systemPrompt: DEFAULT_SYSTEM_PROMPT };
     const timer = window.setTimeout(() => {
       settingsSaveQueueRef.current = settingsSaveQueueRef.current
         .catch(() => undefined)
@@ -237,7 +233,7 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
       });
     }, 450);
     return () => window.clearTimeout(timer);
-  }, [llmApiKey, llmBaseUrl, llmModel, settingsReady, systemPrompt, ttsBackend, ttsEnabled, voiceId]);
+  }, [llmApiKey, llmBaseUrl, llmModel, settingsReady, ttsBackend, ttsEnabled, voiceId]);
 
   const appendMessage = useCallback((message: ChatMessage) => {
     setMessages((current) => [...current, message]);
@@ -334,11 +330,11 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
     llm_base_url: llmBaseUrl.trim(),
     llm_model: llmModel.trim(),
     llm_api_key: llmApiKey,
-    system_prompt: systemPrompt.trim(),
+    system_prompt: DEFAULT_SYSTEM_PROMPT,
     voice_id: voiceId || null,
     tts_enabled: ttsEnabled,
     tts_backend: ttsBackend
-  }), [llmApiKey, llmBaseUrl, llmModel, systemPrompt, ttsBackend, ttsEnabled, voiceId]);
+  }), [llmApiKey, llmBaseUrl, llmModel, ttsBackend, ttsEnabled, voiceId]);
 
   const configureOpenSession = useCallback(() => {
     const socket = socketRef.current;
@@ -716,10 +712,6 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
             <option value="compatibility">兼容模式（整句 WAV）</option>
           </select>
           <small>默认直接使用 Whispera 的模型流式模块；不兼容时自动切换现有 VoxCPM2 服务。</small>
-        </label>
-        <label className="realtimeField realtimePromptField">
-          <span><SlidersHorizontal size={13} /> 系统提示词</span>
-          <textarea value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} rows={4} />
         </label>
         <label className="realtimeSwitch">
           <input type="checkbox" checked={ttsEnabled} onChange={(event) => setTtsEnabled(event.target.checked)} />

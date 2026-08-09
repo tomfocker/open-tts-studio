@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const { randomUUID } = require("node:crypto");
 const { fileURLToPath } = require("node:url");
-const { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, safeStorage, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, safeStorage, screen, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const {
   chooseFrontendTarget,
@@ -55,6 +55,7 @@ protocol.registerSchemesAsPrivileged([{
 let mainWindow;
 let backendProcess;
 let backendSupervisor;
+let windowStateSaveTimer;
 const selectedPreviewAudioPaths = new Set();
 const localMediaRegistry = createLocalMediaRegistry();
 const backendToken = app.isPackaged ? randomUUID() : null;
@@ -81,6 +82,13 @@ const paths = createDesktopPaths(__dirname, packagedWorkspaceRoot, {
   resourcesRoot: app.isPackaged ? process.resourcesPath : undefined,
   distIndex: packagedAppRoot ? path.join(packagedAppRoot, "dist", "index.html") : undefined
 });
+const windowStateFile = path.join(paths.dataRoot, "config", "window-state.json");
+const defaultWindowBounds = {
+  width: 1600,
+  height: 960,
+  minWidth: 1120,
+  minHeight: 700
+};
 let desktopSettings = resolveDesktopSettings(paths, { backendToken });
 const bilibiliSamplerService = new BilibiliSamplerService({
   app,
@@ -148,15 +156,114 @@ async function ensureLocalBackend() {
   return result;
 }
 
+function normalizeWindowState(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const width = Number(value.width);
+  const height = Number(value.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height)
+    || width < defaultWindowBounds.minWidth || height < defaultWindowBounds.minHeight
+    || width > 10000 || height > 10000) {
+    return null;
+  }
+
+  const state = {
+    width: Math.round(width),
+    height: Math.round(height),
+    isMaximized: value.isMaximized === true
+  };
+  const x = Number(value.x);
+  const y = Number(value.y);
+  if (Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= 50000 && Math.abs(y) <= 50000) {
+    state.x = Math.round(x);
+    state.y = Math.round(y);
+  }
+  return state;
+}
+
+async function loadWindowState() {
+  try {
+    const raw = await fs.readFile(windowStateFile, "utf8");
+    return normalizeWindowState(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function isWindowStateVisible(state) {
+  if (!Number.isFinite(state?.x) || !Number.isFinite(state?.y)) {
+    return false;
+  }
+  try {
+    return screen.getAllDisplays().some(({ workArea }) => (
+      state.x < workArea.x + workArea.width
+      && state.x + Math.min(state.width, workArea.width) > workArea.x
+      && state.y < workArea.y + workArea.height
+      && state.y + Math.min(state.height, workArea.height) > workArea.y
+    ));
+  } catch {
+    // A display query can briefly fail during startup or monitor hot-plugging.
+    // Keeping the validated state is safer than aborting the application.
+    return true;
+  }
+}
+
+function getWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return null;
+  }
+  const bounds = mainWindow.isMaximized() ? mainWindow.getNormalBounds() : mainWindow.getBounds();
+  return {
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
+    isMaximized: mainWindow.isMaximized()
+  };
+}
+
+function saveWindowState() {
+  const state = getWindowState();
+  if (!state) {
+    return;
+  }
+  try {
+    fsSync.mkdirSync(path.dirname(windowStateFile), { recursive: true });
+    fsSync.writeFileSync(windowStateFile, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  } catch {
+    // Window geometry should never prevent the desktop application from closing.
+  }
+}
+
+function scheduleWindowStateSave() {
+  if (windowStateSaveTimer) {
+    clearTimeout(windowStateSaveTimer);
+  }
+  windowStateSaveTimer = setTimeout(() => {
+    windowStateSaveTimer = undefined;
+    saveWindowState();
+  }, 300);
+}
+
 async function createWindow() {
+  const restoredWindowState = await loadWindowState();
+  const initialWindowState = restoredWindowState && isWindowStateVisible(restoredWindowState)
+    ? restoredWindowState
+    : null;
   const frontendTarget = await chooseFrontendTarget(paths, {
     preferDevServer: process.env.OPEN_TTS_DESKTOP_FORCE_DIST === "1" ? false : !app.isPackaged
   });
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 960,
-    minHeight: 640,
+    width: initialWindowState?.width ?? defaultWindowBounds.width,
+    height: initialWindowState?.height ?? defaultWindowBounds.height,
+    minWidth: defaultWindowBounds.minWidth,
+    minHeight: defaultWindowBounds.minHeight,
+    ...(initialWindowState?.x !== undefined && initialWindowState?.y !== undefined
+      ? { x: initialWindowState.x, y: initialWindowState.y }
+      : {}),
+    show: false,
     title: "OpenTTS Studio",
     frame: false,
     backgroundColor: "#e7edf2",
@@ -164,6 +271,27 @@ async function createWindow() {
       contextIsolation: true,
       preload: path.join(__dirname, "preload.cjs")
     }
+  });
+
+  mainWindow.once("ready-to-show", () => {
+    // Avoid showing the first frame while the responsive header is still
+    // measuring its navigation width on high-DPI displays.
+    if (initialWindowState?.isMaximized) {
+      mainWindow?.maximize();
+    }
+    mainWindow?.show();
+  });
+
+  mainWindow.on("resize", scheduleWindowStateSave);
+  mainWindow.on("move", scheduleWindowStateSave);
+  mainWindow.on("maximize", scheduleWindowStateSave);
+  mainWindow.on("unmaximize", scheduleWindowStateSave);
+  mainWindow.on("close", () => {
+    if (windowStateSaveTimer) {
+      clearTimeout(windowStateSaveTimer);
+      windowStateSaveTimer = undefined;
+    }
+    saveWindowState();
   });
 
   await loadFrontend(mainWindow, frontendTarget);

@@ -769,7 +769,6 @@ export async function testLlmConnection(settings: GlobalLlmSettings): Promise<{ 
     base_url: settings.baseUrl.trim(),
     model: settings.model.trim(),
     api_key: settings.apiKey,
-    system_prompt: settings.systemPrompt,
     temperature: settings.temperature,
     max_tokens: 16
   }, 35_000);
@@ -780,7 +779,6 @@ export async function polishVoicePrompt(settings: GlobalLlmSettings, keywords: s
     base_url: settings.baseUrl.trim(),
     model: settings.model.trim(),
     api_key: settings.apiKey,
-    system_prompt: settings.systemPrompt,
     temperature: settings.temperature,
     max_tokens: Math.max(settings.maxTokens, 256),
     keywords,
@@ -799,7 +797,6 @@ export async function transformLlmText(
     base_url: settings.baseUrl.trim(),
     model: settings.model.trim(),
     api_key: settings.apiKey,
-    system_prompt: settings.systemPrompt,
     temperature: settings.temperature,
     max_tokens: settings.maxTokens,
     operation,

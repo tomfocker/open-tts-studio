@@ -44,7 +44,7 @@ from tts_api.adapters.whispera_streaming import (
 )
 from tts_api.config import MODEL_STORE_ROOT, Settings, get_settings
 from tts_api.model_health import check_model_instance
-from tts_api.llm import normalize_base_url
+from tts_api.llm import DEFAULT_SYSTEM_PROMPT, normalize_base_url
 from tts_api.model_instances import get_model_instance
 from tts_api.realtime_vad import RealtimeSession as WhisperaRealtimeSession
 from tts_api.runtime_memory import (
@@ -141,7 +141,7 @@ class RealtimeOptions:
     llm_base_url: str = ""
     llm_model: str = ""
     llm_api_key: str = ""
-    system_prompt: str = "你是一个自然、简洁的中文语音助手。回答适合直接朗读，避免使用 Markdown。"
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT
     voice_id: str | None = None
     tts_enabled: bool = True
     # ``auto`` prefers Whispera's model-level streaming worker and retains the
@@ -158,7 +158,7 @@ class RealtimeConversation:
 
     def build_messages(self, user_text: str, system_prompt: str | None = None) -> list[dict[str, str]]:
         system = (system_prompt if system_prompt is not None else self.options.system_prompt).strip()
-        system = system or "你是一个自然、简洁的中文语音助手。"
+        system = system or DEFAULT_SYSTEM_PROMPT
         return [{"role": "system", "content": system}, *self.history[-12:], {"role": "user", "content": user_text}]
 
     def add_turn(self, role: str, content: str) -> None:

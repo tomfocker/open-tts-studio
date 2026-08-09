@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 const { after, before, test } = require("node:test");
-const { createLlmSettingsStore, normalizeLlmSettings } = require("./llm-settings-runtime.cjs");
+const { createLlmSettingsStore, normalizeLlmSettings, DEFAULT_SYSTEM_PROMPT } = require("./llm-settings-runtime.cjs");
 
 let temporaryDirectory;
 
@@ -39,7 +39,7 @@ test("normalization returns safe defaults", () => {
     baseUrl: "https://api.cdn-krill-ai.com/codex/v1",
     model: "gpt-5.6-luna",
     apiKey: "",
-    systemPrompt: "",
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     temperature: 0.7,
     maxTokens: 1
   });

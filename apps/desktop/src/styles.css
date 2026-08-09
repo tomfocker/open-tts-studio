@@ -1188,6 +1188,42 @@ summary:focus-visible {
   }
 }
 
+/* On high-DPI displays the usable logical width can fall into this middle
+   range even when the physical window looks wide. Keep the brand and window
+   controls stable, and let navigation scroll instead of crowding every label. */
+@media (min-width: 1281px) and (max-width: 1600px) {
+  .desktopTopbar {
+    grid-template-columns: minmax(248px, max-content) minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .workbenchNavWrap {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    transform: none;
+  }
+
+  .topStatus {
+    display: none;
+  }
+
+  .workbenchNavScroll {
+    display: grid;
+  }
+
+  .workbenchNavButton {
+    gap: 6px;
+    padding-inline: 10px;
+    font-size: 12px;
+  }
+
+  .windowTools,
+  .toolGroup {
+    gap: 6px;
+  }
+}
+
 .workspaceTransition-entering {
   animation: workspaceStageFadeIn 180ms ease-out both;
 }
@@ -3620,40 +3656,102 @@ audio {
   background: rgba(232, 239, 245, 0.96);
   box-shadow: 0 26px 64px rgba(56, 72, 88, 0.28), var(--inner);
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
+}
+
+.settingsCenterDialog {
+  width: min(1120px, calc(100vw - 48px));
+  max-height: min(840px, calc(100dvh - 48px));
 }
 
 .settingsHeader {
   min-width: 0;
   padding: 18px 18px 14px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 42px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   border-bottom: 1px solid var(--line);
 }
 
-.settingsHeader strong,
-.settingsHeader span {
+.settingsHeaderIdentity,
+.settingsHeaderActions,
+.settingsHeaderCopy {
   min-width: 0;
-  display: block;
+  display: flex;
+  align-items: center;
+}
+
+.settingsHeaderIdentity { gap: 11px; }
+.settingsHeaderCopy {
+  display: grid;
+  align-items: start;
+  gap: 2px;
+}
+.settingsHeaderIcon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel-strong));
+  box-shadow: var(--inner);
+}
+.settingsHeaderEyebrow {
+  color: var(--muted);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+}
+.settingsHeaderCopy strong,
+.settingsHeaderCopy small {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.settingsHeader strong {
+.settingsHeaderCopy strong {
   color: #263441;
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1.2;
 }
-
-.settingsHeader span {
-  margin-top: 5px;
+.settingsHeaderCopy small {
   color: #718093;
-  font-family: "JetBrains Mono", Consolas, monospace;
   font-size: 11px;
+}
+.settingsHeaderActions {
+  justify-content: flex-end;
+  gap: 10px;
+}
+.settingsLocalStatus {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid rgba(116, 132, 148, 0.16);
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-strong) 78%, transparent);
+  font-size: 10px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+.settingsLocalStatus.online { color: var(--accent-dark); border-color: color-mix(in srgb, var(--accent) 28%, var(--line)); }
+.settingsLocalStatusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9aa8b3;
+  box-shadow: 0 0 0 3px rgba(154, 168, 179, 0.12);
+}
+.settingsLocalStatus.online .settingsLocalStatusDot {
+  background: var(--accent-dark);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 .modalClose {
@@ -3670,6 +3768,110 @@ audio {
 .modalClose:hover {
   color: #b54444;
 }
+
+.settingsOverview {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.32fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(116, 132, 148, 0.14);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}
+.settingsOverviewIntro {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  padding: 0 4px;
+}
+.settingsOverviewIntro span {
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+}
+.settingsOverviewIntro strong {
+  color: var(--text);
+  font-size: 14px;
+}
+.settingsOverviewIntro small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+.settingsOverviewItems {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+.settingsOverviewItem {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 8px;
+  border: 1px solid rgba(116, 132, 148, 0.16);
+  border-radius: 9px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-strong) 84%, transparent);
+  text-align: left;
+  box-shadow: var(--inner);
+  transition: transform 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.settingsOverviewItem:hover,
+.settingsOverviewItem:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  color: var(--accent-dark);
+  transform: translateY(-1px);
+}
+.settingsOverviewItem.ready .settingsOverviewItemIcon {
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel-strong));
+}
+.settingsOverviewItemIcon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--line) 42%, transparent);
+}
+.settingsOverviewItemCopy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.settingsOverviewItemCopy small,
+.settingsOverviewItemCopy strong,
+.settingsOverviewItemCopy em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settingsOverviewItemCopy small { color: var(--muted); font-size: 9px; }
+.settingsOverviewItemCopy strong { color: var(--text); font-size: 11px; }
+.settingsOverviewItemCopy em { color: var(--muted); font-size: 9px; font-style: normal; }
+.settingsOverviewItem > svg { opacity: 0.55; }
+
+:root[data-theme="dark"] .settingsHeaderCopy strong { color: #e5eef2; }
+:root[data-theme="dark"] .settingsHeaderCopy small { color: #9aadb8; }
+:root[data-theme="dark"] .settingsHeaderEyebrow { color: #91a5b0; }
+:root[data-theme="dark"] .settingsOverview { background: color-mix(in srgb, var(--panel) 94%, transparent); }
+:root[data-theme="dark"] .settingsOverviewIntro strong,
+:root[data-theme="dark"] .settingsOverviewItemCopy strong { color: #e5eef2; }
+:root[data-theme="dark"] .settingsOverviewIntro small,
+:root[data-theme="dark"] .settingsOverviewIntro span,
+:root[data-theme="dark"] .settingsOverviewItemCopy small,
+:root[data-theme="dark"] .settingsOverviewItemCopy em { color: #9aadb8; }
+:root[data-theme="dark"] .settingsOverviewItem.ready .settingsOverviewItemIcon { color: #a8e1b8; }
+:root[data-theme="dark"] .settingsGroupSummary > em,
+:root[data-theme="dark"] .settingsGroupSummary > svg { color: var(--muted); }
 
 .settingsBody {
   min-height: 0;
@@ -4503,6 +4705,89 @@ audio {
   background: rgba(230, 247, 237, 0.86);
 }
 
+/* Settings is intentionally split into three small views. Keep advanced
+   model controls mounted (so draft state is preserved) but out of the active
+   view; this prevents the long form from pushing the common LLM controls
+   below the fold. */
+.settingsSections {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 18px 0;
+  background: rgba(232, 239, 245, 0.96);
+}
+
+.settingsSectionTab {
+  min-width: 0;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px 9px 0 0;
+  color: #6b7c8b;
+  background: rgba(222, 231, 239, 0.48);
+  text-align: left;
+  display: grid;
+  gap: 3px;
+}
+
+.settingsSectionTab strong,
+.settingsSectionTab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsSectionTab strong { font-size: 12px; }
+.settingsSectionTab span { color: #8a99a6; font-size: 10px; }
+.settingsSectionTab:hover { color: var(--accent); background: rgba(248, 251, 253, 0.9); }
+.settingsSectionTab.active {
+  color: #2f4050;
+  border-color: rgba(82, 171, 106, 0.22);
+  background: rgba(248, 251, 253, 0.9);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.settingsSectionTab.active span { color: #657584; }
+
+.settingsBody[data-section="common"] > [data-settings-section]:not([data-settings-section="common"]),
+.settingsBody[data-section="assets"] > [data-settings-section]:not([data-settings-section="assets"]),
+.settingsBody[data-section="system"] > [data-settings-section]:not([data-settings-section="system"]),
+.settingsBody[data-section="common"] [data-settings-section]:not([data-settings-section="common"]),
+.settingsBody[data-section="assets"] [data-settings-section]:not([data-settings-section="assets"]),
+.settingsBody[data-section="system"] [data-settings-section]:not([data-settings-section="system"]) {
+  display: none;
+}
+
+.settingsBody[data-section="common"] .llmSettingsGroup { order: -1; }
+.settingsBody[data-section="assets"] > .generationSettingsGroup { display: grid !important; }
+.settingsBody[data-section="assets"] .generationSettingsGroup > :not(.settingsGroupTitle):not(.settingsAdvancedDetails) { display: none; }
+
+.settingsSections + .settingsBody { border-top: 1px solid rgba(116, 132, 148, 0.16); }
+
+:root[data-theme="dark"] .settingsSections { background: rgba(30, 42, 51, 0.96); }
+:root[data-theme="dark"] .settingsSectionTab { color: #a5b5be; background: rgba(47, 61, 72, 0.66); }
+:root[data-theme="dark"] .settingsSectionTab span { color: #8496a1; }
+:root[data-theme="dark"] .settingsSectionTab.active { color: #e5eef2; background: rgba(45, 61, 72, 0.9); }
+:root[data-theme="dark"] .settingsSectionTab.active span { color: #a5b5be; }
+
+@media (max-width: 560px) {
+  .settingsHeader { padding-inline: 12px; }
+  .settingsHeaderIcon { width: 34px; height: 34px; }
+  .settingsHeaderCopy strong { font-size: 17px; }
+  .settingsHeaderCopy small { display: none; }
+  .settingsLocalStatus { display: none; }
+  .settingsOverview { grid-template-columns: 1fr; padding-inline: 12px; }
+  .settingsOverviewItems { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settingsSections { grid-template-columns: 1fr; gap: 5px; padding-inline: 12px; }
+  .settingsSectionTab { min-height: 38px; border-radius: 8px; }
+  .settingsSectionTab span { display: none; }
+}
+
+@media (min-width: 561px) and (max-width: 980px) {
+  .settingsOverview { grid-template-columns: 1fr; }
+  .settingsOverviewItems { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
 .controlPromptToolbar {
   display: flex;
   align-items: center;
@@ -4522,13 +4807,24 @@ audio {
   gap: 6px;
 }
 
+.controlPromptToolbar > span {
+  min-width: 0;
+  flex: 1 1 150px;
+  line-height: 1.45;
+}
+
 .promptPolishButton {
+  flex: 0 0 auto;
+  min-width: 78px;
   min-height: 29px;
   padding: 0 9px;
   gap: 5px;
   border-radius: 8px;
   font-size: 11px;
+  white-space: nowrap;
 }
+
+.promptPolishButton > span { white-space: nowrap; }
 
 .promptPolishFeedback {
   margin-top: 7px;
@@ -4568,6 +4864,11 @@ audio {
 .llmSettingsIntro { display: grid; gap: 4px; margin-bottom: 10px; }
 .llmSettingsIntro strong { color: #405766; font-size: 13px; }
 .llmSettingsIntro span { color: #748692; font-size: 11px; line-height: 1.5; }
+.llmPromptPolicy { display: flex; align-items: flex-start; gap: 9px; margin-top: 10px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line)); border-radius: 9px; color: #557064; background: color-mix(in srgb, var(--accent) 7%, var(--panel-strong)); }
+.llmPromptPolicy > svg { flex: 0 0 auto; margin-top: 1px; color: var(--accent-dark); }
+.llmPromptPolicy div { min-width: 0; display: grid; gap: 2px; }
+.llmPromptPolicy strong { color: #3f6250; font-size: 11px; }
+.llmPromptPolicy small { color: #698176; font-size: 10px; line-height: 1.45; }
 .llmSettingsActions { display: flex; gap: 8px; margin-top: 10px; }
 
 .scriptRewriteFeedback { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: #a5514d; font-size: 11px; }
@@ -4592,6 +4893,9 @@ audio {
 :root[data-theme="dark"] .promptPolishSuggestions span { color: #bce9c9; background: rgba(47, 102, 67, 0.52); }
 :root[data-theme="dark"] .llmSettingsIntro strong { color: #d1dee5; }
 :root[data-theme="dark"] .llmSettingsIntro span { color: #a5b5be; }
+:root[data-theme="dark"] .llmPromptPolicy { color: #b4d4bd; background: rgba(35, 79, 53, 0.32); border-color: rgba(105, 190, 133, 0.3); }
+:root[data-theme="dark"] .llmPromptPolicy strong { color: #c5ead0; }
+:root[data-theme="dark"] .llmPromptPolicy small { color: #a7c3ad; }
 
 .samplerDownloadProgress {
   display: grid;
@@ -4944,6 +5248,48 @@ audio {
   color: #33475a;
   font-size: 13px;
   font-weight: 760;
+}
+
+.settingsGroupSummary {
+  min-width: 0;
+  min-height: 30px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settingsGroupSummary::-webkit-details-marker {
+  display: none;
+}
+
+.settingsGroupSummary > span {
+  min-width: 0;
+}
+
+.settingsGroupSummary > em {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  color: #718093;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsGroupSummary > svg {
+  flex: 0 0 auto;
+  color: #718093;
+  transition: transform 160ms ease;
+}
+
+.generationSettingsGroup[open] > .settingsGroupSummary {
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(89, 109, 127, 0.14);
+}
+
+.generationSettingsGroup[open] > .settingsGroupSummary > svg {
+  transform: rotate(180deg);
 }
 
 .appUpdateGroup .settingsGroupTitle em {
@@ -7617,6 +7963,18 @@ audio {
   margin: 10px;
 }
 
+.settingsInlineDetails {
+  background: rgba(236, 243, 247, 0.46);
+}
+
+.settingsInlineDetails > summary {
+  min-height: 50px;
+}
+
+.settingsInlineDetails > .enhancementSettingsGrid {
+  margin: 0 10px 10px;
+}
+
 .settingsNumberInput {
   min-width: 0;
   display: grid;
@@ -9533,7 +9891,10 @@ summary:focus-visible {
 
 .taskQueueOverlay {
   position: fixed;
-  z-index: 30;
+  /* The task center is a global tool. It must stay above any workbench page,
+     including the settings workspace, while remaining below confirmation
+     dialogs that intentionally block the whole application. */
+  z-index: 140;
   inset: 0;
   padding: 22px;
   background: rgba(18, 28, 37, 0.2);

@@ -4,9 +4,9 @@ const SETTINGS_FILE_NAME = "llm-settings.json";
 const MAX_BASE_URL_LENGTH = 2_048;
 const MAX_MODEL_LENGTH = 512;
 const MAX_API_KEY_LENGTH = 16_384;
-const MAX_PROMPT_LENGTH = 16_384;
 const DEFAULT_BASE_URL = "https://api.cdn-krill-ai.com/codex/v1";
 const DEFAULT_MODEL = "gpt-5.6-luna";
+const DEFAULT_SYSTEM_PROMPT = "你是 OpenTTS Studio 的实时中文语音助手。用自然、友好、简洁的口语直接回答。避免 Markdown、标题、列表符号、代码块、表情和括号说明。每次优先一到三句，需要补充时用短句说明；不要复述用户的问题。";
 
 function text(value, maxLength, { trim = true } = {}) {
   if (typeof value !== "string") return "";
@@ -26,7 +26,9 @@ function normalizeLlmSettings(value) {
     baseUrl: text(source.baseUrl, MAX_BASE_URL_LENGTH) || DEFAULT_BASE_URL,
     model: text(source.model, MAX_MODEL_LENGTH) || DEFAULT_MODEL,
     apiKey: text(source.apiKey, MAX_API_KEY_LENGTH, { trim: false }),
-    systemPrompt: text(source.systemPrompt, MAX_PROMPT_LENGTH),
+    // Feature prompts are owned by the product. Ignore older custom values so
+    // a stale manual prompt cannot change the behaviour of realtime chat.
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     temperature: number(source.temperature, 0.7, 0, 2),
     maxTokens: Math.round(number(source.maxTokens, 512, 1, 8192))
   };
@@ -93,4 +95,4 @@ function createLlmSettingsStore({ fs, safeStorage, getUserDataPath, loadLegacySe
   return { load, save };
 }
 
-module.exports = { createLlmSettingsStore, normalizeLlmSettings, DEFAULT_BASE_URL, DEFAULT_MODEL };
+module.exports = { createLlmSettingsStore, normalizeLlmSettings, DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_SYSTEM_PROMPT };

@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from tts_api.main import app
@@ -48,3 +49,59 @@ def test_polish_prompt_accepts_structured_json_from_the_model(monkeypatch):
     assert response.status_code == 200
     assert response.json()["prompt"].startswith("年轻女性")
     assert response.json()["suggestions"] == ["语速稍慢"]
+
+
+def test_polish_prompt_uses_the_built_in_instruction(monkeypatch):
+    captured = {}
+
+    def fake_chat_completion(**kwargs):
+        captured.update(kwargs)
+        return {"content": '{"prompt":"温柔女声","summary":"温柔女声","suggestions":[]}', "model": "gpt-5.6-luna", "usage": None}
+
+    monkeypatch.setattr(llm, "chat_completion", fake_chat_completion)
+    response = TestClient(app).post(
+        "/v1/llm/polish-prompt",
+        json={
+            "base_url": "https://example.test/v1",
+            "model": "gpt-5.6-luna",
+            "system_prompt": "请用户自己填写的规则",
+            "keywords": "温柔 女声",
+        },
+    )
+
+    assert response.status_code == 200
+    assert "专业语音设计提示词编辑" in captured["messages"][0]["content"]
+    assert "请用户自己填写的规则" not in captured["messages"][0]["content"]
+
+
+@pytest.mark.parametrize(
+    ("operation", "target_language", "expected_instruction"),
+    [
+        ("proofread", "中文", "校对 ASR 转写文本"),
+        ("summarize", "中文", "总结文本的核心内容"),
+        ("translate", "日文", "把文本翻译成日文"),
+    ],
+)
+def test_transform_text_uses_a_built_in_instruction_for_every_operation(monkeypatch, operation, target_language, expected_instruction):
+    captured = {}
+
+    def fake_chat_completion(**kwargs):
+        captured.update(kwargs)
+        return {"content": "处理后的文本", "model": "gpt-5.6-luna", "usage": None}
+
+    monkeypatch.setattr(llm, "chat_completion", fake_chat_completion)
+    response = TestClient(app).post(
+        "/v1/llm/transform-text",
+        json={
+            "base_url": "https://example.test/v1",
+            "model": "gpt-5.6-luna",
+            "system_prompt": "请用户自己填写的规则",
+            "operation": operation,
+            "target_language": target_language,
+            "text": "原始文本",
+        },
+    )
+
+    assert response.status_code == 200
+    assert expected_instruction in captured["messages"][0]["content"]
+    assert "请用户自己填写的规则" not in captured["messages"][0]["content"]

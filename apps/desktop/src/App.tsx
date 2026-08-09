@@ -668,7 +668,7 @@ const defaultGlobalLlmSettings: GlobalLlmSettings = {
   baseUrl: "https://api.cdn-krill-ai.com/codex/v1",
   model: "gpt-5.6-luna",
   apiKey: "",
-  systemPrompt: "你是一个自然、简洁的中文语音助手。回答适合直接朗读，避免使用 Markdown。",
+  systemPrompt: "你是 OpenTTS Studio 的实时中文语音助手。用自然、友好、简洁的口语直接回答。避免 Markdown、标题、列表符号、代码块、表情和括号说明。每次优先一到三句，需要补充时用短句说明；不要复述用户的问题。",
   temperature: 0.7,
   maxTokens: 512
 };
@@ -2020,6 +2020,8 @@ export function App() {
   const [modelProfileDrafts, setModelProfileDrafts] = useState<Record<string, ModelProfileDraft>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>(() => createSettingsDraft(null));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<"common" | "assets" | "system">("common");
+  const settingsBodyRef = useRef<HTMLDivElement | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMigrationAction, setSettingsMigrationAction] = useState<"export" | "import" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateState | null>(null);
@@ -3584,6 +3586,9 @@ export function App() {
   }
 
   function selectWorkspace(workbench: PrimaryWorkspace) {
+    if (settingsOpen) {
+      setSettingsOpen(false);
+    }
     if (workbench !== "creation") {
       releaseRealtimeRuntimeReservation();
     } else if (generationWorkspace === "realtime") {
@@ -4693,12 +4698,17 @@ export function App() {
 
   function openSettings() {
     setSettingsDraft(createSettingsDraft(appSettings));
+    setSettingsSection("common");
     void loadGlobalLlmSettings();
     setSettingsError(null);
     setSettingsMessage(null);
     void loadModelInstances();
     void loadModelPackages();
     setSettingsOpen(true);
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false);
   }
 
   async function onSaveGlobalLlmSettings() {
@@ -6046,6 +6056,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (settingsOpen) {
+      settingsBodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    }
+  }, [settingsOpen, settingsSection]);
+
+  useEffect(() => {
     selectedModelRef.current = selectedModel;
   }, [selectedModel]);
 
@@ -6942,6 +6958,10 @@ export function App() {
     applyTheme();
   }
 
+  const settingsLlmConfigured = Boolean(globalLlmSettings.enabled && globalLlmSettings.baseUrl.trim() && globalLlmSettings.model.trim());
+  const settingsDefaultModelName = startupModelOptions.find((model) => model.id === settingsDraft.default_model_id)?.display_name ?? settingsDraft.default_model_id;
+  const settingsStorageConfigured = Boolean(appSettings?.storage_root && appSettings?.model_store_root && appSettings?.output_dir);
+
   return (
     <main className={`studioShell theme-${theme}${themeTransitioning ? " isThemeTransitioning" : ""}`}>
       <header className="desktopTopbar">
@@ -6969,15 +6989,15 @@ export function App() {
             <span className="workbenchNavIndicator" aria-hidden="true" />
             <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "creation"} onClick={() => selectWorkspace("creation")}>
               <Sparkles size={16} strokeWidth={1.9} />
-              <span>本地语音合成</span>
+              <span>本地 TTS</span>
             </button>
             <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "doubao"} onClick={() => selectWorkspace("doubao")}>
               <Cloud size={16} strokeWidth={1.9} />
-              <span>云端语音合成</span>
+              <span>云端 TTS</span>
             </button>
             <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "transcription"} onClick={() => selectWorkspace("transcription")}>
               <FileText size={16} strokeWidth={1.9} />
-              <span>音视频转写</span>
+              <span>转写文字</span>
             </button>
             <button data-workbench-id="sampler" className={activeWorkspace === "sampler" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "sampler"} onClick={() => selectWorkspace("sampler")}>
               <Film size={16} strokeWidth={1.9} />
@@ -7041,7 +7061,7 @@ export function App() {
                 <Sun className="themeToggleSun" size={17} strokeWidth={1.9} />
               </span>
             </button>
-            <button className="toolButton" title="设置" onClick={openSettings}>
+            <button className="toolButton" title="设置" aria-label="设置" onClick={openSettings}>
               <Settings size={17} strokeWidth={1.9} />
             </button>
             <button className="toolButton monitorToolButton" title="系统监控" onClick={() => setMonitorPanelOpen(true)}>
@@ -7237,7 +7257,7 @@ export function App() {
             {showControlPrompt ? (
               <>
                 <div className="controlPromptToolbar">
-                  <span><Sparkles size={15} strokeWidth={1.9} />用关键词描述，AI 帮你整理成模型提示词</span>
+                  <span><Sparkles size={15} strokeWidth={1.9} />关键词 → 模型提示词</span>
                   <button
                     type="button"
                     className="secondaryAction promptPolishButton"
@@ -9060,20 +9080,79 @@ export function App() {
       )}
 
       {settingsOpen && (
-        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="设置">
-          <section className="settingsDialog">
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="设置中心">
+          <section className="settingsDialog settingsCenterDialog">
             <header className="settingsHeader">
-              <div>
-                <strong>设置</strong>
-                <span>{appSettings?.settings_file ?? "本地用户配置"}</span>
+              <div className="settingsHeaderIdentity">
+                <span className="settingsHeaderIcon" aria-hidden="true"><Settings size={18} strokeWidth={1.9} /></span>
+                <div className="settingsHeaderCopy">
+                  <span className="settingsHeaderEyebrow">WORKBENCH / SETTINGS</span>
+                  <strong>设置中心</strong>
+                  <small title={appSettings?.settings_file ?? "本地用户配置"}>配置、模型与系统状态</small>
+                </div>
               </div>
-              <button className="modalClose" title="关闭" onClick={() => setSettingsOpen(false)}>
-                <X size={18} strokeWidth={2} />
-              </button>
+              <div className="settingsHeaderActions">
+                <span className={online ? "settingsLocalStatus online" : "settingsLocalStatus"}>
+                  <span className="settingsLocalStatusDot" aria-hidden="true" />
+                  {online ? "本地服务正常" : "等待本地服务"}
+                </span>
+                <button className="modalClose" title="关闭设置中心" aria-label="关闭设置中心" onClick={closeSettings}>
+                  <X size={18} strokeWidth={2} />
+                </button>
+              </div>
             </header>
 
-            <div className="settingsBody">
-              <div className="settingsGroup appearanceSettingsGroup">
+            <section className="settingsOverview" aria-label="设置概览">
+              <div className="settingsOverviewIntro">
+                <span>运行总览</span>
+                <strong>先看状态，再改设置</strong>
+                <small>常用入口放在这里，低频维护项默认收起。</small>
+              </div>
+              <div className="settingsOverviewItems">
+                <button type="button" className={settingsLlmConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} onClick={() => setSettingsSection("common")}>
+                  <span className="settingsOverviewItemIcon"><Sparkles size={16} strokeWidth={1.9} /></span>
+                  <span className="settingsOverviewItemCopy"><small>全局 LLM</small><strong>{settingsLlmConfigured ? "已配置" : "未配置"}</strong><em>{globalLlmSettings.model || "填写模型名"}</em></span>
+                  <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
+                </button>
+                <button type="button" className="settingsOverviewItem ready" onClick={() => setSettingsSection("common")}>
+                  <span className="settingsOverviewItemIcon"><Cpu size={16} strokeWidth={1.9} /></span>
+                  <span className="settingsOverviewItemCopy"><small>默认 TTS</small><strong>{settingsDefaultModelName}</strong><em>{settingsDraft.prewarm_default_model_on_startup ? "启动时预热" : "按需加载"}</em></span>
+                  <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
+                </button>
+                <button type="button" className={settingsStorageConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} onClick={() => setSettingsSection("assets")}>
+                  <span className="settingsOverviewItemIcon"><FolderOpen size={16} strokeWidth={1.9} /></span>
+                  <span className="settingsOverviewItemCopy"><small>统一资源库</small><strong>{settingsStorageConfigured ? "目录已连接" : "正在读取"}</strong><em>{settingsStorageConfigured ? "模型与成品集中管理" : "检查资源目录"}</em></span>
+                  <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
+                </button>
+                <button type="button" className={online ? "settingsOverviewItem ready" : "settingsOverviewItem"} onClick={() => setSettingsSection("system")}>
+                  <span className="settingsOverviewItemIcon"><Server size={16} strokeWidth={1.9} /></span>
+                  <span className="settingsOverviewItemCopy"><small>本地服务</small><strong>{online ? "运行正常" : "等待后端"}</strong><em>{apiBaseLabel}</em></span>
+                  <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+
+            <nav className="settingsSections" aria-label="设置分组">
+              {([
+                ["common", "常用", "LLM 与处理偏好"],
+                ["assets", "模型", "资源库与运行时"],
+                ["system", "系统", "外观、服务与备份"]
+              ] as const).map(([id, label, description]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={settingsSection === id ? "settingsSectionTab active" : "settingsSectionTab"}
+                  aria-current={settingsSection === id ? "page" : undefined}
+                  onClick={() => setSettingsSection(id)}
+                >
+                  <strong>{label}</strong>
+                  <span>{description}</span>
+                </button>
+              ))}
+            </nav>
+
+            <div ref={settingsBodyRef} className="settingsBody" data-section={settingsSection}>
+              <div className="settingsGroup appearanceSettingsGroup" data-settings-section="system">
                 <div className="settingsGroupTitle">
                   <Palette size={16} strokeWidth={1.9} />
                   <span>界面外观</span>
@@ -9112,7 +9191,7 @@ export function App() {
                 </div>
               </div>
 
-              <div className="settingsGroup appUpdateGroup">
+              <div className="settingsGroup appUpdateGroup" data-settings-section="system">
                 <div className="settingsGroupTitle">
                   <RefreshCw size={16} strokeWidth={1.9} />
                   <span>应用更新</span>
@@ -9166,11 +9245,13 @@ export function App() {
                 </div>
               </div>
 
-              <div className="settingsGroup">
-                <div className="settingsGroupTitle">
+              <details className="settingsGroup generationSettingsGroup" data-settings-section="common" data-settings-sections="common assets">
+                <summary className="settingsGroupTitle settingsGroupSummary">
                   <Cpu size={16} strokeWidth={1.9} />
                   <span>生成偏好</span>
-                </div>
+                  <em>{settingsDefaultModelName} · {settingsDraft.prewarm_default_model_on_startup ? "启动预热" : "按需加载"}</em>
+                  <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
+                </summary>
                 <div className="startupModelSettings">
                   <label className="settingsField">
                     <span>启动默认模型</span>
@@ -9269,6 +9350,15 @@ export function App() {
                     {appSettings?.audio_enhancement_ready ? "双模型已就绪" : "需要配置"}
                   </span>
                 </div>
+                <details className="settingsAdvancedDetails settingsInlineDetails">
+                  <summary>
+                    <span className="settingsAdvancedIcon"><Wand2 size={16} strokeWidth={1.9} /></span>
+                    <span className="settingsAdvancedSummary">
+                      <strong>运行时与模型目录</strong>
+                      <small>默认自动检测；只有排查或迁移时才需要修改</small>
+                    </span>
+                    <ChevronDown size={16} strokeWidth={2} />
+                  </summary>
                 <div className="enhancementSettingsGrid">
                   <label className="settingsField enhancementWideField">
                     <span>专用 Python 运行时</span>
@@ -9329,6 +9419,7 @@ export function App() {
                     <small className={appSettings?.mossformer2_se_model_installed ? "settingCheck ready" : "settingCheck"}>{appSettings?.mossformer2_se_model_installed ? "已找到 last_best_checkpoint 与 .pt 权重。" : "目录需要包含 last_best_checkpoint 与 last_best_checkpoint.pt。"}</small>
                   </label>
                 </div>
+                </details>
                 <div className="enhancementSettingsSummary">
                   <div>
                     <strong>音频分轨（本地）</strong>
@@ -9338,6 +9429,15 @@ export function App() {
                     {appSettings?.audio_separation_ready ? "至少一个模型已就绪" : "需要配置"}
                   </span>
                 </div>
+                <details className="settingsAdvancedDetails settingsInlineDetails">
+                  <summary>
+                    <span className="settingsAdvancedIcon"><Waves size={16} strokeWidth={1.9} /></span>
+                    <span className="settingsAdvancedSummary">
+                      <strong>运行时与模型目录</strong>
+                      <small>默认自动检测；只有排查或迁移时才需要修改</small>
+                    </span>
+                    <ChevronDown size={16} strokeWidth={2} />
+                  </summary>
                 <div className="enhancementSettingsGrid">
                   <label className="settingsField enhancementWideField">
                     <span>分轨专用 Python 运行时</span>
@@ -9375,7 +9475,8 @@ export function App() {
                     <small className={appSettings?.audio_separation_ready ? "settingCheck ready" : "settingCheck"}>{appSettings?.audio_separation_ready ? "已检测到可用模型与参数文件。" : "目录需包含权重及 model_data 参数文件。"}</small>
                   </label>
                 </div>
-                <details className="settingsAdvancedDetails">
+                </details>
+                <details className="settingsAdvancedDetails modelCenterDetails" data-settings-section="assets">
                   <summary>
                     <span className="settingsAdvancedIcon"><Settings size={16} strokeWidth={1.9} /></span>
                     <span className="settingsAdvancedSummary">
@@ -9549,9 +9650,9 @@ export function App() {
                   })}
                 </div>
                 </details>
-              </div>
+              </details>
 
-              <details className="settingsAdvancedDetails modelAssetsDetails">
+              <details className="settingsAdvancedDetails modelAssetsDetails" data-settings-section="assets">
                 <summary>
                   <span className="settingsAdvancedIcon"><Library size={16} strokeWidth={1.9} /></span>
                   <span className="settingsAdvancedSummary">
@@ -9636,11 +9737,11 @@ export function App() {
               </div>
               </details>
 
-              <div className="settingsGroup">
+              <div className="settingsGroup llmSettingsGroup" data-settings-section="common">
                 <div className="settingsGroupTitle">
                   <Sparkles size={16} strokeWidth={1.9} />
                   <span>全局 LLM</span>
-                  <em>实时语音与 AI 润色共用</em>
+                  <em>实时语音、配音稿与转写处理共用</em>
                 </div>
                 <div className="llmSettingsIntro">
                   <strong>一次配置，多个功能复用</strong>
@@ -9660,10 +9761,13 @@ export function App() {
                   <span>API Key（可选，本机加密保存）</span>
                   <input type="password" autoComplete="off" value={globalLlmSettings.apiKey} onChange={(event) => setGlobalLlmSettings((current) => ({ ...current, apiKey: event.target.value }))} placeholder="本地 Ollama 可留空" />
                 </label>
-                <label className="settingsField">
-                  <span>默认系统提示词</span>
-                  <textarea rows={3} value={globalLlmSettings.systemPrompt} onChange={(event) => setGlobalLlmSettings((current) => ({ ...current, systemPrompt: event.target.value }))} />
-                </label>
+                <div className="llmPromptPolicy" role="note">
+                  <Sparkles size={16} strokeWidth={1.9} aria-hidden="true" />
+                  <div>
+                    <strong>功能提示词已内置</strong>
+                    <small>AI 润色、配音稿改写、转写校对、摘要、翻译与实时对话都会自动使用各自的专用规则，无需手动编写提示词。</small>
+                  </div>
+                </div>
                 <div className="llmSettingsActions">
                   <button type="button" className="secondaryAction settingsAction" onClick={() => void onTestGlobalLlm()} disabled={globalLlmTesting || globalLlmLoading}>
                     {globalLlmTesting ? <Loader2 className="spin" size={16} /> : <Wifi size={16} strokeWidth={1.9} />}
@@ -9677,7 +9781,7 @@ export function App() {
                 {(globalLlmError || globalLlmMessage) && <div className={globalLlmError ? "settingsFeedback error" : "settingsFeedback"}><span>{globalLlmError ?? globalLlmMessage}</span></div>}
               </div>
 
-              <div className="settingsGroup">
+              <div className="settingsGroup managedStorageSettingsGroup" data-settings-section="assets">
                 <div className="settingsGroupTitle">
                   <FolderOpen size={16} strokeWidth={1.9} />
                   <span>统一资源库</span>
@@ -9717,7 +9821,7 @@ export function App() {
                 </div>
               </div>
 
-              <div className="settingsGroup">
+              <div className="settingsGroup apiSettingsGroup" data-settings-section="system">
                 <div className="settingsGroupTitle">
                   <Server size={16} strokeWidth={1.9} />
                   <span>API 服务</span>
@@ -9747,7 +9851,7 @@ export function App() {
                 </div>
               </div>
 
-              <div className="settingsGroup settingsMigrationGroup">
+              <div className="settingsGroup settingsMigrationGroup" data-settings-section="system">
                 <div className="settingsGroupTitle">
                   <Save size={16} strokeWidth={1.9} />
                   <span>备份与迁移</span>
