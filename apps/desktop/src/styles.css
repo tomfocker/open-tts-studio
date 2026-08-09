@@ -1773,6 +1773,21 @@ summary:focus-visible {
   background: rgba(214, 227, 235, 0.96);
 }
 
+.workbenchNavScroll:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.transcriptionPrimaryButton:disabled,
+.enhancementPrimaryButton:disabled,
+.separationPrimaryButton:disabled {
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-strong) 86%, var(--line));
+  box-shadow: none;
+  opacity: 1;
+}
+
 .statusDot.online::after {
   position: absolute;
   inset: -5px;
@@ -11842,4 +11857,26 @@ summary:focus-visible {
 :root[data-theme="dark"] .doubaoModeCardIcon.reader {
   color: #f0d79b;
   background: #4b3d28;
+}
+
+/* Disabled actions should read as unavailable, not as a green control that
+   merely failed to respond. Keep this override after accent-specific button
+   treatments so the semantic state wins in both themes. */
+:root[data-accent] .transcriptionPrimaryButton:disabled,
+:root[data-accent] .enhancementPrimaryButton:disabled {
+  color: var(--muted);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel-strong) 86%, var(--line));
+  box-shadow: none;
+  opacity: 1;
+}
+
+:root[data-accent] .doubaoWorkspace .doubaoPrimaryButton:disabled,
+:root[data-accent] .doubaoWorkspace .doubaoSecondaryButton:disabled,
+:root[data-accent] .doubaoWorkspace .doubaoGhostButton:disabled {
+  color: var(--dw-muted);
+  border: 1px solid var(--dw-line);
+  background: var(--dw-panel-subtle);
+  box-shadow: none;
+  opacity: 1;
 }

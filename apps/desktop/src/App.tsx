@@ -2308,6 +2308,7 @@ export function App() {
   const [workspaceTransition, setWorkspaceTransition] = useState<"idle" | "entering">("idle");
   const workspaceTransitionTimersRef = useRef<number[]>([]);
   const [workbenchIndicator, setWorkbenchIndicator] = useState({ left: 4, width: 0, ready: false });
+  const [workbenchNavScrollState, setWorkbenchNavScrollState] = useState({ canScrollBackward: false, canScrollForward: false });
   const [doubaoStatus, setDoubaoStatus] = useState<DoubaoStatus | null>(null);
   const [doubaoVoices, setDoubaoVoices] = useState<DoubaoVoice[]>([]);
   const [doubaoStateError, setDoubaoStateError] = useState<string | null>(null);
@@ -4181,7 +4182,14 @@ export function App() {
     const updateIndicator = () => {
       setWorkbenchIndicator({ left: activeButton.offsetLeft, width: activeButton.offsetWidth, ready: true });
     };
+    const updateScrollState = () => {
+      setWorkbenchNavScrollState({
+        canScrollBackward: navigation.scrollLeft > 1,
+        canScrollForward: navigation.scrollLeft + navigation.clientWidth < navigation.scrollWidth - 1
+      });
+    };
     updateIndicator();
+    updateScrollState();
     activeButton.scrollIntoView({
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       block: "nearest",
@@ -4190,7 +4198,14 @@ export function App() {
     const observer = new ResizeObserver(updateIndicator);
     observer.observe(navigation);
     observer.observe(activeButton);
-    return () => observer.disconnect();
+    navigation.addEventListener("scroll", updateScrollState, { passive: true });
+    const scrollStateObserver = new ResizeObserver(updateScrollState);
+    scrollStateObserver.observe(navigation);
+    return () => {
+      observer.disconnect();
+      scrollStateObserver.disconnect();
+      navigation.removeEventListener("scroll", updateScrollState);
+    };
   }, [activeWorkspace]);
 
   function editBatchProject(project: BatchProject) {
@@ -7823,7 +7838,7 @@ export function App() {
         </div>
 
         <div className="workbenchNavWrap" aria-label="工作台导航">
-          <button className="workbenchNavScroll" type="button" title="显示前面的工作台" aria-label="显示前面的工作台" onClick={() => scrollWorkbenchNavigation(-1)}>
+          <button className="workbenchNavScroll" type="button" disabled={!workbenchNavScrollState.canScrollBackward} title={workbenchNavScrollState.canScrollBackward ? "显示前面的工作台" : "已到最前面的工作台"} aria-label={workbenchNavScrollState.canScrollBackward ? "显示前面的工作台" : "已到最前面的工作台"} onClick={() => scrollWorkbenchNavigation(-1)}>
             <ChevronLeft size={16} strokeWidth={2} />
           </button>
           <div
@@ -7834,36 +7849,36 @@ export function App() {
             style={{ "--workbench-indicator-x": `${workbenchIndicator.left}px`, "--workbench-indicator-width": `${workbenchIndicator.width}px`, "--workbench-indicator-opacity": workbenchIndicator.ready ? 1 : 0 } as CSSProperties}
           >
             <span className="workbenchNavIndicator" aria-hidden="true" />
-            <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "creation"} onClick={() => selectWorkspace("creation")}>
+            <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "creation" ? "page" : undefined} aria-pressed={activeWorkspace === "creation"} onClick={() => selectWorkspace("creation")}>
               <Sparkles size={16} strokeWidth={1.9} />
               <span>本地 TTS</span>
             </button>
-            <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "doubao"} onClick={() => selectWorkspace("doubao")}>
+            <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "doubao" ? "page" : undefined} aria-pressed={activeWorkspace === "doubao"} onClick={() => selectWorkspace("doubao")}>
               <Cloud size={16} strokeWidth={1.9} />
               <span>云端 TTS</span>
             </button>
-            <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "transcription"} onClick={() => selectWorkspace("transcription")}>
+            <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "transcription" ? "page" : undefined} aria-pressed={activeWorkspace === "transcription"} onClick={() => selectWorkspace("transcription")}>
               <FileText size={16} strokeWidth={1.9} />
               <span>转写文字</span>
             </button>
-            <button data-workbench-id="sampler" className={activeWorkspace === "sampler" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "sampler"} onClick={() => selectWorkspace("sampler")}>
+            <button data-workbench-id="sampler" className={activeWorkspace === "sampler" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "sampler" ? "page" : undefined} aria-pressed={activeWorkspace === "sampler"} onClick={() => selectWorkspace("sampler")}>
               <Film size={16} strokeWidth={1.9} />
               <span>媒体采样</span>
             </button>
-            <button data-workbench-id="enhancement" className={activeWorkspace === "enhancement" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "enhancement"} onClick={() => selectWorkspace("enhancement")}>
+            <button data-workbench-id="enhancement" className={activeWorkspace === "enhancement" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "enhancement" ? "page" : undefined} aria-pressed={activeWorkspace === "enhancement"} onClick={() => selectWorkspace("enhancement")}>
               <Wand2 size={16} strokeWidth={1.9} />
               <span>语音增强</span>
             </button>
-            <button data-workbench-id="separation" className={activeWorkspace === "separation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "separation"} onClick={() => selectWorkspace("separation")}>
+            <button data-workbench-id="separation" className={activeWorkspace === "separation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "separation" ? "page" : undefined} aria-pressed={activeWorkspace === "separation"} onClick={() => selectWorkspace("separation")}>
               <Waves size={16} strokeWidth={1.9} />
               <span>音频分轨</span>
             </button>
-            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "assets"} onClick={() => openAudioLibrary()}>
+            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "assets" ? "page" : undefined} aria-pressed={activeWorkspace === "assets"} onClick={() => openAudioLibrary()}>
               <Library size={16} strokeWidth={1.9} />
               <span>成果中心</span>
             </button>
           </div>
-          <button className="workbenchNavScroll" type="button" title="显示后面的工作台" aria-label="显示后面的工作台" onClick={() => scrollWorkbenchNavigation(1)}>
+          <button className="workbenchNavScroll" type="button" disabled={!workbenchNavScrollState.canScrollForward} title={workbenchNavScrollState.canScrollForward ? "显示后面的工作台" : "已到最后面的工作台"} aria-label={workbenchNavScrollState.canScrollForward ? "显示后面的工作台" : "已到最后面的工作台"} onClick={() => scrollWorkbenchNavigation(1)}>
             <ChevronRight size={16} strokeWidth={2} />
           </button>
         </div>
