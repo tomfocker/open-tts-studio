@@ -2180,6 +2180,51 @@ summary:focus-visible {
   }
 }
 
+/* Keep the settings center stable while switching its three sections. The
+   section body owns the scroll; the dialog frame and close action never move. */
+.settingsDialog.settingsCenterDialog {
+  height: min(760px, calc(100dvh - 48px));
+  max-height: min(760px, calc(100dvh - 48px));
+  min-height: 0;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+}
+
+.settingsDialog.settingsCenterDialog > .settingsHeader,
+.settingsDialog.settingsCenterDialog > .settingsOverview,
+.settingsDialog.settingsCenterDialog > .settingsSections,
+.settingsDialog.settingsCenterDialog > .settingsFooter {
+  position: relative;
+  z-index: 3;
+}
+
+.settingsDialog.settingsCenterDialog > .settingsHeader {
+  flex: 0 0 auto;
+}
+
+.settingsDialog.settingsCenterDialog > .settingsHeader .modalClose {
+  position: relative;
+  z-index: 4;
+  pointer-events: auto;
+}
+
+.settingsDialog.settingsCenterDialog > .settingsBody {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.settingsOverlay {
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .settingsDialog.settingsCenterDialog {
+    width: calc(100vw - 24px);
+    height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+}
+
 /* Keep the voice library overrides after the shared dialog rules. */
 .settingsDialog.voiceManagerDialog {
   width: min(1240px, calc(100vw - 40px));

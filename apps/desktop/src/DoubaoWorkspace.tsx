@@ -5,6 +5,7 @@ import {
   Clipboard,
   Cloud,
   Cookie as CookieIcon,
+  ChevronLeft,
   Database,
   FileText,
   Gauge,
@@ -304,6 +305,9 @@ function taskStatusLabel(status: string): string {
 
 export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWorkspaceProps) {
   const [tab, setTab] = useState<WorkspaceTab>(initialTab);
+  const [modeView, setModeView] = useState<"landing" | "detail">(
+    initialTab === "accounts" || initialTab === "maintenance" ? "detail" : "landing"
+  );
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1075,15 +1079,64 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
   const speechAudioUrl = speechResult ? toAudioUrl(speechResult.audio_url) : "";
   const speechDuration = speechPlaybackDuration || speechResult?.duration_seconds || 0;
   const speechProgress = speechDuration > 0 ? Math.min((speechPlaybackTime / speechDuration) * 100, 100) : 0;
-  const tabMeta: Record<WorkspaceTab, { eyebrow: string; title: string; description: string }> = {
-    synthesis: { eyebrow: "制作", title: "单段语音合成", description: "输入文本，选择豆包音色并立即生成" },
-    realtime: { eyebrow: "制作", title: "实时对话", description: "全局 LLM 回复后由豆包整段朗读" },
-    reader: { eyebrow: "制作", title: "批量电子书", description: "导入 TXT / EPUB 或连接 Legado 书架" },
-    accounts: { eyebrow: "管理", title: "账号与 Cookie", description: "登录、验证与轮换云端账号" },
-    maintenance: { eyebrow: "系统", title: "运行维护", description: "调整请求策略与查看维护文档" }
-  };
-  const currentTabMeta = tabMeta[tab];
   const legacyTab = tab as string;
+
+  function openProductionTab(nextTab: "synthesis" | "realtime" | "reader") {
+    setTab(nextTab);
+    setModeView("detail");
+  }
+
+  function openManagementTab(nextTab: "accounts" | "maintenance") {
+    setTab(nextTab);
+    setModeView("detail");
+  }
+
+  function renderModeCards(variant: "landing" | "compact") {
+    const cards = [
+      {
+        tab: "synthesis" as const,
+        icon: <Wand2 size={variant === "landing" ? 26 : 19} />,
+        title: "语音合成",
+        description: "输入文本，选择音色生成自然语音",
+        accent: ""
+      },
+      {
+        tab: "realtime" as const,
+        icon: <Volume2 size={variant === "landing" ? 26 : 19} />,
+        title: "实时对话",
+        description: "连接 LLM，连续语音交流",
+        accent: "realtime"
+      },
+      {
+        tab: "reader" as const,
+        icon: <BookOpen size={variant === "landing" ? 26 : 19} />,
+        title: "批量电子书",
+        description: "导入书籍，预制章节音频",
+        accent: "reader"
+      }
+    ];
+
+    return (
+      <div className={`doubaoModeCards ${variant}`} aria-label="豆包主要功能">
+        {cards.map((card) => (
+          <button
+            key={card.tab}
+            className={variant === "compact" && tab === card.tab ? "doubaoModeCard active" : "doubaoModeCard"}
+            onClick={() => openProductionTab(card.tab)}
+          >
+            <span className={`doubaoModeCardIcon ${card.accent}`}>{card.icon}</span>
+            <span className="doubaoModeCardCopy">
+              <strong>{card.title}</strong>
+              <small>{card.description}</small>
+            </span>
+            <span className="doubaoModeCardState">{variant === "landing" ? "开始" : tab === card.tab ? "当前" : "切换"}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  const activeModeTitle = tab === "realtime" ? "实时对话" : tab === "reader" ? "批量电子书" : tab === "accounts" ? "账号" : tab === "maintenance" ? "维护" : "语音合成";
 
   return (
     <section className="doubaoWorkspace" aria-label="云端语音合成工作台">
@@ -1096,34 +1149,18 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
           </div>
         </div>
 
-        <nav className="doubaoTabs" aria-label="豆包工作台导航">
-          <div className="doubaoTabGroup primary" aria-label="制作">
-            <span className="doubaoTabGroupLabel">制作</span>
-            <button className={tab === "synthesis" ? "active" : ""} onClick={() => setTab("synthesis")}>
-              <Wand2 size={15} /><span>语音合成</span>
-            </button>
-            <button className={tab === "realtime" ? "active" : ""} onClick={() => setTab("realtime")}>
-              <Volume2 size={15} /><span>实时对话</span>
-            </button>
-            <button className={tab === "reader" ? "active" : ""} onClick={() => setTab("reader")}>
-              <BookOpen size={15} /><span>批量电子书</span>
-            </button>
-          </div>
-          <div className="doubaoTabGroup secondary" aria-label="管理">
-            <span className="doubaoTabGroupLabel">管理</span>
-            <button className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}>
-              <KeyRound size={15} /><span>账号</span>
-            </button>
-            <button className={tab === "maintenance" ? "active" : ""} onClick={() => setTab("maintenance")}>
-              <Settings2 size={15} /><span>维护</span>
-            </button>
-          </div>
-        </nav>
-
         <div className="doubaoHeaderActions">
           <span className={`doubaoHealth ${online ? "online" : "offline"}`}>
             <span />{online ? `${usableCookieCount} 个账号可用` : "后端未就绪"}
           </span>
+          <button className={tab === "accounts" ? "doubaoUtilityButton active" : "doubaoUtilityButton"} title="账号维护" aria-label="账号维护" onClick={() => openManagementTab("accounts")}>
+            <KeyRound size={16} />
+            <span>账号</span>
+          </button>
+          <button className={tab === "maintenance" ? "doubaoUtilityButton active" : "doubaoUtilityButton"} title="运行维护" aria-label="运行维护" onClick={() => openManagementTab("maintenance")}>
+            <Settings2 size={16} />
+            <span>维护</span>
+          </button>
           <button className="doubaoIconButton" title="刷新" onClick={() => void runAction("refresh", loadOperationalState, "状态已刷新") }>
             {pendingAction === "refresh" ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
           </button>
@@ -1139,19 +1176,27 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
         </div>
       )}
 
-      <div className="doubaoWorkspaceContext" aria-label="当前工作区">
-        <div className="doubaoWorkspaceContextTitle">
-          <span>{currentTabMeta.eyebrow}</span>
-          <strong>{currentTabMeta.title}</strong>
-          <small>{currentTabMeta.description}</small>
-        </div>
-        <div className="doubaoWorkspaceContextState">
-          <span className={online ? "ready" : "offline"}><i />{online ? "云端可用" : "等待后端"}</span>
-          <span>本地显存：不参与豆包合成</span>
-        </div>
-      </div>
+      <div className={`doubaoModeStage ${modeView}`}>
+        <section className="doubaoModeLanding" aria-hidden={modeView !== "landing"}>
+          <div className="doubaoLandingIntro">
+            <span className="doubaoLandingEyebrow">CLOUD TTS WORKSPACE</span>
+            <h1>选择工作方式</h1>
+            <p>从一个入口开始你的云端语音工作流</p>
+          </div>
+          {renderModeCards("landing")}
+        </section>
 
-      <main className="doubaoWorkspaceBody">
+        <section className="doubaoModeDetail" aria-hidden={modeView !== "detail"}>
+          <header className="doubaoDetailHeader">
+            <button className="doubaoBackButton" onClick={() => setModeView("landing")}>
+              <ChevronLeft size={16} />
+              <span>功能选择</span>
+            </button>
+            <div className="doubaoDetailTitle"><strong>{activeModeTitle}</strong><span>云端工作区</span></div>
+          </header>
+          {(tab === "synthesis" || tab === "realtime" || tab === "reader") && renderModeCards("compact")}
+
+          <main className="doubaoWorkspaceBody">
         {tab === "synthesis" && (
           <div className="doubaoSynthesisLayout">
             <section className="doubaoPanel doubaoComposer">
@@ -1191,7 +1236,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 </button>
               </div>
               {usableCookieCount === 0 && (
-                <button className="doubaoInlineNotice" onClick={() => setTab("accounts")}>
+                <button className="doubaoInlineNotice" onClick={() => openManagementTab("accounts")}>
                   <KeyRound size={16} /><span>需要先扫码登录或添加一个有效 Cookie</span>
                 </button>
               )}
@@ -1738,7 +1783,9 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             </section>
           </div>
         )}
-      </main>
+          </main>
+        </section>
+      </div>
     </section>
   );
 }

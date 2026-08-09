@@ -3294,3 +3294,384 @@
   .doubaoTabs { gap: 5px; }
   .doubaoTabs button { padding: 0 8px; }
 }
+
+/* Production modes are the primary navigation; account and maintenance stay
+   available as compact utilities in the header. */
+.doubaoWorkspace {
+  gap: 10px;
+}
+
+.doubaoWorkspaceHeader {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.doubaoHeaderActions {
+  gap: 6px;
+}
+
+.doubaoUtilityButton {
+  height: 34px;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--dw-line);
+  border-radius: 8px;
+  color: var(--dw-muted);
+  background: var(--dw-panel-subtle);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 720;
+  transition: color 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+.doubaoUtilityButton:hover,
+.doubaoUtilityButton.active {
+  color: var(--dw-accent-strong);
+  background: var(--dw-accent-soft);
+  transform: translateY(-1px);
+}
+
+.doubaoModeCards {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.doubaoModeCard {
+  min-width: 0;
+  min-height: 72px;
+  padding: 10px 12px;
+  border: 1px solid var(--dw-line);
+  border-radius: 11px;
+  color: var(--dw-muted);
+  background: color-mix(in srgb, var(--dw-panel-solid) 72%, var(--dw-panel-subtle));
+  box-shadow: var(--dw-inner);
+  cursor: pointer;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.doubaoModeCard:hover {
+  color: var(--dw-text);
+  border-color: color-mix(in srgb, var(--dw-accent) 35%, var(--dw-line));
+  transform: translateY(-1px);
+}
+
+.doubaoModeCard.active {
+  color: var(--dw-text);
+  border-color: color-mix(in srgb, var(--dw-accent) 48%, var(--dw-line));
+  background: color-mix(in srgb, var(--dw-accent-soft) 76%, var(--dw-panel-solid));
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--dw-accent) 12%, transparent), var(--dw-inner);
+}
+
+.doubaoModeCardIcon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--dw-accent-strong);
+  background: color-mix(in srgb, var(--dw-accent) 14%, var(--dw-panel-solid));
+}
+
+.doubaoModeCardIcon.realtime {
+  color: var(--dw-info);
+  background: color-mix(in srgb, var(--dw-info-soft) 70%, var(--dw-panel-solid));
+}
+
+.doubaoModeCardIcon.reader {
+  color: #8a7041;
+  background: color-mix(in srgb, #f2e4c5 72%, var(--dw-panel-solid));
+}
+
+.doubaoModeCardCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.doubaoModeCardCopy strong,
+.doubaoModeCardCopy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoModeCardCopy strong {
+  color: currentColor;
+  font-size: 13px;
+}
+
+.doubaoModeCardCopy small {
+  color: var(--dw-muted);
+  font-size: 10px;
+}
+
+.doubaoModeCardState {
+  min-width: 31px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  color: var(--dw-muted);
+  background: color-mix(in srgb, var(--dw-line) 42%, transparent);
+  font-size: 9px;
+  font-weight: 760;
+  text-align: center;
+}
+
+.doubaoModeCard.active .doubaoModeCardState {
+  color: var(--dw-accent-strong);
+  background: color-mix(in srgb, var(--dw-accent) 16%, transparent);
+}
+
+.mainStage.workspaceMainStage .doubaoWorkspaceHeader {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.mainStage.workspaceMainStage .doubaoModeCards {
+  gap: 9px;
+}
+
+@media (max-width: 760px) {
+  .doubaoWorkspaceHeader {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .doubaoUtilityButton span {
+    display: none;
+  }
+
+  .doubaoUtilityButton {
+    width: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .doubaoModeCards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Two-stage cloud TTS navigation: choose a mode first, then enter its workspace. */
+.doubaoModeStage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.doubaoModeLanding,
+.doubaoModeDetail {
+  position: absolute;
+  inset: 0;
+  min-height: 0;
+  transition: opacity 220ms ease, transform 280ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.doubaoModeLanding {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 24px;
+  padding: 28px clamp(18px, 4vw, 64px);
+}
+
+.doubaoLandingIntro {
+  display: grid;
+  gap: 7px;
+  text-align: center;
+}
+
+.doubaoLandingEyebrow {
+  color: var(--dw-accent-strong);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  opacity: .78;
+}
+
+.doubaoLandingIntro h1 {
+  margin: 0;
+  color: var(--dw-text);
+  font-size: clamp(24px, 3vw, 34px);
+  letter-spacing: -.035em;
+}
+
+.doubaoLandingIntro p {
+  margin: 0;
+  color: var(--dw-muted);
+  font-size: 13px;
+}
+
+.doubaoModeDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(16px) scale(.985);
+}
+
+.doubaoModeStage.landing .doubaoModeLanding {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.doubaoModeStage.landing .doubaoModeDetail {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(16px) scale(.985);
+}
+
+.doubaoModeStage.detail .doubaoModeLanding {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-14px) scale(.985);
+}
+
+.doubaoModeStage.detail .doubaoModeDetail {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.doubaoDetailHeader {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+.doubaoBackButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--dw-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 720;
+  transition: color 150ms ease, background 150ms ease;
+}
+
+.doubaoBackButton:hover {
+  color: var(--dw-accent-strong);
+  background: var(--dw-accent-soft);
+}
+
+.doubaoDetailTitle {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.doubaoDetailTitle strong {
+  color: var(--dw-text);
+  font-size: 15px;
+  letter-spacing: -.01em;
+}
+
+.doubaoDetailTitle span {
+  color: var(--dw-muted);
+  font-size: 10px;
+}
+
+.doubaoModeCards.landing {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.doubaoModeCards.landing .doubaoModeCard {
+  min-height: 176px;
+  padding: 20px;
+  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-rows: auto 1fr auto;
+  align-items: start;
+  gap: 14px 13px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--dw-panel-solid) 90%, white), color-mix(in srgb, var(--dw-panel-subtle) 65%, var(--dw-panel-solid)));
+}
+
+.doubaoModeCards.landing .doubaoModeCardIcon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  grid-row: 1 / span 2;
+}
+
+.doubaoModeCards.landing .doubaoModeCardCopy {
+  align-self: center;
+  gap: 6px;
+}
+
+.doubaoModeCards.landing .doubaoModeCardCopy strong {
+  font-size: 17px;
+  letter-spacing: -.02em;
+}
+
+.doubaoModeCards.landing .doubaoModeCardCopy small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.doubaoModeCards.landing .doubaoModeCardState {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-width: auto;
+  padding: 6px 10px;
+  font-size: 10px;
+}
+
+.doubaoModeCards.compact {
+  gap: 8px;
+}
+
+.doubaoModeCards.compact .doubaoModeCard {
+  min-height: 52px;
+}
+
+.doubaoModeDetail > .doubaoModeCards.compact {
+  flex: 0 0 auto;
+}
+
+.doubaoModeDetail .doubaoWorkspaceBody {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 760px) {
+  .doubaoModeLanding {
+    gap: 18px;
+    padding: 20px 8px;
+  }
+
+  .doubaoModeCards.landing {
+    grid-template-columns: 1fr;
+  }
+
+  .doubaoModeCards.landing .doubaoModeCard {
+    min-height: 118px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doubaoModeLanding,
+  .doubaoModeDetail {
+    transition-duration: 1ms;
+  }
+}
