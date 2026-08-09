@@ -9721,7 +9721,12 @@ export function App() {
                       {taskIsActive ? <div className="taskQueueProgress"><span style={{ width: `${task.progress_percent}%` }} /></div> : <div className={`taskQueueStateLine ${task.status}`}><span>{task.status === "failed" || task.status === "partial" ? "任务没有全部完成" : task.status === "cancelled" ? "任务已停止，可按需继续" : task.status === "paused" ? "任务已暂停，可继续预制" : "结果已写入成果中心"}</span><strong>{task.status === "succeeded" || task.status === "completed" ? "100%" : task.status === "failed" || task.status === "partial" ? "待处理" : task.status === "paused" ? "暂停" : "已取消"}</strong></div>}
                       <div className="taskQueueMeta"><span>{task.error ?? latestEvent?.message ?? "等待任务事件"}</span><strong>{taskIsActive ? `${task.progress_percent}%` : formatHistoryTime(task.updated_at)}</strong></div>
                       {task.error && <div className="taskQueueError"><AlertCircle size={14} strokeWidth={1.9} /><span>{task.error}</span></div>}
-                      {task.events.length > 0 && <div className="taskQueueEvents">{task.events.slice(-3).reverse().map((event, index) => <div key={`${event.occurred_at}-${index}`} className={event.level === "error" ? "error" : ""}><time>{formatHistoryTime(event.occurred_at)}</time><strong>{taskEventStageLabel(event.stage)}</strong><span>{event.message}</span></div>)}</div>}
+                      {task.events.length > 0 && (
+                        <details className="taskQueueEventDisclosure" open={taskIsActive || task.status === "failed" || task.status === "partial"}>
+                          <summary><span>最近事件</span><em>{Math.min(task.events.length, 3)} 条</em><ChevronDown size={14} strokeWidth={1.9} /></summary>
+                          <div className="taskQueueEvents">{task.events.slice(-3).reverse().map((event, index) => <div key={`${event.occurred_at}-${index}`} className={event.level === "error" ? "error" : ""}><time>{formatHistoryTime(event.occurred_at)}</time><strong>{taskEventStageLabel(event.stage)}</strong><span>{event.message}</span></div>)}</div>
+                        </details>
+                      )}
                       <div className="taskQueueActions">
                         {(task.results?.length ?? 0) > 0 && <button className="taskQueueLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(task.results?.[0]?.id ?? null); }}>查看成果 <ChevronRight size={14} strokeWidth={1.9} /></button>}
                         <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void copyTaskDiagnostics(task)}><Copy size={15} strokeWidth={1.9} /><span>复制诊断</span></button>
