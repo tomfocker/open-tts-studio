@@ -1659,6 +1659,24 @@ summary:focus-visible {
   display: none;
 }
 
+/* Narrow desktop windows intentionally keep the workbench strip scrollable.
+   Fade the clipped edge so a partially visible next tab reads as an affordance
+   instead of looking like squeezed or broken text. */
+@media (max-width: 1399px) {
+  .workbenchNav::after {
+    position: absolute;
+    z-index: 2;
+    top: 1px;
+    right: 0;
+    bottom: 1px;
+    width: 26px;
+    border-radius: 0 12px 12px 0;
+    pointer-events: none;
+    content: "";
+    background: linear-gradient(90deg, color-mix(in srgb, var(--panel-strong) 0%, transparent), color-mix(in srgb, var(--panel-strong) 92%, transparent) 78%, var(--panel-strong));
+  }
+}
+
 .workbenchNavIndicator {
   position: absolute;
   z-index: 0;
