@@ -11,10 +11,10 @@ function normalizeReleaseNotes(value) {
   return null;
 }
 
-function createInitialUpdateState(app, enabled) {
+function createInitialUpdateState(app, enabled, currentVersion = app.getVersion()) {
   return {
     status: enabled ? "idle" : "unavailable",
-    currentVersion: app.getVersion(),
+    currentVersion,
     availableVersion: null,
     releaseNotes: null,
     progressPercent: null,
@@ -22,8 +22,9 @@ function createInitialUpdateState(app, enabled) {
   };
 }
 
-function createUpdateService({ app, autoUpdater, enabled }) {
-  let state = createInitialUpdateState(app, enabled);
+function createUpdateService({ app, autoUpdater, enabled, currentVersion }) {
+  const resolvedCurrentVersion = currentVersion || app.getVersion();
+  let state = createInitialUpdateState(app, enabled, resolvedCurrentVersion);
   const listeners = new Set();
   const publish = (next) => {
     state = { ...state, ...next };
@@ -78,7 +79,7 @@ function createUpdateService({ app, autoUpdater, enabled }) {
     },
     async check() {
       if (!enabled) {
-        return publish(createInitialUpdateState(app, false));
+        return publish(createInitialUpdateState(app, false, resolvedCurrentVersion));
       }
       try {
         await autoUpdater.checkForUpdates();

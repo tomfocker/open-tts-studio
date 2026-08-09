@@ -3637,6 +3637,8 @@ summary:focus-visible {
   left: 0;
   bottom: calc(100% + 9px);
   width: 278px;
+  max-width: min(278px, calc(100vw - 40px));
+  box-sizing: border-box;
   padding: 9px 10px;
   border: 1px solid rgba(98, 121, 142, 0.2);
   border-radius: 8px;
@@ -3646,6 +3648,8 @@ summary:focus-visible {
   font-size: 12px;
   font-weight: 620;
   line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
   text-align: left;
   opacity: 0;
   pointer-events: none;
@@ -4078,6 +4082,14 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: inherit;
   background: linear-gradient(90deg, rgba(79, 186, 111, 0.72), rgba(74, 156, 122, 0.96));
   transition: width 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Tooltips are contextual help, not a reason for a rail to become wider than
+   its viewport. Keep the scroll axis vertical and let the wrapped bubble sit
+   inside the panel's width. */
+.leftRail,
+.rightRail {
+  overflow-x: hidden;
 }
 
 .generationProgressBar span::after,
@@ -11770,4 +11782,45 @@ summary:focus-visible {
     min-width: 0;
     flex: 1 1 auto;
   }
+}
+
+/* Dark theme parity for the compact local controls. These used to inherit
+   the light preset material, which made the left rail look like a pasted-on
+   light card in an otherwise coherent night workspace. */
+:root[data-theme="dark"] .promptPresetSection,
+:root[data-theme="dark"] .indexAdvancedParameters {
+  border-color: var(--border-subtle);
+  background: var(--surface-panel);
+  box-shadow: var(--inner);
+}
+
+:root[data-theme="dark"] .promptPresetHeader > span,
+:root[data-theme="dark"] .indexAdvancedParameters summary,
+:root[data-theme="dark"] .sliderField,
+:root[data-theme="dark"] .sliderField strong {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .promptPreset {
+  border-color: var(--border-subtle);
+  color: var(--muted);
+  background: var(--surface-control);
+  box-shadow: var(--inner);
+}
+
+:root[data-theme="dark"] .promptPreset:hover {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-subtle));
+  color: var(--text);
+  background: var(--surface-control-hover);
+}
+
+:root[data-theme="dark"] .promptPreset.active {
+  border-color: var(--border-strong);
+  color: var(--accent-contrast);
+  background: var(--accent-soft);
+}
+
+:root[data-theme="dark"] .doubaoModeCardIcon.reader {
+  color: #f0d79b;
+  background: #4b3d28;
 }

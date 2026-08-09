@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const { randomUUID } = require("node:crypto");
 const { fileURLToPath } = require("node:url");
+const desktopPackage = require("../package.json");
 const { app, BrowserWindow, clipboard, dialog, ipcMain, net, protocol, safeStorage, screen, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const {
@@ -59,6 +60,10 @@ let windowStateSaveTimer;
 const selectedPreviewAudioPaths = new Set();
 const localMediaRegistry = createLocalMediaRegistry();
 const backendToken = app.isPackaged ? randomUUID() : null;
+// Electron's development executable can resolve the workspace root package
+// instead of apps/desktop/package.json. Keep the updater and local API
+// banner on the desktop product version in both dev and packaged builds.
+const runtimeAppVersion = app.isPackaged ? app.getVersion() : desktopPackage.version;
 const packagedWorkspaceRoot = app.isPackaged ? path.join(process.resourcesPath, "workspace") : undefined;
 const managedStorageRoot = resolvePreferredStorageRoot({
   env: process.env,
@@ -99,7 +104,8 @@ const bilibiliSamplerService = new BilibiliSamplerService({
 const updateService = createUpdateService({
   app,
   autoUpdater,
-  enabled: app.isPackaged && process.env.OPEN_TTS_DISABLE_AUTO_UPDATE !== "1"
+  enabled: app.isPackaged && process.env.OPEN_TTS_DISABLE_AUTO_UPDATE !== "1",
+  currentVersion: runtimeAppVersion
 });
 const realtimeSettingsStore = createRealtimeSettingsStore({
   fs,
@@ -134,7 +140,7 @@ updateService.subscribe((state) => {
 function configureBackend() {
   desktopSettings = resolveDesktopSettings(paths, { backendToken });
   process.env.OPEN_TTS_API_BASE = desktopSettings.apiBase;
-  process.env.OPEN_TTS_APP_VERSION = app.getVersion();
+  process.env.OPEN_TTS_APP_VERSION = runtimeAppVersion;
 }
 
 function getBackendSupervisor() {

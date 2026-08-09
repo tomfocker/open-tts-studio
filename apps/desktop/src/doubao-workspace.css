@@ -3597,12 +3597,14 @@
 }
 
 .doubaoModeCards.landing {
+  width: min(100%, 1320px);
+  margin-inline: auto;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
 .doubaoModeCards.landing .doubaoModeCard {
-  min-height: 176px;
+  min-height: 156px;
   padding: 20px;
   grid-template-columns: 48px minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
