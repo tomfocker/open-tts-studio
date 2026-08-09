@@ -1068,6 +1068,30 @@ export type DoubaoVoice = {
   tags: string[];
 };
 
+export type DoubaoImportedBook = {
+  bookInfo: {
+    bookId: string;
+    bookName: string;
+    bookUrl: string;
+    source?: "local";
+  };
+  chaptersInfo: Array<{
+    chapterId: string;
+    chapterTitle: string;
+    chapterUrl: string;
+    chapterIndex: number;
+    content: string;
+  }>;
+  sourceName: string;
+  truncated: boolean;
+};
+
+export type DoubaoRealtimeTurn = {
+  assistantText: string;
+  audio: SpeechResult;
+  model: string;
+};
+
 export type DoubaoQrSession = {
   sessionId: string;
   qrCodeUrl: string;

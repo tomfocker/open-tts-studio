@@ -16,7 +16,7 @@ from tts_api.projects import get_project_runner
 from tts_api.transcription import get_transcription_runner
 from tts_api.enhancement import get_audio_enhancement_runner
 from tts_api.separation import get_audio_separation_runner
-from tts_api.routes import alignments, audio_assets, doubao, doubao_legacy, enhancements, health, jobs, legado, llm, model_directories, model_instances, model_packages, models, outputs, projects, realtime, runtime, separations, settings as settings_routes, speech, system, tasks, transcriptions, voices
+from tts_api.routes import alignments, audio_assets, doubao, doubao_books, doubao_legacy, doubao_realtime, enhancements, health, jobs, legado, llm, model_directories, model_instances, model_packages, models, outputs, projects, realtime, runtime, separations, settings as settings_routes, speech, system, tasks, transcriptions, voices
 
 
 def create_app() -> FastAPI:
@@ -77,6 +77,8 @@ def create_app() -> FastAPI:
     app.include_router(model_packages.router)
     app.include_router(tasks.router)
     app.include_router(doubao.router)
+    app.include_router(doubao_books.router)
+    app.include_router(doubao_realtime.router)
     app.include_router(legado.router)
     app.include_router(doubao_legacy.router)
     return app

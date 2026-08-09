@@ -53,6 +53,41 @@ def _apply_managed_storage_layout(values: dict) -> dict:
     normalized = dict(values)
     normalized["storage_root"] = str(MANAGED_STORAGE_ROOT)
     normalized["output_dir"] = str(MANAGED_STORAGE_ROOT / "data" / "outputs")
+
+    # Older desktop builds could persist a path relative to the install
+    # directory (for example ``..\\audio-separation-runtime-full``).  Once
+    # assets live in the managed D: store that value resolves against the
+    # launcher working directory and is reported as missing even though the
+    # runtime is present.  Only repair known managed assets, and only when the
+    # saved path does not currently exist, so an explicit external path is
+    # never overwritten.
+    model_root = MANAGED_STORAGE_ROOT / "models"
+    managed_candidates = {
+        "audio_enhancement_python": [
+            model_root / "audio-enhancement-runtime-full" / "Scripts" / "python.exe",
+            model_root / "audio-enhancement-runtime" / "Scripts" / "python.exe",
+        ],
+        "audio_separation_python": [
+            model_root / "audio-separation-runtime-full" / "Scripts" / "python.exe",
+            model_root / "audio-separation-runtime" / "Scripts" / "python.exe",
+        ],
+        "audio_separation_root": [model_root / "MDX_Net_Models"],
+        "deepfilternet3_root": [model_root / "DeepFilterNet3"],
+        "mossformer2_se_root": [model_root / "MossFormer2-SE-48K"],
+    }
+    for key, candidates in managed_candidates.items():
+        raw = normalized.get(key)
+        if not raw:
+            continue
+        try:
+            if Path(raw).expanduser().exists():
+                continue
+        except (OSError, TypeError, ValueError):
+            pass
+        for candidate in candidates:
+            if candidate.exists():
+                normalized[key] = str(candidate)
+                break
     return normalized
 
 

@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  Upload,
   Volume2,
   Wand2,
   Wifi,
@@ -64,6 +65,7 @@ import {
   fetchLegadoChapterContent,
   fetchLegadoChapters,
   generateDoubaoSpeech,
+  importDoubaoEbook,
   generateLegadoBookId,
   getApiBase,
   getLegadoImportUrl,
@@ -108,6 +110,7 @@ import type {
   LegadoChapter,
   SpeechResult
 } from "./types";
+import { DoubaoRealtimeWorkspace } from "./DoubaoRealtimeWorkspace";
 
 import "./doubao-workspace.css";
 
@@ -116,7 +119,7 @@ type DoubaoWorkspaceProps = {
   initialTab?: WorkspaceTab;
 };
 
-type WorkspaceTab = "synthesis" | "accounts" | "reader" | "cache" | "maintenance";
+type WorkspaceTab = "synthesis" | "realtime" | "accounts" | "reader" | "cache" | "maintenance";
 type ReaderConfigTemplate = "default" | "fast" | "safe" | "custom";
 
 type CookieDraft = {
@@ -320,6 +323,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
   const [speechPlaying, setSpeechPlaying] = useState(false);
   const [speechPlaybackTime, setSpeechPlaybackTime] = useState(0);
   const [speechPlaybackDuration, setSpeechPlaybackDuration] = useState(0);
+  const ebookFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [cookies, setCookies] = useState<DoubaoCookieRecord[]>([]);
   const [cookieStats, setCookieStats] = useState<DoubaoCookieStats | null>(null);
@@ -341,6 +345,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
   const [serverIp, setServerIp] = useState(initialServer.ip);
   const [serverPort, setServerPort] = useState(initialServer.port);
   const [books, setBooks] = useState<LegadoBook[]>([]);
+  const [localImportedBooks, setLocalImportedBooks] = useState<Record<string, { bookId: string; chapters: LegadoChapter[] }>>({});
   const [selectedBookUrl, setSelectedBookUrl] = useState("");
   const [bookId, setBookId] = useState("");
   const [chapters, setChapters] = useState<LegadoChapter[]>([]);
@@ -403,6 +408,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
     () => books.find((book) => book.bookUrl === selectedBookUrl) ?? null,
     [books, selectedBookUrl]
   );
+  const selectedBookIsLocal = Boolean(selectedBook?.bookUrl?.startsWith("local://"));
   const selectedChapters = useMemo(
     () => chapters.filter((chapter) => selectedChapterKeys.has(chapterKey(chapter))),
     [chapters, selectedChapterKeys]
@@ -809,7 +815,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
     }
     const result = await runAction("load-books", () => fetchLegadoBooks(serverIp.trim(), serverPort), "书架连接成功");
     if (!result) return;
-    setBooks(result);
+    setBooks((current) => [...current.filter((book) => book.bookUrl.startsWith("local://")), ...result]);
     setChapters([]);
     setSelectedChapterKeys(new Set());
     setChapterAnchorKey("");
@@ -818,10 +824,51 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
     if (result[0]) await onSelectBook(result[0]);
   }
 
+  async function onImportEbook(file: File | null) {
+    if (!file) return;
+    const result = await runAction("ebook-import", () => importDoubaoEbook(file));
+    if (ebookFileInputRef.current) ebookFileInputRef.current.value = "";
+    if (!result) return;
+    const importedBook: LegadoBook = {
+      bookUrl: result.bookInfo.bookUrl,
+      name: result.bookInfo.bookName,
+      bookName: result.bookInfo.bookName,
+      author: "本地导入",
+      totalChapters: result.chaptersInfo.length,
+      source: "local"
+    };
+    const importedChapters: LegadoChapter[] = result.chaptersInfo.map((chapter) => ({
+      index: chapter.chapterIndex,
+      title: chapter.chapterTitle,
+      chapterIndex: chapter.chapterIndex,
+      chapterTitle: chapter.chapterTitle,
+      chapterUrl: chapter.chapterUrl,
+      content: chapter.content
+    }));
+    setBooks((current) => [importedBook, ...current.filter((book) => book.bookUrl !== importedBook.bookUrl)]);
+    setLocalImportedBooks((current) => ({ ...current, [importedBook.bookUrl]: { bookId: result.bookInfo.bookId, chapters: importedChapters } }));
+    setSelectedBookUrl(importedBook.bookUrl);
+    setBookId(result.bookInfo.bookId);
+    setChapters(importedChapters);
+    setSelectedChapterKeys(new Set(importedChapters.map(chapterKey)));
+    setChapterAnchorKey(importedChapters[0] ? chapterKey(importedChapters[0]) : "");
+    setChapterPreview(null);
+    setBookCacheProgress(null);
+    setMessage(`已导入《${result.bookInfo.bookName}》，默认选中 ${importedChapters.length} 章；可直接开始预制。${result.truncated ? "文件较大，已按安全上限截取可处理的前半部分。" : ""}`);
+  }
+
   async function onSelectBook(book: LegadoBook) {
     setSelectedBookUrl(book.bookUrl);
     setChapterPreview(null);
     setBookCacheProgress(null);
+    const localBook = localImportedBooks[book.bookUrl];
+    if (localBook) {
+      setBookId(localBook.bookId);
+      setChapters(localBook.chapters);
+      setSelectedChapterKeys(new Set());
+      setChapterAnchorKey("");
+      return;
+    }
     const result = await runAction(
       `load-chapters-${book.bookUrl}`,
       async () => {
@@ -843,6 +890,10 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
 
   async function onPreviewChapter(chapter: LegadoChapter) {
     if (!selectedBook) return;
+    if (typeof chapter.content === "string") {
+      setChapterPreview({ title: chapterTitle(chapter), content: chapter.content });
+      return;
+    }
     const result = await runAction(
       `preview-${chapterKey(chapter)}`,
       () => fetchLegadoChapterContent(serverIp.trim(), serverPort, selectedBook.bookUrl, chapterIndex(chapter))
@@ -864,7 +915,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             chapterId: String(chapter.chapterUrl || chapter.url || chapterIndex(chapter)),
             chapterTitle: chapterTitle(chapter),
             chapterUrl: String(chapter.chapterUrl || chapter.url || ""),
-            chapterIndex: chapterIndex(chapter)
+            chapterIndex: chapterIndex(chapter),
+            ...(typeof chapter.content === "string" ? { content: chapter.content } : {})
           })),
           options: {
             voiceId: selectedVoiceId,
@@ -1023,6 +1075,15 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
   const speechAudioUrl = speechResult ? toAudioUrl(speechResult.audio_url) : "";
   const speechDuration = speechPlaybackDuration || speechResult?.duration_seconds || 0;
   const speechProgress = speechDuration > 0 ? Math.min((speechPlaybackTime / speechDuration) * 100, 100) : 0;
+  const tabMeta: Record<WorkspaceTab, { eyebrow: string; title: string; description: string }> = {
+    synthesis: { eyebrow: "制作", title: "单段语音合成", description: "输入文本，选择豆包音色并立即生成" },
+    realtime: { eyebrow: "制作", title: "实时对话", description: "全局 LLM 回复后由豆包整段朗读" },
+    reader: { eyebrow: "制作", title: "批量电子书", description: "导入 TXT / EPUB 或连接 Legado 书架" },
+    accounts: { eyebrow: "管理", title: "账号与 Cookie", description: "登录、验证与轮换云端账号" },
+    cache: { eyebrow: "管理", title: "任务与缓存", description: "追踪章节进度，管理已生成音频" },
+    maintenance: { eyebrow: "系统", title: "运行维护", description: "调整请求策略与查看维护文档" }
+  };
+  const currentTabMeta = tabMeta[tab];
 
   return (
     <section className="doubaoWorkspace" aria-label="云端语音合成工作台">
@@ -1030,27 +1091,36 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
         <div className="doubaoBrand">
           <span className="doubaoBrandIcon"><Cloud size={21} strokeWidth={1.9} /></span>
           <div>
-            <strong>云端语音合成</strong>
-            <span>Doubao Web · maintained adapter</span>
+            <strong>豆包 TTS</strong>
+            <span>云端语音工作台 · WebSocket 适配</span>
           </div>
         </div>
 
         <nav className="doubaoTabs" aria-label="豆包工作台导航">
-          <button className={tab === "synthesis" ? "active" : ""} onClick={() => setTab("synthesis")}>
-            <Wand2 size={16} /><span>语音合成</span>
-          </button>
-          <button className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}>
-            <KeyRound size={16} /><span>登录与账号</span>
-          </button>
-          <button className={tab === "reader" ? "active" : ""} onClick={() => setTab("reader")}>
-            <BookOpen size={16} /><span>阅读预制</span>
-          </button>
-          <button className={tab === "cache" ? "active" : ""} onClick={() => setTab("cache")}>
-            <Database size={16} /><span>任务与缓存</span>
-          </button>
-          <button className={tab === "maintenance" ? "active" : ""} onClick={() => setTab("maintenance")}>
-            <Settings2 size={16} /><span>维护</span>
-          </button>
+          <div className="doubaoTabGroup primary" aria-label="制作">
+            <span className="doubaoTabGroupLabel">制作</span>
+            <button className={tab === "synthesis" ? "active" : ""} onClick={() => setTab("synthesis")}>
+              <Wand2 size={15} /><span>语音合成</span>
+            </button>
+            <button className={tab === "realtime" ? "active" : ""} onClick={() => setTab("realtime")}>
+              <Volume2 size={15} /><span>实时对话</span>
+            </button>
+            <button className={tab === "reader" ? "active" : ""} onClick={() => setTab("reader")}>
+              <BookOpen size={15} /><span>批量电子书</span>
+            </button>
+          </div>
+          <div className="doubaoTabGroup secondary" aria-label="管理">
+            <span className="doubaoTabGroupLabel">管理</span>
+            <button className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}>
+              <KeyRound size={15} /><span>账号</span>
+            </button>
+            <button className={tab === "cache" ? "active" : ""} onClick={() => setTab("cache")}>
+              <Database size={15} /><span>任务</span>
+            </button>
+            <button className={tab === "maintenance" ? "active" : ""} onClick={() => setTab("maintenance")}>
+              <Settings2 size={15} /><span>维护</span>
+            </button>
+          </div>
         </nav>
 
         <div className="doubaoHeaderActions">
@@ -1071,6 +1141,18 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
           <button onClick={() => { setError(null); setMessage(null); }} aria-label="关闭提示"><X size={15} /></button>
         </div>
       )}
+
+      <div className="doubaoWorkspaceContext" aria-label="当前工作区">
+        <div className="doubaoWorkspaceContextTitle">
+          <span>{currentTabMeta.eyebrow}</span>
+          <strong>{currentTabMeta.title}</strong>
+          <small>{currentTabMeta.description}</small>
+        </div>
+        <div className="doubaoWorkspaceContextState">
+          <span className={online ? "ready" : "offline"}><i />{online ? "云端可用" : "等待后端"}</span>
+          <span>本地显存：不参与豆包合成</span>
+        </div>
+      </div>
 
       <main className="doubaoWorkspaceBody">
         {tab === "synthesis" && (
@@ -1225,6 +1307,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
           </div>
         )}
 
+        {tab === "realtime" && <DoubaoRealtimeWorkspace />}
+
         {tab === "accounts" && (
           <div className="doubaoAccountsLayout">
             <section className="doubaoPanel doubaoQrPanel">
@@ -1362,7 +1446,14 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
         {tab === "reader" && (
           <div className="doubaoReaderLayout">
             <aside className="doubaoPanel doubaoReaderSidebar">
-              <div className="doubaoSectionHeading compact"><div><Wifi size={18} /><span><strong>阅读 Web 服务</strong><small>连接 Legado 书架</small></span></div></div>
+              <div className="doubaoSectionHeading compact"><div><BookOpen size={18} /><span><strong>导入电子书</strong><small>TXT / EPUB 直接分章节，不依赖本地模型</small></span></div></div>
+              <input ref={ebookFileInputRef} className="hiddenFile" type="file" accept=".txt,.epub,text/plain,application/epub+zip" onChange={(event) => void onImportEbook(event.target.files?.[0] || null)} />
+              <button className="doubaoPrimaryButton" disabled={pendingAction === "ebook-import"} onClick={() => ebookFileInputRef.current?.click()}>
+                {pendingAction === "ebook-import" ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}<span>导入 TXT / EPUB</span>
+              </button>
+              <p className="doubaoImportHint">支持自动识别常见章节标题；导入后可预览、勾选章节，并复用现有任务队列批量生成。</p>
+              <div className="doubaoReaderDivider"><span>或连接 Legado 书架</span></div>
+              <div className="doubaoSectionHeading compact"><div><Wifi size={18} /><span><strong>阅读 Web 服务</strong><small>从已有书架读取章节</small></span></div></div>
               <div className="doubaoServerForm">
                 <label className="doubaoField"><span>服务器地址</span><input value={serverIp} onChange={(event) => setServerIp(event.target.value)} /></label>
                 <label className="doubaoField"><span>端口</span><input type="number" min={1} max={65535} value={serverPort} onChange={(event) => setServerPort(Number(event.target.value))} /></label>
@@ -1377,14 +1468,14 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                     <span><strong>{bookName(book)}</strong><small>{String(book.author || "作者未知")} · {book.totalChapters ?? "?"} 章</small></span>
                   </button>
                 ))}
-                {!books.length && <div className="doubaoEmptyState small"><BookOpen size={23} /><span>连接阅读后显示书架</span></div>}
+                {!books.length && <div className="doubaoEmptyState small"><BookOpen size={23} /><span>导入电子书或连接阅读后显示书籍</span></div>}
               </div>
             </aside>
 
             <section className="doubaoPanel doubaoChapterWorkspace">
               <div className="doubaoSectionHeading">
-                <div><BookOpen size={18} /><span><strong>{bookName(selectedBook)}</strong><small>{selectedBook ? `${chapters.length} 章 · 本地 ID ${bookId || "生成中"}` : "从左侧选择书籍"}</small></span></div>
-                {selectedBook && (
+                <div><BookOpen size={18} /><span><strong>{bookName(selectedBook)}</strong><small>{selectedBook ? `${chapters.length} 章 · ${selectedBookIsLocal ? "本地电子书" : "Legado 书架"} · ID ${bookId || "生成中"}` : "导入一本电子书或从左侧选择书籍"}</small></span></div>
+                {selectedBook && !selectedBookIsLocal && (
                   <div className="doubaoButtonRow">
                     <button className="doubaoSecondaryButton" disabled={pendingAction === "cache-book"} onClick={() => void onCacheSelectedBook()}>
                       {pendingAction === "cache-book" ? <Loader2 className="spin" size={15} /> : <HardDrive size={15} />}<span>缓存整本正文</span>
@@ -1427,10 +1518,10 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                   </div>
                   <div className="doubaoPrefetchBar">
                     <div>
-                      <strong>批量预制音频</strong>
+                      <strong>批量电子书音频</strong>
                       <span>{selectedVoice?.name || "请选择音色"} · 语速 {speechRate} · 音调 {pitch}</span>
                     </div>
-                    <label className="doubaoCheck"><input type="checkbox" checked={useCacheOnly} onChange={(event) => setUseCacheOnly(event.target.checked)} /><span>仅使用本地正文</span></label>
+                    {!selectedBookIsLocal && <label className="doubaoCheck"><input type="checkbox" checked={useCacheOnly} onChange={(event) => setUseCacheOnly(event.target.checked)} /><span>仅使用本地正文</span></label>}
                     <label className="doubaoCheck"><input type="checkbox" checked={forceRegenerate} onChange={(event) => setForceRegenerate(event.target.checked)} /><span>覆盖已有音频</span></label>
                     <label className="doubaoCompactNumber"><span>轮询延迟</span><input type="number" min={0} max={60} value={prefetchRequestDelay} onChange={(event) => setPrefetchRequestDelay(Number(event.target.value))} /><span>秒</span></label>
                     <button className="doubaoPrimaryButton" disabled={!selectedChapters.length || !selectedVoiceId || pendingAction === "prefetch-start"} onClick={() => void onStartPrefetch()}>
@@ -1438,12 +1529,12 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                     </button>
                   </div>
                 </>
-              ) : <div className="doubaoEmptyState fill"><BookOpen size={30} /><strong>选择一本书开始</strong><span>可缓存正文、预览章节并批量预制音频</span></div>}
+              ) : <div className="doubaoEmptyState fill"><BookOpen size={30} /><strong>导入一本电子书开始</strong><span>TXT / EPUB 可直接分章节、预览并批量预制音频</span></div>}
             </section>
 
             <aside className="doubaoReaderRight">
               <section className="doubaoPanel doubaoConfigCard">
-                <div className="doubaoSectionHeading compact"><div><Clipboard size={18} /><span><strong>阅读朗读配置</strong><small>复制链接到“网络导入”</small></span></div></div>
+                <div className="doubaoSectionHeading compact"><div><Clipboard size={18} /><span><strong>阅读 App 配置</strong><small>复制链接到“网络导入”；云端实时对话请用上方标签</small></span></div></div>
                 <label className="doubaoField">
                   <span>本机朗读服务地址</span>
                   <input
@@ -1461,7 +1552,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 </div>
                 <label className="doubaoField"><span>实时模式延迟（秒）</span><input type="number" min={0} max={60} value={configDelay} onChange={(event) => { setConfigDelay(Number(event.target.value)); setConfigTemplate("custom"); }} /></label>
                 <div className="doubaoConfigLink">
-                  <span><strong>实时模式</strong><code>{realtimeConfigUrl || "先选择音色"}</code></span>
+                  <span><strong>阅读 App · 实时</strong><code>{realtimeConfigUrl || "先选择音色"}</code></span>
                   <div>
                     <button title="测试配置" disabled={!realtimeConfigUrl || pendingAction === "test-config-实时"} onClick={() => void onTestReaderConfig(realtimeConfigUrl, "实时")}><Activity size={15} /></button>
                     <button title="复制配置链接" disabled={!realtimeConfigUrl} onClick={() => void copyText(realtimeConfigUrl, "实时配置链接")}><Clipboard size={15} /></button>
@@ -1469,7 +1560,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                   </div>
                 </div>
                 <div className="doubaoConfigLink">
-                  <span><strong>预制模式</strong><code>{prefabConfigUrl || "服务地址无效"}</code></span>
+                  <span><strong>阅读 App · 预制</strong><code>{prefabConfigUrl || "服务地址无效"}</code></span>
                   <div>
                     <button title="测试配置" disabled={!prefabConfigUrl || pendingAction === "test-config-预制"} onClick={() => void onTestReaderConfig(prefabConfigUrl, "预制")}><Activity size={15} /></button>
                     <button title="复制配置链接" disabled={!prefabConfigUrl} onClick={() => void copyText(prefabConfigUrl, "预制配置链接")}><Clipboard size={15} /></button>

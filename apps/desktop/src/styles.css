@@ -43,12 +43,18 @@
   color: var(--text);
   text-align: left;
   background: transparent;
+  cursor: pointer;
+  transition: transform var(--motion-base) var(--motion-ease), border-color var(--motion-fast) ease, background var(--motion-base) ease, box-shadow var(--motion-base) ease;
 }
 
 .voiceManagerListItem:hover,
 .voiceManagerListItem.active {
   border-color: rgba(78, 112, 126, 0.22);
   background: rgba(255, 255, 255, 0.82);
+}
+
+.voiceManagerListItem:hover {
+  transform: translateX(2px);
 }
 
 .voiceManagerListItem > span:last-child {
@@ -149,7 +155,7 @@
   background: rgba(247, 251, 253, 0.64);
   box-shadow: var(--inner);
   cursor: pointer;
-  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+  transition: border-color var(--motion-fast) ease, background-color var(--motion-base) ease, transform var(--motion-base) var(--motion-ease), box-shadow var(--motion-base) ease;
 }
 
 .voiceReferenceCard:hover {
@@ -161,6 +167,7 @@
   border-color: rgba(64, 137, 91, 0.54);
   background: rgba(240, 250, 244, 0.82);
   box-shadow: 0 8px 16px rgba(81, 138, 102, 0.12), var(--inner);
+  animation: referenceCardSelect 360ms var(--motion-ease) both;
 }
 
 .voiceReferenceCard:focus-visible {
@@ -194,6 +201,7 @@
   background: rgba(211, 240, 220, 0.82);
   font-size: 10px;
   font-weight: 760;
+  animation: feedbackIn 280ms var(--motion-ease) both;
 }
 
 .voiceReferenceFile {
@@ -577,6 +585,14 @@
     gap: 9px;
   }
 
+  .voiceAvatarPickerGrid {
+    grid-template-columns: repeat(6, minmax(34px, 1fr));
+  }
+
+  .voiceAvatarEditorHeader {
+    align-items: flex-start;
+  }
+
   .voiceReferenceGrid {
     grid-template-columns: 1fr;
   }
@@ -618,6 +634,10 @@
   --inner: inset 1px 1px 0 rgba(255, 255, 255, 0.86), inset -1px -1px 0 rgba(116, 132, 148, 0.08);
   --accent: #4fba6f;
   --accent-dark: #327f55;
+  --motion-fast: 140ms;
+  --motion-base: 220ms;
+  --motion-panel: 360ms;
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
   font-family: "Satoshi", "Geist", "Segoe UI", Arial, sans-serif;
 }
 
@@ -850,6 +870,14 @@ summary:focus-visible {
   box-shadow: none;
 }
 
+.workbenchNavButton svg {
+  transition: transform var(--motion-base) var(--motion-ease), color var(--motion-fast) ease;
+}
+
+.workbenchNavButton.active svg {
+  transform: translateY(-1px) scale(1.08);
+}
+
 .workbenchNavButton:active,
 .workbenchNavScroll:active {
   transform: translateY(1px) scale(0.99);
@@ -1079,9 +1107,107 @@ summary:focus-visible {
   }
 }
 
+@keyframes voiceCardSheen {
+  from { transform: translateX(-125%); }
+  to { transform: translateX(125%); }
+}
+
+@keyframes voiceCardSelect {
+  0% { transform: translateY(0) scale(0.985); }
+  58% { transform: translateY(-2px) scale(1.012); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes referenceCardSelect {
+  0% { transform: scale(0.985); }
+  62% { transform: translateY(-1px) scale(1.008); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+@keyframes avatarPickerOpen {
+  from { opacity: 0; transform: translateY(-7px) scaleY(0.94); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@keyframes avatarOptionIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.86); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes progressSweep {
+  from { transform: translateX(-125%); }
+  to { transform: translateX(125%); }
+}
+
+@keyframes generateButtonBreath {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+@keyframes resultReveal {
+  from { opacity: 0; transform: translateY(10px) scale(0.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes playButtonPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.035); }
+}
+
+@keyframes playbackBars {
+  from { transform: scaleY(0.45); }
+  to { transform: scaleY(1.55); }
+}
+
+@keyframes settingsBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes settingsDialogIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.975); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes feedbackIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes feedbackErrorShake {
+  0%, 100% { transform: translateX(0); }
+  24% { transform: translateX(-3px); }
+  48% { transform: translateX(3px); }
+  72% { transform: translateX(-1px); }
+}
+
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translate(14px, 8px) scale(0.96); }
+  to { opacity: 1; transform: translate(0, 0) scale(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .statusDot.online::after,
-  .themeToggleButton.isTransitioning .themeToggleIcon {
+  .themeToggleButton.isTransitioning .themeToggleIcon,
+  .voiceCard,
+  .voiceCard::after,
+  .voiceCard.active,
+  .voiceReferenceCard.selected,
+  .voiceReferenceBadge,
+  .drawCandidateCard.active,
+  .voiceAvatarPicker,
+  .voiceAvatarOption,
+  .generationProgressBar span::after,
+  .sideProgress span::after,
+  .editorGenerateButton.isLoading,
+  .resultCard,
+  .playButton.isPlaying,
+  .playerPulseBars.active i,
+  .settingsOverlay,
+  .settingsDialog,
+  .settingsFeedback,
+  .settingsFeedback.error,
+  .voiceToast {
     animation: none;
   }
 
@@ -1094,6 +1220,10 @@ summary:focus-visible {
   .toolButton > svg,
   .toolButton > .themeToggleIcon,
   .themeToggleIcon svg,
+  .voiceAvatar,
+  .playerPulseBars,
+  .voiceCard,
+  .voiceManagerListItem,
   .workbenchNav,
   .workbenchNavIndicator,
   .workbenchNavButton,
@@ -1786,8 +1916,45 @@ summary:focus-visible {
   box-shadow: 0 12px 24px rgba(83, 102, 121, 0.18), var(--inner);
 }
 
+.voiceCard {
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--motion-base) var(--motion-ease), box-shadow var(--motion-base) ease, background var(--motion-base) ease, color var(--motion-fast) ease;
+}
+
+.voiceCard::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(115deg, transparent 28%, rgba(255, 255, 255, 0.48) 50%, transparent 70%);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-125%);
+}
+
+.voiceCard:hover::after,
+.voiceCard:focus-visible::after {
+  opacity: 1;
+  animation: voiceCardSheen 520ms var(--motion-ease) both;
+}
+
+.voiceCard:hover {
+  transform: translateY(-3px);
+}
+
+.voiceCard.active {
+  animation: voiceCardSelect 420ms var(--motion-ease) both;
+}
+
 .voiceCard.active .voiceAvatar {
   outline: 3px solid rgba(79, 186, 111, 0.38);
+}
+
+.voiceCard:hover .voiceAvatar,
+.voiceCard:focus-visible .voiceAvatar {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 13px 25px rgba(59, 73, 89, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.56);
 }
 
 .voiceAvatar {
@@ -1801,6 +1968,7 @@ summary:focus-visible {
   font-size: 20px;
   font-weight: 780;
   box-shadow: 0 10px 22px rgba(59, 73, 89, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: transform var(--motion-base) var(--motion-ease), box-shadow var(--motion-base) ease, outline-color var(--motion-base) ease;
 }
 
 .voiceName {
@@ -1870,10 +2038,10 @@ summary:focus-visible {
   align-items: center;
   gap: 8px;
   position: fixed;
-  top: 92px;
-  left: 50%;
+  right: 24px;
+  bottom: 24px;
   z-index: 60;
-  transform: translateX(-50%);
+  animation: toastSlideIn 360ms var(--motion-ease) both;
   font-size: 12px;
   font-weight: 720;
 }
@@ -2809,11 +2977,23 @@ input[type="range"]::-webkit-slider-thumb {
 
 .generationProgressBar span,
 .sideProgress span {
+  position: relative;
+  overflow: hidden;
   display: block;
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, rgba(79, 186, 111, 0.72), rgba(74, 156, 122, 0.96));
   transition: width 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.generationProgressBar span::after,
+.sideProgress span::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 32%, rgba(255, 255, 255, 0.44) 50%, transparent 68%);
+  content: "";
+  transform: translateX(-125%);
+  animation: progressSweep 1.45s var(--motion-ease) infinite;
 }
 
 .phaseTimeline {
@@ -2882,6 +3062,7 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 14px;
   padding: 22px;
+  animation: resultReveal 520ms var(--motion-ease) both;
 }
 
 .drawCandidatesStage {
@@ -2948,6 +3129,7 @@ input[type="range"]::-webkit-slider-thumb {
   grid-template-rows: auto 1fr auto;
   align-items: center;
   gap: 5px 8px;
+  transition: transform var(--motion-base) var(--motion-ease), border-color var(--motion-fast) ease, box-shadow var(--motion-base) ease, background var(--motion-base) ease;
 }
 
 .drawCandidateCard:hover {
@@ -2959,6 +3141,7 @@ input[type="range"]::-webkit-slider-thumb {
   border-color: rgba(48, 135, 88, 0.56);
   background: rgba(240, 250, 244, 0.9);
   box-shadow: 0 12px 24px rgba(72, 144, 101, 0.16), var(--inner);
+  animation: referenceCardSelect 360ms var(--motion-ease) both;
 }
 
 .drawCandidateIndex {
@@ -3033,6 +3216,11 @@ input[type="range"]::-webkit-slider-thumb {
   margin: 0;
   border-radius: 8px 0 0 8px;
   box-shadow: 0 10px 20px rgba(50, 127, 85, 0.2), var(--inner);
+}
+
+.editorGenerateButton.isLoading {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent), 0 10px 24px rgba(50, 127, 85, 0.24), var(--inner);
+  animation: generateButtonBreath 1.4s ease-in-out infinite;
 }
 
 .generateSplitAction {
@@ -3220,6 +3408,13 @@ audio {
   box-shadow: 0 12px 24px rgba(83, 102, 121, 0.18), var(--inner);
 }
 
+.playButton.isPlaying {
+  color: #ffffff;
+  background: linear-gradient(145deg, #67bd80, #2f8c5f);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 13%, transparent), 0 14px 26px rgba(75, 152, 104, 0.25), var(--inner);
+  animation: playButtonPulse 1.8s ease-in-out infinite;
+}
+
 .playButton:disabled {
   color: #a0adba;
   opacity: 0.65;
@@ -3262,6 +3457,34 @@ audio {
   color: #5c6d7d;
   font-size: 12px;
 }
+
+.playerPulseBars {
+  width: 28px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0;
+  transform: translateY(3px);
+  transition: opacity var(--motion-base) ease, transform var(--motion-base) var(--motion-ease);
+}
+
+.playerPulseBars i {
+  width: 4px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  transform-origin: center;
+}
+
+.playerPulseBars.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.playerPulseBars.active i:nth-child(1) { animation: playbackBars 720ms ease-in-out infinite alternate; }
+.playerPulseBars.active i:nth-child(2) { animation: playbackBars 560ms ease-in-out 90ms infinite alternate; }
+.playerPulseBars.active i:nth-child(3) { animation: playbackBars 680ms ease-in-out 150ms infinite alternate; }
 
 .voiceSaveButton {
   min-width: 0;
@@ -3646,6 +3869,7 @@ audio {
   /* Workbench screens may keep a full-canvas interaction layer at z-index 90.
      Global dialogs must stay above it so their controls remain clickable. */
   z-index: 120;
+  animation: settingsBackdropIn 220ms ease-out both;
 }
 
 .settingsDialog {
@@ -3658,6 +3882,8 @@ audio {
   display: grid;
   grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
   overflow: hidden;
+  transform-origin: center;
+  animation: settingsDialogIn var(--motion-panel) var(--motion-ease) both;
 }
 
 .settingsCenterDialog {
@@ -6187,11 +6413,13 @@ audio {
   gap: 8px;
   font-size: 13px;
   font-weight: 720;
+  animation: feedbackIn 320ms var(--motion-ease) both;
 }
 
 .settingsFeedback.error {
   color: #9f3d3d;
   background: rgba(255, 245, 245, 0.86);
+  animation: feedbackErrorShake 380ms ease-out both;
 }
 
 .settingsFooter {
@@ -6697,6 +6925,128 @@ audio {
   gap: 6px;
   font-size: 12px;
   line-height: 1.5;
+}
+
+.voiceAvatarEditor {
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-radius: 12px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel-strong));
+}
+
+.voiceAvatarEditorHeader,
+.voiceAvatarEditorIdentity,
+.voiceAvatarPickerActions {
+  display: flex;
+  align-items: center;
+}
+
+.voiceAvatarEditorHeader {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voiceAvatarEditorIdentity {
+  min-width: 0;
+  gap: 10px;
+}
+
+.voiceAvatarEditorIdentity > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.voiceAvatarEditorIdentity strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.voiceAvatarEditorIdentity span:not(.voiceAvatar) {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.voiceAvatarLarge {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+}
+
+.voiceAvatar.hasImage {
+  background-repeat: no-repeat;
+  background-color: var(--avatar-bg);
+  overflow: hidden;
+}
+
+.voiceAvatarPickerToggle {
+  height: 32px;
+  flex: 0 0 auto;
+}
+
+.voiceAvatarPicker {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 15%, var(--line));
+  display: grid;
+  gap: 10px;
+  transform-origin: top center;
+  animation: avatarPickerOpen var(--motion-panel) var(--motion-ease) both;
+}
+
+.voiceAvatarPickerGrid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(34px, 1fr));
+  gap: 7px;
+}
+
+.voiceAvatarOption {
+  position: relative;
+  aspect-ratio: 1;
+  min-width: 0;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: #eef2f3;
+  background-repeat: no-repeat;
+  box-shadow: 0 4px 10px rgba(59, 73, 89, 0.14);
+  cursor: pointer;
+  transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+  animation: avatarOptionIn 360ms var(--motion-ease) both;
+}
+
+.voiceAvatarOption:nth-child(2n) { animation-delay: 20ms; }
+.voiceAvatarOption:nth-child(3n) { animation-delay: 40ms; }
+.voiceAvatarOption:nth-child(4n) { animation-delay: 60ms; }
+
+.voiceAvatarOption:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 50%, white);
+}
+
+.voiceAvatarOption.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 17%, transparent), 0 6px 13px rgba(59, 73, 89, 0.18);
+}
+
+.voiceAvatarOption.selected svg {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  padding: 2px;
+  border-radius: 999px;
+  color: white;
+  background: var(--accent);
+}
+
+.voiceAvatarPickerActions {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.voiceAvatarPickerActions > span {
+  color: var(--muted);
+  font-size: 10px;
 }
 
 .taskResultControlsHint svg {
@@ -10027,6 +10377,7 @@ summary:focus-visible {
   .taskCenterDrawerFooter > span { display: none; }
   .taskCenterDrawerFooter .settingsAction { flex: 1; justify-content: center; }
   .taskQueueEvents > div { grid-template-columns: 48px 70px minmax(0, 1fr); }
+  .voiceToast { right: 12px; bottom: 12px; max-width: calc(100vw - 24px); }
 }
 
 :root[data-theme="dark"] .assetCenterWorkspace {
@@ -10058,4 +10409,48 @@ summary:focus-visible {
 :root[data-theme="dark"] .assetInspectorDelete {
   color: #ffb9b9;
   background: rgba(114, 48, 52, 0.48);
+}
+
+:root[data-theme="dark"] .playButton.isPlaying {
+  color: #102519;
+  background: linear-gradient(145deg, #83dfa2, #51af72);
+  box-shadow: 0 0 0 5px rgba(112, 212, 151, 0.14), 0 14px 26px rgba(0, 0, 0, 0.34), var(--inner);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voiceCard,
+  .voiceCard::after,
+  .voiceCard.active,
+  .voiceManagerListItem,
+  .voiceAvatarPicker,
+  .voiceAvatarOption,
+  .voiceReferenceCard.selected,
+  .voiceReferenceBadge,
+  .drawCandidateCard.active,
+  .generationProgressBar span::after,
+  .sideProgress span::after,
+  .editorGenerateButton.isLoading,
+  .resultCard,
+  .playButton.isPlaying,
+  .playerPulseBars.active i,
+  .settingsOverlay,
+  .settingsDialog,
+  .settingsFeedback,
+  .settingsFeedback.error,
+  .voiceToast {
+    animation: none;
+  }
+
+  .voiceCard,
+  .voiceManagerListItem,
+  .voiceAvatar,
+  .playerPulseBars,
+  .voiceReferenceCard,
+  .drawCandidateCard,
+  .settingsOverlay,
+  .settingsDialog,
+  .settingsFeedback,
+  .voiceToast {
+    transition-duration: 1ms;
+  }
 }

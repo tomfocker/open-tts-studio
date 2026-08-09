@@ -22,6 +22,7 @@ import type {
   DoubaoCookieStats,
   DoubaoDeviceId,
   DoubaoDocument,
+  DoubaoImportedBook,
   DoubaoLegacySettings,
   DoubaoPrefetchTask,
   DoubaoPrefetchCacheDetail,
@@ -29,6 +30,7 @@ import type {
   DoubaoQrStatus,
   DoubaoStatus,
   DoubaoVoice,
+  DoubaoRealtimeTurn,
   LegadoBook,
   LegadoChapter,
   ModelHealthResult,
@@ -894,6 +896,41 @@ export async function generateDoubaoSpeech(options: {
   );
 }
 
+export async function importDoubaoEbook(file: File): Promise<DoubaoImportedBook> {
+  const body = new FormData();
+  body.append("file", file, file.name);
+  return doubaoData<DoubaoImportedBook>("/v1/doubao/books/import", { method: "POST", body }, 120_000);
+}
+
+export async function generateDoubaoRealtimeTurn(
+  settings: GlobalLlmSettings,
+  options: {
+    messages: Array<{ role: "user" | "assistant"; text: string }>;
+    voiceId: string;
+    speechRate: number;
+    pitch: number;
+    responseFormat: "mp3" | "wav";
+  }
+): Promise<DoubaoRealtimeTurn> {
+  return doubaoRequest<DoubaoRealtimeTurn>(
+    "/v1/doubao/realtime/turn",
+    jsonRequest("POST", {
+      base_url: settings.baseUrl.trim(),
+      model: settings.model.trim(),
+      api_key: settings.apiKey,
+      system_prompt: settings.systemPrompt,
+      temperature: settings.temperature,
+      max_tokens: settings.maxTokens,
+      messages: options.messages,
+      voice_id: options.voiceId,
+      speech_rate: options.speechRate,
+      pitch: options.pitch,
+      response_format: options.responseFormat
+    }),
+    180_000
+  );
+}
+
 export async function fetchDoubaoCookies(): Promise<{ cookies: DoubaoCookieRecord[]; stats: DoubaoCookieStats }> {
   const payload = await doubaoRequest<DoubaoApiEnvelope<DoubaoCookieRecord[]> & { stats: DoubaoCookieStats }>(
     "/v1/doubao/cookies"
@@ -1017,6 +1054,7 @@ export function startDoubaoPrefetch(payload: {
     chapterTitle: string;
     chapterUrl?: string;
     chapterIndex: number;
+    content?: string;
   }>;
   options: Record<string, unknown>;
 }): Promise<{ taskId: string; status: string; progress: { total: number; completed: number; failed: number } }> {

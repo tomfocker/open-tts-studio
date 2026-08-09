@@ -112,6 +112,7 @@ import { MediaSamplerWorkspace } from "./MediaSamplerWorkspace";
 import { SeparationWorkspace } from "./SeparationWorkspace";
 import { RealtimeWorkspace } from "./RealtimeWorkspace";
 import { TranscriptionWorkspace } from "./TranscriptionWorkspace";
+import voiceAvatarPack from "./assets/voice-avatar-pack.jpg";
 import type {
   AudioAsset,
   AppUpdateState,
@@ -264,6 +265,52 @@ type VoicePreset = {
     weights: Record<string, string>;
   };
 };
+
+type VoiceAvatar =
+  | { kind: "pack"; index: number }
+  | { kind: "custom"; dataUrl: string };
+
+const VOICE_AVATAR_STORAGE_KEY = "open-tts-studio.voice-avatars";
+const VOICE_AVATAR_COLUMNS = 4;
+const VOICE_AVATAR_ROWS = 6;
+const VOICE_AVATAR_COUNT = VOICE_AVATAR_COLUMNS * VOICE_AVATAR_ROWS;
+
+function readVoiceAvatars(): Record<string, VoiceAvatar> {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(VOICE_AVATAR_STORAGE_KEY) ?? "{}");
+    if (!stored || typeof stored !== "object") return {};
+    return Object.fromEntries(Object.entries(stored).filter(([, value]) => {
+      if (!value || typeof value !== "object") return false;
+      const avatar = value as Partial<VoiceAvatar>;
+      return avatar.kind === "pack"
+        ? Number.isInteger(avatar.index) && Number(avatar.index) >= 0 && Number(avatar.index) < VOICE_AVATAR_COUNT
+        : avatar.kind === "custom" && typeof avatar.dataUrl === "string" && avatar.dataUrl.startsWith("data:image/");
+    })) as Record<string, VoiceAvatar>;
+  } catch {
+    return {};
+  }
+}
+
+function voiceAvatarFor(voice: VoicePreset, avatars: Record<string, VoiceAvatar>): VoiceAvatar {
+  const saved = avatars[voice.id];
+  if (saved) return saved;
+  const total = Array.from(voice.id).reduce((sum, character) => sum + character.charCodeAt(0), 0);
+  return { kind: "pack", index: total % VOICE_AVATAR_COUNT };
+}
+
+function voiceAvatarStyle(voice: VoicePreset, avatars: Record<string, VoiceAvatar>): CSSProperties {
+  const avatar = voiceAvatarFor(voice, avatars);
+  if (avatar.kind === "custom") {
+    return { backgroundImage: `url(${avatar.dataUrl})`, backgroundSize: "cover", backgroundPosition: "center" };
+  }
+  const column = avatar.index % VOICE_AVATAR_COLUMNS;
+  const row = Math.floor(avatar.index / VOICE_AVATAR_COLUMNS);
+  return {
+    backgroundImage: `url(${voiceAvatarPack})`,
+    backgroundSize: `${VOICE_AVATAR_COLUMNS * 100}% ${VOICE_AVATAR_ROWS * 100}%`,
+    backgroundPosition: `${column * (100 / Math.max(1, VOICE_AVATAR_COLUMNS - 1))}% ${row * (100 / Math.max(1, VOICE_AVATAR_ROWS - 1))}%`
+  };
+}
 
 type VoiceManagerDraft = {
   name: string;
@@ -1957,6 +2004,7 @@ export function App() {
   const [pendingModelSwitch, setPendingModelSwitch] = useState<PendingModelSwitch | null>(null);
   const [selectedVoice, setSelectedVoice] = useState("custom");
   const [customVoices, setCustomVoices] = useState<VoicePreset[]>([]);
+  const [voiceAvatars, setVoiceAvatars] = useState<Record<string, VoiceAvatar>>(readVoiceAvatars);
   const [voiceManagerOpen, setVoiceManagerOpen] = useState(false);
   const [managedVoiceId, setManagedVoiceId] = useState<string | null>(null);
   const [managedReferenceId, setManagedReferenceId] = useState<string | null>(null);
@@ -1964,6 +2012,7 @@ export function App() {
   const [voiceManagerAction, setVoiceManagerAction] = useState<string | null>(null);
   const [voiceManagerMessage, setVoiceManagerMessage] = useState<string | null>(null);
   const [voiceManagerError, setVoiceManagerError] = useState<string | null>(null);
+  const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [cloneMode, setCloneMode] = useState<CloneMode>("可控克隆");
   const [input, setInput] = useState("你好，这是 IndexTTS2 的本地桌面软件测试。");
   const [controlPromptDrafts, setControlPromptDrafts] = useState<Record<string, string>>({});
@@ -2144,6 +2193,7 @@ export function App() {
   const referenceAudioPreviewUrlRef = useRef<string | null>(null);
   const referenceAudioWaveformRequestRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
   const lastSamplerDefaultNameRef = useRef("");
   const selectedModelRef = useRef(selectedModel);
@@ -2941,6 +2991,7 @@ export function App() {
     setVoiceManagerDraft(createVoiceManagerDraft(preferred, referenceId));
     setVoiceManagerError(null);
     setVoiceManagerMessage(null);
+    setAvatarPickerOpen(false);
     setVoiceManagerOpen(true);
     void loadVoices();
   }
@@ -2952,6 +3003,7 @@ export function App() {
     setVoiceManagerDraft(createVoiceManagerDraft(voice, referenceId));
     setVoiceManagerError(null);
     setVoiceManagerMessage(null);
+    setAvatarPickerOpen(false);
   }
 
   function selectManagedReference(referenceId: string) {
@@ -3463,6 +3515,10 @@ export function App() {
     try {
       await deleteVoice(managedVoice.id);
       setCustomVoices((voices) => voices.filter((voice) => voice.id !== managedVoice.id));
+      setVoiceAvatars((avatars) => {
+        const { [managedVoice.id]: _removed, ...remaining } = avatars;
+        return remaining;
+      });
       if (selectedVoice === managedVoice.id) {
         setSelectedVoice("custom");
       }
@@ -3533,6 +3589,32 @@ export function App() {
     setRealtimeEntryConfirmOpen(false);
     releaseRealtimeRuntimeReservation();
     setGenerationWorkspace("single");
+  }
+
+  function selectVoiceAvatar(index: number) {
+    if (!managedVoice) return;
+    setVoiceAvatars((current) => ({ ...current, [managedVoice.id]: { kind: "pack", index } }));
+    setAvatarPickerOpen(false);
+    setVoiceManagerMessage("头像已更新，音色卡片和角色列表会立即同步。");
+  }
+
+  function onCustomAvatarSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !managedVoice || !file.type.startsWith("image/")) return;
+    if (file.size > 3 * 1024 * 1024) {
+      setVoiceManagerError("头像图片请控制在 3 MB 以内。");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") return;
+      setVoiceAvatars((current) => ({ ...current, [managedVoice.id]: { kind: "custom", dataUrl: reader.result as string } }));
+      setAvatarPickerOpen(false);
+      setVoiceManagerMessage("自定义头像已更新。");
+    };
+    reader.onerror = () => setVoiceManagerError("读取头像图片失败，请换一张图片重试。");
+    reader.readAsDataURL(file);
   }
 
   function openRealtimeWorkspace() {
@@ -6065,6 +6147,14 @@ export function App() {
   }, [accentTheme]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(VOICE_AVATAR_STORAGE_KEY, JSON.stringify(voiceAvatars));
+    } catch {
+      // Avatar persistence is optional when the host blocks local storage.
+    }
+  }, [voiceAvatars]);
+
+  useEffect(() => {
     return () => {
       if (themeTransitionTimerRef.current !== null) {
         window.clearTimeout(themeTransitionTimerRef.current);
@@ -7242,9 +7332,7 @@ export function App() {
                     }}
                     title={voiceQualityById[voice.id]?.warnings[0] ?? `${voice.name} · ${voice.subtitle}`}
                     >
-                    <span className="voiceAvatar" style={{ "--avatar-bg": voice.background } as CSSProperties} aria-hidden="true">
-                      {voice.initials}
-                    </span>
+                    <span className="voiceAvatar hasImage" style={{ "--avatar-bg": voice.background, ...voiceAvatarStyle(voice, voiceAvatars) } as CSSProperties} aria-hidden="true" />
                     <span
                       className={`voiceQualityDot ${voiceQualityById[voice.id]?.status ?? "unknown"}`}
                       aria-label={voiceQualityById[voice.id] ? voiceQualityLabel(voiceQualityById[voice.id]) : "尚未检查参考音频"}
@@ -7761,7 +7849,7 @@ export function App() {
                     }
                   }}
                 >
-                  <button className="primaryAction editorGenerateButton" disabled={!canGenerate} onClick={onGenerate}>
+                  <button className={loading ? "primaryAction editorGenerateButton isLoading" : "primaryAction editorGenerateButton"} disabled={!canGenerate} onClick={onGenerate}>
                     {loading ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} strokeWidth={1.9} />}
                     <span>{loading ? "生成中" : "开始生成"}</span>
                   </button>
@@ -7837,8 +7925,8 @@ export function App() {
             ) : renderBatchProjectWorkspace()}
           </section>
 
-          {generationWorkspace !== "realtime" && <section className="softPanel playerPanel">
-            <button className="playButton" disabled={!result} onClick={togglePlayback}>
+          {generationWorkspace !== "realtime" && <section className={`softPanel playerPanel${result ? " hasResult" : ""}${isPlaying ? " isPlaying" : ""}`}>
+            <button className={isPlaying ? "playButton isPlaying" : "playButton"} disabled={!result} onClick={togglePlayback}>
               {isPlaying ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}
             </button>
             <div className="timeReadout">
@@ -8099,7 +8187,7 @@ export function App() {
                         className={voice.id === managedVoice?.id ? "voiceManagerListItem active" : "voiceManagerListItem"}
                         onClick={() => selectManagedVoice(voice)}
                       >
-                        <span className="voiceAvatar" style={{ "--avatar-bg": voice.background } as CSSProperties} aria-hidden="true">{voice.initials}</span>
+                        <span className="voiceAvatar hasImage" style={{ "--avatar-bg": voice.background, ...voiceAvatarStyle(voice, voiceAvatars) } as CSSProperties} aria-hidden="true" />
                         <span>
                           <strong>{voice.name}</strong>
                           <small>{voice.modelBinding ? "GPT-SoVITS 专属权重" : `${voice.references.length} 条参考片段`}</small>
@@ -8122,6 +8210,59 @@ export function App() {
                           </button>
                         )}
                       </div>
+
+                      <section className="voiceAvatarEditor" aria-label="角色头像">
+                        <div className="voiceAvatarEditorHeader">
+                          <div className="voiceAvatarEditorIdentity">
+                            <span className="voiceAvatar voiceAvatarLarge hasImage" style={{ "--avatar-bg": managedVoice.background, ...voiceAvatarStyle(managedVoice, voiceAvatars) } as CSSProperties} aria-hidden="true" />
+                            <div>
+                              <strong>角色头像</strong>
+                              <span>用头像快速区分不同音色角色</span>
+                            </div>
+                          </div>
+                          <button className="secondaryAction voiceAvatarPickerToggle" type="button" onClick={() => setAvatarPickerOpen((open) => !open)}>
+                            <Palette size={15} strokeWidth={1.9} />
+                            <span>{avatarPickerOpen ? "收起头像" : "更换头像"}</span>
+                          </button>
+                        </div>
+                        {avatarPickerOpen && (
+                          <div className="voiceAvatarPicker">
+                            <div className="voiceAvatarPickerGrid" role="list" aria-label="潮玩头像">
+                              {Array.from({ length: VOICE_AVATAR_COUNT }, (_, index) => {
+                                const currentAvatar = voiceAvatarFor(managedVoice, voiceAvatars);
+                                const selected = currentAvatar.kind === "pack" && currentAvatar.index === index;
+                                const column = index % VOICE_AVATAR_COLUMNS;
+                                const row = Math.floor(index / VOICE_AVATAR_COLUMNS);
+                                return (
+                                  <button
+                                    key={index}
+                                    className={selected ? "voiceAvatarOption selected" : "voiceAvatarOption"}
+                                    type="button"
+                                    aria-label={`潮玩头像 ${index + 1}`}
+                                    aria-pressed={selected}
+                                    onClick={() => selectVoiceAvatar(index)}
+                                    style={{
+                                      backgroundImage: `url(${voiceAvatarPack})`,
+                                      backgroundSize: `${VOICE_AVATAR_COLUMNS * 100}% ${VOICE_AVATAR_ROWS * 100}%`,
+                                      backgroundPosition: `${column * (100 / Math.max(1, VOICE_AVATAR_COLUMNS - 1))}% ${row * (100 / Math.max(1, VOICE_AVATAR_ROWS - 1))}%`
+                                    }}
+                                  >
+                                    {selected && <CheckCircle2 size={16} strokeWidth={2.4} />}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div className="voiceAvatarPickerActions">
+                              <button className="secondaryAction" type="button" onClick={() => avatarFileInputRef.current?.click()}>
+                                <Upload size={15} strokeWidth={1.9} />
+                                <span>上传自定义头像</span>
+                              </button>
+                              <input ref={avatarFileInputRef} type="file" accept="image/*" hidden onChange={onCustomAvatarSelected} />
+                              <span>建议使用正方形图片，头像只保存在本机。</span>
+                            </div>
+                          </div>
+                        )}
+                      </section>
 
                       {managedVoice.references.length > 0 ? (
                         <section className="voiceReferenceSection" aria-label="参考片段">
@@ -8733,6 +8874,9 @@ export function App() {
                   );
                 })
               )}
+              <span className={isPlaying ? "playerPulseBars active" : "playerPulseBars"} aria-label={isPlaying ? "正在播放" : "已暂停"}>
+                <i /><i /><i />
+              </span>
             </div>
             <footer className="taskCenterDrawerFooter"><button className="secondaryAction settingsAction" disabled={taskCenterAction !== null || clearableSpeechTaskCount === 0} onClick={() => { setTaskCenterError(null); setTaskCenterMessage(null); setTaskHistoryClearConfirmOpen(true); }}><Trash2 size={15} strokeWidth={1.9} /><span>清理已结束记录</span></button><button className="secondaryAction settingsAction" disabled={taskCenterAction !== null || retryableManageTaskCount === 0} onClick={() => void onRetryAllManageableTasks()}>{taskCenterAction === "retry-all" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{retryableManageTaskCount > 0 ? `批量重试 ${retryableManageTaskCount} 项` : "批量重试"}</span></button><span /><button className="secondaryAction settingsAction" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}><Library size={15} strokeWidth={1.9} /><span>成果中心</span></button><button className="primaryAction settingsAction" onClick={() => setTaskCenterOpen(false)}><X size={15} strokeWidth={1.9} /><span>关闭</span></button></footer>
           </aside>
