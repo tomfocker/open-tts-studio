@@ -11427,6 +11427,7 @@ summary:focus-visible {
 .taskQueueEmpty svg { color: var(--accent-dark); }
 .taskQueueEmpty strong { color: var(--text); font-size: 14px; }
 .taskQueueEmpty span { max-width: 260px; font-size: 12px; line-height: 1.5; }
+.taskQueueEmpty .taskQueueLink { margin: 4px auto 0; }
 .taskQueueItem { min-width: 0; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 9px; padding: 11px; background: color-mix(in srgb, var(--panel) 72%, transparent); display: grid; gap: 9px; }
 .taskQueueItem.source-speech { border-left-color: #6c8bd1; }
 .taskQueueItem.source-batch_project { border-left-color: #8a70be; }
@@ -11479,6 +11480,14 @@ summary:focus-visible {
   .assetCenterInspector { grid-column: 1 / -1; min-height: 240px; }
   .assetCenterRow { grid-template-columns: 22px minmax(0, 1.5fr) minmax(110px, 0.8fr) 34px; }
   .assetCenterRowMeta { display: none; }
+}
+
+@media (max-width: 780px) and (min-width: 641px) {
+  .taskCenterDashboardSummary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .taskCenterDashboardSummary .taskCenterSummaryLink { grid-column: 1 / -1; min-height: 32px; }
+  .taskCenterFilterBar { grid-template-columns: minmax(0, 1fr) 150px; }
+  .taskCenterTaskSearch { grid-column: 1 / -1; }
+  .taskCenterFilterBar .pathPickButton { width: 100%; }
 }
 
 @media (max-width: 640px) {

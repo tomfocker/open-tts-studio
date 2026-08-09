@@ -1521,6 +1521,11 @@ function taskStatusLabel(status: string) {
   return status || "未知";
 }
 
+function taskHasMissingResult(task: Pick<TaskSummary, "source" | "stage" | "results">) {
+  return (task.results ?? []).some((result) => !result.exists)
+    || (task.source === "bilibili" && task.stage === "file_missing");
+}
+
 function taskEventStageLabel(stage: string) {
   const labels: Record<string, string> = {
     queued: "等待调度",
@@ -2853,8 +2858,8 @@ export function App() {
     [taskCenterResults]
   );
   const selectedTaskResult = useMemo(
-    () => taskCenterResults.find((result) => result.id === selectedTaskResultId) ?? visibleTaskCenterResults[0] ?? null,
-    [selectedTaskResultId, taskCenterResults, visibleTaskCenterResults]
+    () => visibleTaskCenterResults.find((result) => result.id === selectedTaskResultId) ?? visibleTaskCenterResults[0] ?? null,
+    [selectedTaskResultId, visibleTaskCenterResults]
   );
   const selectedEbookTaskId = selectedTaskResult?.summary_only
     ? selectedTaskResult.task_id.replace(/^ebook:/, "")
@@ -2925,7 +2930,7 @@ export function App() {
         || (taskCenterStatusFilter === "failed" && task.status === "failed")
         || (taskCenterStatusFilter === "attention" && task.retryable)
         || (taskCenterStatusFilter === "cancelled" && task.status === "cancelled")
-        || (taskCenterStatusFilter === "missing" && (task.results ?? []).some((result) => !result.exists));
+        || (taskCenterStatusFilter === "missing" && taskHasMissingResult(task));
       const matchesSource = taskCenterTaskSourceFilter === "all"
         || (taskCenterTaskSourceFilter === "batch" && ["batch_project", "ebook"].includes(task.source))
         || task.source === taskCenterTaskSourceFilter;
@@ -2940,6 +2945,11 @@ export function App() {
         .some((value) => value.toLocaleLowerCase().includes(search));
     });
   }, [taskCenterStatusFilter, taskCenterTaskSearch, taskCenterTaskSourceFilter, taskCenterTasks]);
+  const taskCenterFiltersActive = Boolean(
+    taskCenterTaskSearch.trim()
+    || taskCenterStatusFilter !== "all"
+    || taskCenterTaskSourceFilter !== "all"
+  );
   const clearableSpeechTaskCount = useMemo(
     () => remoteTasks.filter(
       (task) => task.source === "speech" && ["succeeded", "failed", "cancelled"].includes(task.status)
@@ -9665,7 +9675,7 @@ export function App() {
               )}
               {(taskCenterError || taskCenterMessage) && <div className={taskCenterError ? "settingsFeedback error" : "settingsFeedback"}>{taskCenterError ? <AlertCircle size={15} strokeWidth={1.9} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}<span>{taskCenterError ?? taskCenterMessage}</span></div>}
               {visibleTaskCenterTasks.length === 0 ? (
-                <div className="taskQueueEmpty"><CheckCircle2 size={25} strokeWidth={1.8} /><strong>{taskCenterTasks.length === 0 ? "还没有任务记录" : "没有符合条件的任务"}</strong><span>{taskCenterTasks.length === 0 ? "生成、转写、增强、分轨和媒体采样完成后，任务会自动出现在这里。" : "尝试切换状态、功能或搜索关键词。"}</span></div>
+                <div className="taskQueueEmpty"><CheckCircle2 size={25} strokeWidth={1.8} /><strong>{taskCenterTasks.length === 0 ? "还没有任务记录" : "没有符合条件的任务"}</strong><span>{taskCenterTasks.length === 0 ? "生成、转写、增强、分轨和媒体采样完成后，任务会自动出现在这里。" : "尝试切换状态、功能或搜索关键词。"}</span>{taskCenterFiltersActive && <button className="taskQueueLink" type="button" onClick={() => { setTaskCenterTaskSearch(""); setTaskCenterStatusFilter("all"); setTaskCenterTaskSourceFilter("all"); }}>清除筛选</button>}</div>
               ) : (
                 visibleTaskCenterTasks.map((task) => {
                   const latestEvent = task.events[task.events.length - 1];
