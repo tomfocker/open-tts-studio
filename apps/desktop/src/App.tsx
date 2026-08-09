@@ -7958,7 +7958,7 @@ export function App() {
               </span>
               <div className="voicePanelActions">
                 {isDoubao ? (
-                  <button className="voiceImportButton cloudManageButton" onClick={() => selectWorkspace("doubao")}>
+                  <button type="button" className="voiceImportButton cloudManageButton" onClick={() => selectWorkspace("doubao")}>
                     <LogIn size={14} strokeWidth={1.9} />
                     <span>账号管理</span>
                   </button>
@@ -8036,7 +8036,9 @@ export function App() {
                     {visibleDoubaoVoices.map((voice) => (
                       <button
                         key={voice.id}
+                        type="button"
                         className={voice.style_id === selectedDoubaoVoice?.style_id ? "doubaoVoiceCard active" : "doubaoVoiceCard"}
+                        aria-pressed={voice.style_id === selectedDoubaoVoice?.style_id}
                         onClick={() => setSelectedDoubaoVoiceId(voice.style_id)}
                         title={`${voice.name} · ${[voice.gender, voice.age, ...voice.tags].filter(Boolean).join(" · ")}`}
                       >
@@ -8064,7 +8066,9 @@ export function App() {
                 {availableVoices.map((voice) => (
                   <button
                     key={voice.id}
+                    type="button"
                     className={voice.id === selectedVoice ? "voiceCard active" : "voiceCard"}
+                    aria-pressed={voice.id === selectedVoice}
                     onClick={() => {
                       setSelectedVoice(voice.id);
                       if (voice.modelBinding) {
@@ -8101,7 +8105,9 @@ export function App() {
                 {supportedCloneModes.map((mode) => (
                   <button
                     key={mode}
+                    type="button"
                     className={mode === cloneMode ? "segment active" : "segment"}
+                    aria-pressed={mode === cloneMode}
                     onClick={() => setCloneMode(mode)}
                   >
                     {mode}
@@ -8301,7 +8307,7 @@ export function App() {
                   <span>格式</span>
                   <div className="doubaoFormatToggle" role="group" aria-label="豆包输出格式">
                     {(["mp3", "wav"] as const).map((format) => (
-                      <button key={format} className={doubaoFormat === format ? "active" : ""} onClick={() => setDoubaoFormat(format)}>
+                      <button type="button" key={format} className={doubaoFormat === format ? "active" : ""} aria-pressed={doubaoFormat === format} onClick={() => setDoubaoFormat(format)}>
                         {format.toUpperCase()}
                       </button>
                     ))}
@@ -8311,7 +8317,7 @@ export function App() {
                 <div className={doubaoUsable ? "doubaoAccountNote ready" : "doubaoAccountNote warning"}>
                   {doubaoUsable ? <CheckCircle2 size={16} strokeWidth={1.9} /> : <AlertCircle size={16} strokeWidth={1.9} />}
                   <span>{doubaoUsable ? `云端服务可用 · ${doubaoStatus?.cookies.valid ?? 0} 个有效账号` : doubaoStateError ?? "没有有效 Cookie，登录后才能生成"}</span>
-                  {!doubaoUsable && <button onClick={() => selectWorkspace("doubao")}>去登录</button>}
+                  {!doubaoUsable && <button type="button" onClick={() => selectWorkspace("doubao")}>去登录</button>}
                 </div>
               </>
             )}
@@ -8320,7 +8326,9 @@ export function App() {
               <div className="toggleRow">
                 {showNormalizeToggle && (
                   <button
+                    type="button"
                     className={normalizeText ? "toggle active parameterHint" : "toggle parameterHint"}
+                    aria-pressed={normalizeText}
                     data-tooltip={voxcpm2ParameterHints.normalize}
                     onClick={() => setNormalizeText((value) => !value)}
                   >
@@ -8330,7 +8338,9 @@ export function App() {
                 )}
                 {showDenoiseToggle && (
                   <button
+                    type="button"
                     className={denoise ? "toggle active parameterHint tooltipEnd" : "toggle parameterHint tooltipEnd"}
+                    aria-pressed={denoise}
                     data-tooltip={voxcpm2ParameterHints.denoise}
                     onClick={() => setDenoise((value) => !value)}
                   >
@@ -8684,7 +8694,14 @@ export function App() {
           </section>
 
           {generationWorkspace !== "realtime" && <section className={`softPanel playerPanel${result ? " hasResult" : ""}${isPlaying ? " isPlaying" : ""}`}>
-            <button className={isPlaying ? "playButton isPlaying" : "playButton"} disabled={!result} onClick={togglePlayback}>
+            <button
+              type="button"
+              className={isPlaying ? "playButton isPlaying" : "playButton"}
+              aria-label={isPlaying ? "暂停生成音频" : result ? "播放生成音频" : "暂无生成音频"}
+              title={isPlaying ? "暂停生成音频" : result ? "播放生成音频" : "暂无生成音频"}
+              disabled={!result}
+              onClick={togglePlayback}
+            >
               {isPlaying ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" />}
             </button>
             <div className="timeReadout">

@@ -8874,6 +8874,7 @@ audio {
     height: auto;
     min-height: 100dvh;
     overflow: visible;
+    align-content: start;
     padding: 16px;
     grid-template-rows: auto auto;
   }
@@ -8917,6 +8918,39 @@ audio {
     overflow: visible;
   }
 
+  /* The inline workspaces are normally a clipped, fixed-height desktop
+     stage.  At tablet/mobile widths the page itself must own the scroll so a
+     landing heading and stacked cards cannot disappear behind that stage. */
+  .workspaceMainStage {
+    height: auto;
+    min-height: calc(100dvh - 160px);
+    overflow: visible;
+  }
+
+  .workspaceMainStage .workspaceScreen {
+    height: auto;
+    min-height: inherit;
+    overflow: visible;
+  }
+
+  .mainStage.workspaceMainStage .doubaoWorkspace {
+    position: relative;
+    inset: auto;
+    height: auto;
+    min-height: calc(100dvh - 160px);
+    overflow: visible;
+  }
+
+  .mainStage.workspaceMainStage .doubaoWorkspaceBody {
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .mainStage.workspaceMainStage .doubaoModeStage {
+    min-height: clamp(420px, calc(100dvh - 270px), 720px);
+    overflow: visible;
+  }
+
   .batchWorkspacePanel,
   .batchWorkspaceLayout {
     overflow: visible;
@@ -8956,6 +8990,16 @@ audio {
 @media (max-width: 640px) {
   .studioShell {
     padding: 10px;
+  }
+
+  .mainStage.workspaceMainStage .doubaoModeStage {
+    min-height: 580px;
+  }
+
+  .mainStage.workspaceMainStage .doubaoModeLanding {
+    justify-content: flex-start;
+    padding-top: 20px;
+    padding-bottom: 28px;
   }
 
   .monitorDrawerOverlay {
@@ -9462,6 +9506,27 @@ audio {
 .settingsAdvancedDetails > .modelCenterList,
 .settingsAdvancedDetails > .settingsGroup {
   margin: 10px;
+}
+
+/* Light theme parity: keep the idle canvas and editable wells distinct from
+   the surrounding shell, and make placeholder copy readable without turning
+   the interface into a high-contrast white card wall. */
+:root:not([data-theme="dark"]) .taskCanvas {
+  background: linear-gradient(180deg, #e8f0f5 0%, #dbe5ec 100%);
+  box-shadow: inset 8px 8px 20px rgba(126, 145, 164, 0.14), inset -7px -7px 18px rgba(255, 255, 255, 0.72);
+}
+
+:root:not([data-theme="dark"]) .controlPrompt,
+:root:not([data-theme="dark"]) .targetText {
+  color: var(--text);
+  background: #dbe5ec;
+  box-shadow: inset 6px 6px 14px rgba(126, 145, 164, 0.12), inset -6px -6px 14px rgba(255, 255, 255, 0.72);
+}
+
+:root:not([data-theme="dark"]) .controlPrompt::placeholder,
+:root:not([data-theme="dark"]) .targetText::placeholder {
+  color: #5f7283;
+  opacity: 1;
 }
 
 .settingsInlineDetails {
