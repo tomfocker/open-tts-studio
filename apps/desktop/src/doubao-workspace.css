@@ -3476,6 +3476,13 @@
   transition: opacity 220ms ease, transform 280ms cubic-bezier(.2, .8, .2, 1);
 }
 
+/* `inert` blocks keyboard and assistive-technology focus while the other
+   stage is animating. Keep the pointer fallback for older Chromium hosts. */
+.doubaoModeLanding[inert],
+.doubaoModeDetail[inert] {
+  pointer-events: none;
+}
+
 .doubaoModeLanding {
   display: flex;
   flex-direction: column;

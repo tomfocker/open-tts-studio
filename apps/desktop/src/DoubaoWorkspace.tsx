@@ -31,7 +31,7 @@ import {
   Wifi,
   X
 } from "lucide-react";
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   cancelDoubaoPrefetch,
@@ -377,6 +377,21 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
   const [documents, setDocuments] = useState<DoubaoDocument[]>([]);
   const [documentQuery, setDocumentQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<DoubaoDocument | null>(null);
+  const modeLandingRef = useRef<HTMLElement | null>(null);
+  const modeDetailRef = useRef<HTMLElement | null>(null);
+
+  useLayoutEffect(() => {
+    const landing = modeLandingRef.current;
+    const detail = modeDetailRef.current;
+    if (landing) {
+      if (modeView !== "landing") landing.setAttribute("inert", "");
+      else landing.removeAttribute("inert");
+    }
+    if (detail) {
+      if (modeView !== "detail") detail.setAttribute("inert", "");
+      else detail.removeAttribute("inert");
+    }
+  }, [modeView]);
 
   const filteredVoices = useMemo(() => {
     const query = voiceQuery.trim().toLocaleLowerCase("zh-CN");
@@ -1120,8 +1135,10 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
       <div className={`doubaoModeCards ${variant}`} aria-label="豆包主要功能">
         {cards.map((card) => (
           <button
+            type="button"
             key={card.tab}
             className={variant === "compact" && tab === card.tab ? "doubaoModeCard active" : "doubaoModeCard"}
+            aria-pressed={variant === "compact" ? tab === card.tab : undefined}
             onClick={() => openProductionTab(card.tab)}
           >
             <span className={`doubaoModeCardIcon ${card.accent}`}>{card.icon}</span>
@@ -1139,7 +1156,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
   const activeModeTitle = tab === "realtime" ? "实时对话" : tab === "reader" ? "批量电子书" : tab === "accounts" ? "账号" : tab === "maintenance" ? "维护" : "语音合成";
 
   return (
-    <section className="doubaoWorkspace" aria-label="云端语音合成工作台">
+    <section className="doubaoWorkspace" role="region" aria-label="云端语音合成工作台">
       <header className="doubaoWorkspaceHeader">
         <div className="doubaoBrand">
           <span className="doubaoBrandIcon"><Cloud size={21} strokeWidth={1.9} /></span>
@@ -1153,18 +1170,18 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
           <span className={`doubaoHealth ${online ? "online" : "offline"}`}>
             <span />{online ? `${usableCookieCount} 个账号可用` : "后端未就绪"}
           </span>
-          <button className={tab === "accounts" ? "doubaoUtilityButton active" : "doubaoUtilityButton"} title="账号维护" aria-label="账号维护" onClick={() => openManagementTab("accounts")}>
+          <button type="button" className={tab === "accounts" ? "doubaoUtilityButton active" : "doubaoUtilityButton"} title="账号维护" aria-label="账号维护" onClick={() => openManagementTab("accounts")}>
             <KeyRound size={16} />
             <span>账号</span>
           </button>
-          <button className={tab === "maintenance" ? "doubaoUtilityButton active" : "doubaoUtilityButton"} title="运行维护" aria-label="运行维护" onClick={() => openManagementTab("maintenance")}>
+          <button type="button" className={tab === "maintenance" ? "doubaoUtilityButton active" : "doubaoUtilityButton"} title="运行维护" aria-label="运行维护" onClick={() => openManagementTab("maintenance")}>
             <Settings2 size={16} />
             <span>维护</span>
           </button>
-          <button className="doubaoIconButton" title="刷新" onClick={() => void runAction("refresh", loadOperationalState, "状态已刷新") }>
+          <button type="button" className="doubaoIconButton" title="刷新" aria-label="刷新豆包工作台状态" onClick={() => void runAction("refresh", loadOperationalState, "状态已刷新") }>
             {pendingAction === "refresh" ? <Loader2 className="spin" size={18} /> : <RefreshCw size={18} />}
           </button>
-          <button className="doubaoIconButton close" title="返回本地语音合成" onClick={onClose}><X size={20} /></button>
+          <button type="button" className="doubaoIconButton close" title="返回本地语音合成" aria-label="返回本地语音合成" onClick={onClose}><X size={20} /></button>
         </div>
       </header>
 
@@ -1172,27 +1189,27 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
         <div className={`doubaoFeedback ${error ? "error" : "success"}`} role="status">
           {error ? <Activity size={16} /> : <CheckCircle2 size={16} />}
           <span>{error || message}</span>
-          <button onClick={() => { setError(null); setMessage(null); }} aria-label="关闭提示"><X size={15} /></button>
+          <button type="button" onClick={() => { setError(null); setMessage(null); }} aria-label="关闭提示"><X size={15} /></button>
         </div>
       )}
 
       <div className={`doubaoModeStage ${modeView}`}>
-        <section className="doubaoModeLanding" aria-hidden={modeView !== "landing"}>
+        <section ref={modeLandingRef} className="doubaoModeLanding" aria-hidden={modeView !== "landing"} aria-labelledby="doubao-landing-title">
           <div className="doubaoLandingIntro">
             <span className="doubaoLandingEyebrow">CLOUD TTS WORKSPACE</span>
-            <h1>选择工作方式</h1>
+            <h1 id="doubao-landing-title">选择工作方式</h1>
             <p>从一个入口开始你的云端语音工作流</p>
           </div>
           {renderModeCards("landing")}
         </section>
 
-        <section className="doubaoModeDetail" aria-hidden={modeView !== "detail"}>
+        <section ref={modeDetailRef} className="doubaoModeDetail" aria-hidden={modeView !== "detail"} aria-labelledby="doubao-detail-title">
           <header className="doubaoDetailHeader">
-            <button className="doubaoBackButton" onClick={() => setModeView("landing")}>
+            <button type="button" className="doubaoBackButton" aria-label="返回功能选择" onClick={() => setModeView("landing")}>
               <ChevronLeft size={16} />
               <span>功能选择</span>
             </button>
-            <div className="doubaoDetailTitle"><strong>{activeModeTitle}</strong><span>云端工作区</span></div>
+            <div className="doubaoDetailTitle"><strong id="doubao-detail-title">{activeModeTitle}</strong><span>云端工作区</span></div>
           </header>
           {(tab === "synthesis" || tab === "realtime" || tab === "reader") && renderModeCards("compact")}
 

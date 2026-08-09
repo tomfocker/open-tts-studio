@@ -4122,6 +4122,7 @@ export function App() {
     if (settingsOpen) {
       setSettingsOpen(false);
     }
+    const shouldRestoreCreationFocus = workbench === "creation" && activeWorkspace !== "creation";
     if (workbench !== "creation") {
       releaseRealtimeRuntimeReservation();
     } else if (generationWorkspace === "realtime") {
@@ -4133,12 +4134,22 @@ export function App() {
     if (reduceMotion) {
       setActiveWorkspace(workbench);
       setWorkspaceTransition("idle");
+      if (shouldRestoreCreationFocus) {
+        window.requestAnimationFrame(() => {
+          workbenchNavRef.current?.querySelector<HTMLButtonElement>('[data-workbench-id="creation"]')?.focus({ preventScroll: true });
+        });
+      }
       return;
     }
     // Swap at the beginning of the fade so grid changes never occur while the old view is translated.
     // The prior two-stage slide made the main canvas appear to jump when its width changed.
     setActiveWorkspace(workbench);
     setWorkspaceTransition("entering");
+    if (shouldRestoreCreationFocus) {
+      window.requestAnimationFrame(() => {
+        workbenchNavRef.current?.querySelector<HTMLButtonElement>('[data-workbench-id="creation"]')?.focus({ preventScroll: true });
+      });
+    }
     const settleTimer = window.setTimeout(() => setWorkspaceTransition("idle"), 180);
     workspaceTransitionTimersRef.current = [settleTimer];
   }
@@ -6783,7 +6794,7 @@ export function App() {
   }, [topmostModalKey]);
 
   useEffect(() => {
-    if (!topmostModalKey && !drawMenuOpen && !voiceImportMenuOpen && !avatarPickerOpen) {
+    if (!topmostModalKey && !drawMenuOpen && !voiceImportMenuOpen && !avatarPickerOpen && activeWorkspace === "creation") {
       return undefined;
     }
 
@@ -6828,10 +6839,13 @@ export function App() {
             case "voice-save":
               closeVoiceLibrarySaveDialog();
               break;
-            case "monitor":
-              setMonitorPanelOpen(false);
-              break;
+          case "monitor":
+            setMonitorPanelOpen(false);
+            break;
             default:
+              if (activeWorkspace !== "creation") {
+                selectWorkspace("creation");
+              }
               break;
           }
         }
@@ -6865,7 +6879,7 @@ export function App() {
 
     document.addEventListener("keydown", onGlobalKeyDown);
     return () => document.removeEventListener("keydown", onGlobalKeyDown);
-  }, [avatarPickerOpen, closeReferenceAudioEditor, closeSettings, closeVoiceLibrarySaveDialog, closeVoiceManager, drawMenuOpen, onSamplerCancel, topmostModalKey, voiceImportMenuOpen]);
+  }, [activeWorkspace, avatarPickerOpen, closeReferenceAudioEditor, closeSettings, closeVoiceLibrarySaveDialog, closeVoiceManager, drawMenuOpen, onSamplerCancel, selectWorkspace, topmostModalKey, voiceImportMenuOpen]);
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
