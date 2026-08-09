@@ -1669,11 +1669,11 @@ summary:focus-visible {
     top: 1px;
     right: 0;
     bottom: 1px;
-    width: 26px;
+    width: 54px;
     border-radius: 0 12px 12px 0;
     pointer-events: none;
     content: "";
-    background: linear-gradient(90deg, color-mix(in srgb, var(--panel-strong) 0%, transparent), color-mix(in srgb, var(--panel-strong) 92%, transparent) 78%, var(--panel-strong));
+    background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--panel-strong) 84%, transparent) 24%, var(--panel-strong) 56%);
   }
 }
 

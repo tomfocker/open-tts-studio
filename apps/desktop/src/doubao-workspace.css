@@ -3614,6 +3614,24 @@
   background: linear-gradient(145deg, color-mix(in srgb, var(--dw-panel-solid) 90%, white), color-mix(in srgb, var(--dw-panel-subtle) 65%, var(--dw-panel-solid)));
 }
 
+/* Keep the primary synthesis controls discoverable in a short desktop window.
+   The body remains scrollable for the audio preview, while the action row stays
+   anchored to the visible work area instead of being clipped below the fold. */
+@media (min-width: 981px) and (max-width: 1399px) {
+  .doubaoModeDetail .doubaoWorkspaceBody {
+    scroll-padding-bottom: 58px;
+  }
+
+  .doubaoModeDetail .doubaoComposerFooter {
+    position: sticky;
+    z-index: 2;
+    bottom: 0;
+    margin-inline: -4px;
+    padding: 8px 4px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--dw-panel) 0%, transparent), var(--dw-panel) 32%);
+  }
+}
+
 .doubaoModeCards.landing .doubaoModeCardIcon {
   width: 48px;
   height: 48px;
