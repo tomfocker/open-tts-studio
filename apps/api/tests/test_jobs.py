@@ -1,12 +1,13 @@
 import time
+import threading
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from tts_api.config import get_settings
-from tts_api.jobs import JobStore
+from tts_api.jobs import JobRunner, JobStore
 from tts_api.main import create_app
-from tts_api.schemas import SpeechRequest
+from tts_api.schemas import SpeechRequest, SpeechResult
 
 
 def make_jobs_client(tmp_path: Path, monkeypatch) -> TestClient:
@@ -83,6 +84,44 @@ def test_restart_recovery_marks_running_jobs_retryable_and_keeps_queued_jobs(tmp
     assert recovered_running.stage == "interrupted"
     assert "重启" in (recovered_running.error or "")
     assert queued_job_ids == [queued.id]
+
+
+def test_cloud_job_does_not_wait_for_a_blocked_local_job(tmp_path: Path):
+    store = JobStore(tmp_path / "tasks.json", tmp_path / "task-logs")
+    local_started = threading.Event()
+    allow_local_finish = threading.Event()
+    cloud_finished = threading.Event()
+
+    def synthesize(request: SpeechRequest, **_kwargs) -> SpeechResult:
+        if request.model == "mock-tts":
+            local_started.set()
+            assert allow_local_finish.wait(timeout=2), "test did not release the local job"
+        else:
+            cloud_finished.set()
+        return SpeechResult(
+            audio_url=f"/outputs/{request.input}.wav",
+            file_path=str(tmp_path / f"{request.input}.wav"),
+            model=request.model,
+            sample_rate=24000,
+            duration_seconds=0.5,
+        )
+
+    runner = JobRunner(store, synthesize)
+    local = runner.enqueue(SpeechRequest(model="mock-tts", input="本地任务"))
+    assert local_started.wait(timeout=1)
+
+    cloud = runner.enqueue(SpeechRequest(model="doubao-web", input="云端任务"))
+    assert cloud_finished.wait(timeout=1), "云端任务不应等待本地 GPU 队列"
+
+    allow_local_finish.set()
+    for _ in range(100):
+        local_state = store.get(local.id)
+        cloud_state = store.get(cloud.id)
+        if local_state and cloud_state and local_state.status.value == "succeeded" and cloud_state.status.value == "succeeded":
+            break
+        time.sleep(0.01)
+    assert store.get(cloud.id).status.value == "succeeded"
+    assert store.get(local.id).status.value == "succeeded"
 
 
 def test_clear_job_history_removes_terminal_records_and_logs_but_keeps_active_jobs(tmp_path: Path):

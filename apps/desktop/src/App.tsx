@@ -1442,6 +1442,23 @@ function taskStatusLabel(status: string) {
   return status || "未知";
 }
 
+function taskEventStageLabel(stage: string) {
+  const labels: Record<string, string> = {
+    queued: "等待调度",
+    validating: "校验请求",
+    waiting_generation_slot: "等待本地 GPU",
+    waiting_cloud_request: "准备云端请求",
+    preparing_memory: "整理本地显存",
+    preparing_cloud: "校验云端账号",
+    starting_adapter: "开始合成",
+    finalizing: "整理音频",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消"
+  };
+  return labels[stage] ?? stage;
+}
+
 function taskSourceLabel(source: TaskSummary["source"]) {
   if (source === "speech") {
     return "单句生成";
@@ -1563,10 +1580,12 @@ function getSpeechJobProgress(job: SpeechJob): GenerationProgress {
   const latestEvent = job.events[job.events.length - 1];
   const isCloudJob = job.request.model === "doubao-web";
   const stageMap: Record<string, Omit<GenerationProgress, "percent" | "detail">> = {
-    queued: { phaseIndex: 0, phaseTitle: "任务已进入本地队列", estimate: "等待前序任务完成" },
+    queued: { phaseIndex: 0, phaseTitle: isCloudJob ? "任务已进入云端合成队列" : "任务已进入本地队列", estimate: isCloudJob ? "不会等待本地 GPU 任务" : "等待前序任务完成" },
     validating: { phaseIndex: 0, phaseTitle: isCloudJob ? "校验豆包账号与请求" : "校验本地模型与请求", estimate: "正在读取真实后端状态" },
-    waiting_generation_slot: { phaseIndex: 0, phaseTitle: "等待串行生成槽位", estimate: isCloudJob ? "等待前序语音任务结束" : "避免多个本地模型争抢显存" },
-    preparing_memory: { phaseIndex: 1, phaseTitle: isCloudJob ? "准备云端请求" : "整理模型显存", estimate: isCloudJob ? "本地 GPU 模型保持不变" : "避免模型之间争抢显存" },
+    waiting_generation_slot: { phaseIndex: 0, phaseTitle: "等待串行生成槽位", estimate: "避免多个本地模型争抢显存" },
+    waiting_cloud_request: { phaseIndex: 0, phaseTitle: "准备豆包云端请求", estimate: "仅按 Cookie 限流，不占用本地 GPU" },
+    preparing_memory: { phaseIndex: 1, phaseTitle: "整理模型显存", estimate: "避免模型之间争抢显存" },
+    preparing_cloud: { phaseIndex: 1, phaseTitle: "校验豆包账号与音色", estimate: "本地 GPU 模型保持原有状态" },
     starting_adapter: { phaseIndex: isCloudJob ? 2 : 1, phaseTitle: isCloudJob ? "豆包云端正在合成" : "适配器已启动", estimate: "模型正在处理请求" },
     finalizing: { phaseIndex: 3, phaseTitle: "整理音频与结果", estimate: isCloudJob ? "即将保存云端音频" : "即将返回本地 WAV 文件" },
     completed: { phaseIndex: 3, phaseTitle: "生成完成", estimate: "音频已写入输出目录" },
@@ -2081,6 +2100,7 @@ export function App() {
   const [samplerReferenceText, setSamplerReferenceText] = useState("");
   const [samplerMessage, setSamplerMessage] = useState<string | null>(null);
   const [generationWorkspace, setGenerationWorkspace] = useState<"single" | "batch" | "realtime">("single");
+  const [realtimeEntryConfirmOpen, setRealtimeEntryConfirmOpen] = useState(false);
   const [realtimeRuntimeState, setRealtimeRuntimeState] = useState<"idle" | "reserving" | "ready" | "error">("idle");
   const [realtimeRuntimeMessage, setRealtimeRuntimeMessage] = useState("");
   const workbenchNavRef = useRef<HTMLDivElement>(null);
@@ -3479,6 +3499,7 @@ export function App() {
   }
 
   function createBatchProjectWorkspace() {
+    setRealtimeEntryConfirmOpen(false);
     releaseRealtimeRuntimeReservation();
     setGenerationWorkspace("batch");
     setBatchProjectError(null);
@@ -3492,6 +3513,7 @@ export function App() {
   }
 
   function openBatchWorkspace() {
+    setRealtimeEntryConfirmOpen(false);
     releaseRealtimeRuntimeReservation();
     const importedSegments = generationWorkspace !== "batch" && !editingBatchProjectId && batchProjectSegments.length === 0
       ? parseBatchSegments(input)
@@ -3508,11 +3530,20 @@ export function App() {
   }
 
   function openSingleWorkspace() {
+    setRealtimeEntryConfirmOpen(false);
     releaseRealtimeRuntimeReservation();
     setGenerationWorkspace("single");
   }
 
   function openRealtimeWorkspace() {
+    if (generationWorkspace === "realtime") {
+      return;
+    }
+    setRealtimeEntryConfirmOpen(true);
+  }
+
+  function confirmRealtimeWorkspace() {
+    setRealtimeEntryConfirmOpen(false);
     setGenerationWorkspace("realtime");
     // Whispera uses a dedicated VoxCPM worker. Reserve that model's GPU
     // residency before a session can start so the normal HTTP worker cannot
@@ -8690,7 +8721,7 @@ export function App() {
                       {taskIsActive ? <div className="taskQueueProgress"><span style={{ width: `${task.progress_percent}%` }} /></div> : <div className={`taskQueueStateLine ${task.status}`}><span>{task.status === "failed" ? "任务没有完成" : task.status === "cancelled" ? "任务已停止，可按需继续" : "结果已写入成果中心"}</span><strong>{task.status === "succeeded" || task.status === "completed" ? "100%" : task.status === "failed" ? "失败" : "已取消"}</strong></div>}
                       <div className="taskQueueMeta"><span>{task.error ?? latestEvent?.message ?? "等待任务事件"}</span><strong>{taskIsActive ? `${task.progress_percent}%` : formatHistoryTime(task.updated_at)}</strong></div>
                       {task.error && <div className="taskQueueError"><AlertCircle size={14} strokeWidth={1.9} /><span>{task.error}</span></div>}
-                      {task.events.length > 0 && <div className="taskQueueEvents">{task.events.slice(-3).reverse().map((event, index) => <div key={`${event.occurred_at}-${index}`} className={event.level === "error" ? "error" : ""}><time>{formatHistoryTime(event.occurred_at)}</time><strong>{event.stage}</strong><span>{event.message}</span></div>)}</div>}
+                      {task.events.length > 0 && <div className="taskQueueEvents">{task.events.slice(-3).reverse().map((event, index) => <div key={`${event.occurred_at}-${index}`} className={event.level === "error" ? "error" : ""}><time>{formatHistoryTime(event.occurred_at)}</time><strong>{taskEventStageLabel(event.stage)}</strong><span>{event.message}</span></div>)}</div>}
                       <div className="taskQueueActions">
                         {(task.results?.length ?? 0) > 0 && <button className="taskQueueLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(task.results?.[0]?.id ?? null); }}>查看成果 <ChevronRight size={14} strokeWidth={1.9} /></button>}
                         <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void copyTaskDiagnostics(task)}><Copy size={15} strokeWidth={1.9} /><span>复制诊断</span></button>
@@ -8705,6 +8736,41 @@ export function App() {
             </div>
             <footer className="taskCenterDrawerFooter"><button className="secondaryAction settingsAction" disabled={taskCenterAction !== null || clearableSpeechTaskCount === 0} onClick={() => { setTaskCenterError(null); setTaskCenterMessage(null); setTaskHistoryClearConfirmOpen(true); }}><Trash2 size={15} strokeWidth={1.9} /><span>清理已结束记录</span></button><button className="secondaryAction settingsAction" disabled={taskCenterAction !== null || retryableManageTaskCount === 0} onClick={() => void onRetryAllManageableTasks()}>{taskCenterAction === "retry-all" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{retryableManageTaskCount > 0 ? `批量重试 ${retryableManageTaskCount} 项` : "批量重试"}</span></button><span /><button className="secondaryAction settingsAction" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}><Library size={15} strokeWidth={1.9} /><span>成果中心</span></button><button className="primaryAction settingsAction" onClick={() => setTaskCenterOpen(false)}><X size={15} strokeWidth={1.9} /><span>关闭</span></button></footer>
           </aside>
+        </div>
+      )}
+
+      {realtimeEntryConfirmOpen && (
+        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="进入实时语音模式">
+          <section className="settingsDialog modelSwitchDialog realtimeEntryDialog">
+            <header className="settingsHeader">
+              <div>
+                <strong>进入实时语音模式</strong>
+                <span>需要接管本机 GPU 运行时</span>
+              </div>
+              <button className="modalClose" title="暂不进入" onClick={() => setRealtimeEntryConfirmOpen(false)}>
+                <X size={18} strokeWidth={2} />
+              </button>
+            </header>
+            <div className="settingsBody modelSwitchBody">
+              <div className="modelSwitchWarning">
+                <AlertCircle size={20} strokeWidth={1.9} />
+                <div>
+                  <strong>实时对话将临时接管显存</strong>
+                  <span>确认后会安全停止当前由 OpenTTS 托管的本地 TTS 运行时，释放显存后预热 Whispera 流式 VoxCPM2、SenseVoice 和 CUDA 图。</span>
+                </div>
+              </div>
+              <p className="modelSwitchNote">预热期间不能使用普通本地生成；云端豆包不受影响。离开实时页面后，实时运行时会自动释放，不会在只是浏览页面时提前预热。</p>
+            </div>
+            <footer className="settingsFooter">
+              <button className="secondaryAction settingsAction" onClick={() => setRealtimeEntryConfirmOpen(false)}>
+                <span>暂不进入</span>
+              </button>
+              <button className="primaryAction settingsAction" onClick={confirmRealtimeWorkspace}>
+                <Radio size={16} strokeWidth={1.9} />
+                <span>确认并预热</span>
+              </button>
+            </footer>
+          </section>
         </div>
       )}
 

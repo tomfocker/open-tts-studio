@@ -66,43 +66,47 @@ def synthesize_with_registered_adapter(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    _report_progress(progress_reporter, "waiting_generation_slot", 18, "正在等待本地串行生成槽位。")
-    with local_gpu_generation_lock:
-        if model.adapter == "doubao_web":
-            _report_progress(progress_reporter, "preparing_memory", 26, "正在检查豆包账号、音色与云端请求参数；本地 GPU 模型保持不变。")
-        else:
-            _report_progress(progress_reporter, "preparing_memory", 26, "正在检查并整理其他模型的显存占用。")
-        try:
-            released_models = release_conflicting_runtimes(request.model, settings)
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
-        if released_models:
-            _report_progress(
-                progress_reporter,
-                "preparing_memory",
-                32,
-                f"已释放 {', '.join(released_models)}，正在加载 {model.display_name}。",
-            )
-        _report_progress(
-            progress_reporter,
-            "starting_adapter",
-            35,
-            "豆包云端正在合成语音。" if model.adapter == "doubao_web" else "适配器已启动，模型正在处理请求。",
-        )
+    def synthesize_adapter() -> SpeechResult:
         if model.adapter == "mock":
-            result = MockTtsAdapter(settings=settings).synthesize(request)
-        elif model.adapter == "voxcpm2":
-            result = VoxCpm2Adapter(settings=settings).synthesize(request)
-        elif model.adapter == "f5_tts":
-            result = F5TtsAdapter(settings=settings).synthesize(request)
-        elif model.adapter == "gptsovits":
-            result = GptSoVitsAdapter(settings=settings).synthesize(request)
-        elif model.adapter == "indextts2":
-            result = IndexTts2Adapter(settings=settings).synthesize(request)
-        elif model.adapter == "doubao_web":
-            result = DoubaoWebAdapter(settings=settings).synthesize(request)
-        else:
-            raise unsupported_adapter_error(model.adapter)
+            return MockTtsAdapter(settings=settings).synthesize(request)
+        if model.adapter == "voxcpm2":
+            return VoxCpm2Adapter(settings=settings).synthesize(request)
+        if model.adapter == "f5_tts":
+            return F5TtsAdapter(settings=settings).synthesize(request)
+        if model.adapter == "gptsovits":
+            return GptSoVitsAdapter(settings=settings).synthesize(request)
+        if model.adapter == "indextts2":
+            return IndexTts2Adapter(settings=settings).synthesize(request)
+        if model.adapter == "doubao_web":
+            return DoubaoWebAdapter(settings=settings).synthesize(request)
+        raise unsupported_adapter_error(model.adapter)
+
+    if model.adapter == "doubao_web":
+        # Cloud synthesis never loads a local model or uses VRAM. Its adapter
+        # has a dedicated cookie/request throttler, so holding the shared GPU
+        # lock here only made cloud jobs wait behind unrelated local inference.
+        _report_progress(progress_reporter, "waiting_cloud_request", 18, "正在等待豆包请求配额，不占用本地 GPU。")
+        _report_progress(progress_reporter, "preparing_cloud", 26, "正在检查豆包账号、音色与云端请求参数；本地模型保持不变。")
+        _report_progress(progress_reporter, "starting_adapter", 35, "豆包云端正在合成语音。")
+        result = synthesize_adapter()
+    else:
+        _report_progress(progress_reporter, "waiting_generation_slot", 18, "正在等待本地串行生成槽位。")
+        with local_gpu_generation_lock:
+            _report_progress(progress_reporter, "preparing_memory", 26, "正在检查并整理其他模型的显存占用。")
+            try:
+                released_models = release_conflicting_runtimes(request.model, settings)
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc))
+            if released_models:
+                _report_progress(
+                    progress_reporter,
+                    "preparing_memory",
+                    32,
+                    f"已释放 {', '.join(released_models)}，正在加载 {model.display_name}。",
+                )
+            _report_progress(progress_reporter, "starting_adapter", 35, "适配器已启动，模型正在处理请求。")
+            result = synthesize_adapter()
+
     _report_progress(progress_reporter, "finalizing", 90, "模型已返回结果，正在整理音频与任务记录。")
     if instance is not None:
         mark_model_instance_success(request.model, settings=get_settings())

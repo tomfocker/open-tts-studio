@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import queue
 import threading
@@ -13,6 +14,18 @@ from tts_api.schemas import AlignmentJobInfo, JobInfo, JobStatus, SpeechRequest,
 
 MAX_STORED_JOBS = 200
 MAX_STORED_EVENTS = 80
+CLOUD_TTS_MODEL_IDS = frozenset({"doubao-web"})
+
+
+def is_cloud_tts_request(request: SpeechRequest) -> bool:
+    """Return whether a request can run without the local GPU queue.
+
+    Cloud providers may still apply their own rate limiting, but they must not
+    sit behind an unrelated local model inference just because both jobs are
+    visible in the same task center.
+    """
+
+    return request.model in CLOUD_TTS_MODEL_IDS
 
 
 class JobStore:
@@ -73,7 +86,13 @@ class JobStore:
                 log_file=str(self.log_dir / f"{job_id}.log"),
                 retry_of=retry_of,
             )
-            return self._update(job, TaskEvent(stage="queued", message="任务已进入本地串行队列。"))
+            return self._update(
+                job,
+                TaskEvent(
+                    stage="queued",
+                    message="任务已进入云端合成队列。" if is_cloud_tts_request(request) else "任务已进入本地串行队列。",
+                ),
+            )
 
     def mark_running(self, job_id: str) -> JobInfo:
         with self._lock:
@@ -272,7 +291,7 @@ class JobStore:
 
 
 class JobRunner:
-    """One local worker keeps direct speech jobs from competing for GPU memory."""
+    """Keep local GPU work serialized while letting cloud synthesis run separately."""
 
     def __init__(self, store: JobStore, synthesize: Callable[..., SpeechResult]):
         self.store = store
@@ -280,15 +299,26 @@ class JobRunner:
         self._queue: queue.Queue[str] = queue.Queue()
         self._lock = threading.Lock()
         self._worker: threading.Thread | None = None
+        # Request admission inside the Doubao adapter remains rate-limited and
+        # cookie-aware. Two concurrent result workers prevent a slow cloud
+        # response from blocking a local GPU job or the next admitted request.
+        self._cloud_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="open-tts-cloud-job")
         for job_id in self.store.recover_after_restart():
-            self._queue.put(job_id)
+            job = self.store.get(job_id)
+            if job is not None and is_cloud_tts_request(job.request):
+                self._cloud_executor.submit(self._run_job, job_id)
+            else:
+                self._queue.put(job_id)
         if not self._queue.empty():
             self._start_worker_if_needed()
 
     def enqueue(self, request: SpeechRequest, retry_of: str | None = None) -> JobInfo:
         job = self.store.create(request, retry_of=retry_of)
-        self._queue.put(job.id)
-        self._start_worker_if_needed()
+        if is_cloud_tts_request(request):
+            self._cloud_executor.submit(self._run_job, job.id)
+        else:
+            self._queue.put(job.id)
+            self._start_worker_if_needed()
 
         return job
 
@@ -316,31 +346,34 @@ class JobRunner:
             except queue.Empty:
                 return
             try:
-                job = self.store.get(job_id)
-                if job is None or job.status == JobStatus.cancelled:
-                    continue
-                self.store.mark_running(job_id)
-                try:
-                    result = self.synthesize(
-                        job.request,
-                        progress_reporter=lambda stage, progress, message: self.store.report_progress(
-                            job_id, stage, progress, message
-                        ),
-                    )
-                except Exception as exc:
-                    self.store.mark_failed(job_id, str(exc))
-                else:
-                    from tts_api.alignment import schedule_alignment
-
-                    result, _alignment_job = schedule_alignment(job.request, result, job_id, settings=get_settings())
-                    self.store.mark_succeeded(job_id, result)
-                    if _alignment_job is not None:
-                        from tts_api.alignment import get_alignment_store
-
-                        latest = get_alignment_store(get_settings()).get(_alignment_job.id) or _alignment_job
-                        self.store.attach_alignment(job_id, latest)
+                self._run_job(job_id)
             finally:
                 self._queue.task_done()
+
+    def _run_job(self, job_id: str) -> None:
+        job = self.store.get(job_id)
+        if job is None or job.status == JobStatus.cancelled:
+            return
+        self.store.mark_running(job_id)
+        try:
+            result = self.synthesize(
+                job.request,
+                progress_reporter=lambda stage, progress, message: self.store.report_progress(
+                    job_id, stage, progress, message
+                ),
+            )
+        except Exception as exc:
+            self.store.mark_failed(job_id, str(exc))
+        else:
+            from tts_api.alignment import schedule_alignment
+
+            result, _alignment_job = schedule_alignment(job.request, result, job_id, settings=get_settings())
+            self.store.mark_succeeded(job_id, result)
+            if _alignment_job is not None:
+                from tts_api.alignment import get_alignment_store
+
+                latest = get_alignment_store(get_settings()).get(_alignment_job.id) or _alignment_job
+                self.store.attach_alignment(job_id, latest)
 
 
 _job_stores: dict[str, JobStore] = {}
