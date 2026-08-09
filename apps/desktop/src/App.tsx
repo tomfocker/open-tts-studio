@@ -36,6 +36,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Star,
   Moon,
   Sun,
   Trash2,
@@ -284,6 +285,7 @@ type VoiceAvatar =
   | { kind: "custom"; dataUrl: string };
 
 const VOICE_AVATAR_STORAGE_KEY = "open-tts-studio.voice-avatars";
+const VOICE_FAVORITES_STORAGE_KEY = "open-tts-studio.voice-favorites";
 const VOICE_AVATAR_COLUMNS = 4;
 const VOICE_AVATAR_ROWS = 6;
 const VOICE_AVATAR_COUNT = VOICE_AVATAR_COLUMNS * VOICE_AVATAR_ROWS;
@@ -301,6 +303,17 @@ function readVoiceAvatars(): Record<string, VoiceAvatar> {
     })) as Record<string, VoiceAvatar>;
   } catch {
     return {};
+  }
+}
+
+function readVoiceFavorites(): string[] {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(VOICE_FAVORITES_STORAGE_KEY) ?? "[]");
+    return Array.isArray(stored)
+      ? [...new Set(stored.filter((value): value is string => typeof value === "string" && value.trim().length > 0))]
+      : [];
+  } catch {
+    return [];
   }
 }
 
@@ -2119,6 +2132,7 @@ export function App() {
   const [selectedVoice, setSelectedVoice] = useState("custom");
   const [customVoices, setCustomVoices] = useState<VoicePreset[]>([]);
   const [voiceAvatars, setVoiceAvatars] = useState<Record<string, VoiceAvatar>>(readVoiceAvatars);
+  const [voiceFavoriteIds, setVoiceFavoriteIds] = useState<string[]>(readVoiceFavorites);
   const [voiceManagerOpen, setVoiceManagerOpen] = useState(false);
   const [managedVoiceId, setManagedVoiceId] = useState<string | null>(null);
   const [managedReferenceId, setManagedReferenceId] = useState<string | null>(null);
@@ -2127,6 +2141,7 @@ export function App() {
   const [voiceManagerMessage, setVoiceManagerMessage] = useState<string | null>(null);
   const [voiceManagerError, setVoiceManagerError] = useState<string | null>(null);
   const [voiceManagerQuery, setVoiceManagerQuery] = useState("");
+  const [voiceManagerFilter, setVoiceManagerFilter] = useState<"all" | "favorites">("all");
   const [voiceManagerPreviewId, setVoiceManagerPreviewId] = useState<string | null>(null);
   const [voiceManagerPreviewPlaying, setVoiceManagerPreviewPlaying] = useState(false);
   const [voiceManagerPreviewLoading, setVoiceManagerPreviewLoading] = useState(false);
@@ -2436,14 +2451,16 @@ export function App() {
   );
   const filteredManagedVoices = useMemo(() => {
     const query = voiceManagerQuery.trim().toLocaleLowerCase();
-    if (!query) {
-      return visibleManagedVoices;
-    }
     return visibleManagedVoices.filter((voice) =>
-      [voice.name, voice.subtitle, ...voice.references.map((reference) => reference.name)]
-        .some((value) => value.toLocaleLowerCase().includes(query))
+      (voiceManagerFilter !== "favorites" || voiceFavoriteIds.includes(voice.id))
+      && (!query || [voice.name, voice.subtitle, ...voice.references.map((reference) => reference.name)]
+        .some((value) => value.toLocaleLowerCase().includes(query)))
     );
-  }, [visibleManagedVoices, voiceManagerQuery]);
+  }, [voiceFavoriteIds, voiceManagerFilter, visibleManagedVoices, voiceManagerQuery]);
+  const visibleFavoriteVoiceCount = useMemo(
+    () => visibleManagedVoices.filter((voice) => voiceFavoriteIds.includes(voice.id)).length,
+    [voiceFavoriteIds, visibleManagedVoices]
+  );
   const voiceManagerDirty = useMemo(() => {
     if (!managedVoice) {
       return false;
@@ -3373,6 +3390,7 @@ export function App() {
     setVoiceManagerError(null);
     setVoiceManagerMessage(null);
     setVoiceManagerQuery("");
+    setVoiceManagerFilter("all");
     setAvatarPickerOpen(false);
     setVoiceManagerOpen(true);
     void loadVoices();
@@ -3982,6 +4000,12 @@ export function App() {
     setVoiceAvatars((current) => ({ ...current, [managedVoice.id]: { kind: "pack", index } }));
     setAvatarPickerOpen(false);
     setVoiceManagerMessage("头像已更新，音色卡片和角色列表会立即同步。");
+  }
+
+  function toggleVoiceFavorite(voiceId: string) {
+    setVoiceFavoriteIds((current) => current.includes(voiceId)
+      ? current.filter((id) => id !== voiceId)
+      : [...current, voiceId]);
   }
 
   function onCustomAvatarSelected(event: ChangeEvent<HTMLInputElement>) {
@@ -6684,6 +6708,14 @@ export function App() {
   }, [voiceAvatars]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(VOICE_FAVORITES_STORAGE_KEY, JSON.stringify(voiceFavoriteIds));
+    } catch {
+      // Favorite persistence is optional when the host blocks local storage.
+    }
+  }, [voiceFavoriteIds]);
+
+  useEffect(() => {
     return () => {
       if (themeTransitionTimerRef.current !== null) {
         window.clearTimeout(themeTransitionTimerRef.current);
@@ -8877,6 +8909,18 @@ export function App() {
                       <Search size={15} strokeWidth={1.9} />
                       <input value={voiceManagerQuery} onChange={(event) => setVoiceManagerQuery(event.target.value)} placeholder="搜索角色或片段" aria-label="搜索角色或片段" />
                     </label>
+                    <div className="voiceManagerQuickFilters" role="group" aria-label="角色筛选">
+                      <button type="button" className={voiceManagerFilter === "all" ? "active" : ""} aria-pressed={voiceManagerFilter === "all"} onClick={() => setVoiceManagerFilter("all")}>
+                        <Library size={14} strokeWidth={1.9} />
+                        <span>全部</span>
+                        <em>{visibleManagedVoices.length}</em>
+                      </button>
+                      <button type="button" className={voiceManagerFilter === "favorites" ? "active" : ""} aria-pressed={voiceManagerFilter === "favorites"} onClick={() => setVoiceManagerFilter("favorites")}>
+                        <Star size={14} strokeWidth={1.9} />
+                        <span>收藏</span>
+                        <em>{visibleFavoriteVoiceCount}</em>
+                      </button>
+                    </div>
                     <div className="voiceManagerListItems">
                       {filteredManagedVoices.map((voice) => (
                         <button
@@ -8894,7 +8938,7 @@ export function App() {
                           {voice.id === managedVoice?.id && <CheckCircle2 className="voiceManagerListCheck" size={15} strokeWidth={2.1} />}
                         </button>
                       ))}
-                      {filteredManagedVoices.length === 0 && <div className="voiceManagerListNoResults"><Search size={18} strokeWidth={1.7} /><span>没有匹配的角色</span></div>}
+                      {filteredManagedVoices.length === 0 && <div className="voiceManagerListNoResults"><Search size={18} strokeWidth={1.7} /><span>{voiceManagerFilter === "favorites" ? "还没有收藏的角色" : "没有匹配的角色"}</span><small>{voiceManagerFilter === "favorites" ? "在角色详情中点击“收藏”，下次可快速找到它。" : "试试角色名或参考片段名称。"}</small></div>}
                     </div>
                     <div className="voiceManagerListFooter">
                       <span>头像与角色卡片会同步更新</span>
@@ -8917,6 +8961,10 @@ export function App() {
                             <span className="voiceManagerActiveDot" />
                             {managedVoice.activeReferenceId ? "已连接生成" : "等待参考片段"}
                           </span>
+                          <button className={voiceFavoriteIds.includes(managedVoice.id) ? "pathPickButton voiceFavoriteButton active" : "pathPickButton voiceFavoriteButton"} type="button" aria-pressed={voiceFavoriteIds.includes(managedVoice.id)} onClick={() => toggleVoiceFavorite(managedVoice.id)}>
+                            <Star size={15} strokeWidth={1.9} fill={voiceFavoriteIds.includes(managedVoice.id) ? "currentColor" : "none"} />
+                            <span>{voiceFavoriteIds.includes(managedVoice.id) ? "已收藏" : "收藏"}</span>
+                          </button>
                           {!managedVoice.modelBinding && (
                             <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null} onClick={() => void onAddVoiceReference()}>
                               {voiceManagerAction === "add-reference" ? <Loader2 className="spin" size={15} /> : <Plus size={15} strokeWidth={1.9} />}
