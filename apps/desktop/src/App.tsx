@@ -7862,7 +7862,7 @@ export function App() {
 
         <div className="windowTools">
           <div className="toolGroup globalToolGroup" role="group" aria-label="全局工具">
-            <button className="toolButton" title="刷新状态" onClick={() => {
+            <button className="toolButton" type="button" title="刷新状态" aria-label="刷新状态" onClick={() => {
               void loadModels();
               void loadSystemStatus();
               void loadModelInstances();
@@ -7872,7 +7872,7 @@ export function App() {
             }}>
               <RefreshCw size={17} strokeWidth={1.9} />
             </button>
-            <button className="toolButton taskQueueToolButton" title="任务队列" onClick={() => {
+            <button className="toolButton taskQueueToolButton" type="button" title="任务队列" aria-label="任务队列" onClick={() => {
               setTaskCenterError(null);
               setTaskCenterMessage(null);
               setTaskHistoryClearConfirmOpen(false);
@@ -7894,22 +7894,22 @@ export function App() {
                 <Sun className="themeToggleSun" size={17} strokeWidth={1.9} />
               </span>
             </button>
-            <button className="toolButton" title="设置" aria-label="设置" onClick={openSettings}>
+            <button className="toolButton" type="button" title="设置" aria-label="设置" onClick={openSettings}>
               <Settings size={17} strokeWidth={1.9} />
             </button>
-            <button className="toolButton monitorToolButton" title="系统监控" onClick={() => setMonitorPanelOpen(true)}>
+            <button className="toolButton monitorToolButton" type="button" title="系统监控" aria-label="系统监控" onClick={() => setMonitorPanelOpen(true)}>
               <Cpu size={17} strokeWidth={1.9} />
               <span className={online ? "toolStatusDot online" : "toolStatusDot"} aria-hidden="true" />
             </button>
           </div>
           <div className="toolGroup windowControlGroup" role="group" aria-label="窗口控制">
-            <button className="toolButton" title="最小化" onClick={() => window.desktopWindow?.minimize()}>
+            <button className="toolButton" type="button" title="最小化" aria-label="最小化" onClick={() => window.desktopWindow?.minimize()}>
               <Minus size={18} strokeWidth={2} />
             </button>
-            <button className="toolButton" title="最大化" onClick={() => window.desktopWindow?.maximize()}>
+            <button className="toolButton" type="button" title="最大化" aria-label="最大化" onClick={() => window.desktopWindow?.maximize()}>
               <Maximize2 size={16} strokeWidth={1.9} />
             </button>
-            <button className="toolButton close" title="关闭" onClick={() => window.desktopWindow?.close()}>
+            <button className="toolButton close" type="button" title="关闭" aria-label="关闭" onClick={() => window.desktopWindow?.close()}>
               <X size={18} strokeWidth={2} />
             </button>
           </div>
@@ -8557,11 +8557,11 @@ export function App() {
 
             <div className="editorDock">
               <div className="editorTools">
-                <button className="dockButton" onClick={() => fileInputRef.current?.click()}>
+                <button className="dockButton" type="button" onClick={() => fileInputRef.current?.click()}>
                   <FileText size={17} strokeWidth={1.9} />
                   <span>导入 TXT</span>
                 </button>
-                <button className="dockButton compactDockButton" title="清空文本" aria-label="清空文本" onClick={() => setInput("")}>
+                <button className="dockButton compactDockButton" type="button" title="清空文本" aria-label="清空文本" onClick={() => setInput("")}>
                   <Trash2 size={17} strokeWidth={1.9} />
                   <span>清空文本</span>
                 </button>
@@ -8578,7 +8578,7 @@ export function App() {
                     }
                   }}
                 >
-                  <button className={loading ? "primaryAction editorGenerateButton isLoading" : "primaryAction editorGenerateButton"} disabled={!canGenerate} onClick={onGenerate}>
+                  <button className={loading ? "primaryAction editorGenerateButton isLoading" : "primaryAction editorGenerateButton"} type="button" disabled={!canGenerate} onClick={onGenerate}>
                     {loading ? <Loader2 className="spin" size={17} /> : <Wand2 size={17} strokeWidth={1.9} />}
                     <span>{loading ? "生成中" : "开始生成"}</span>
                   </button>
