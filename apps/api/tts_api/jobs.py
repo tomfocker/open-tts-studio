@@ -76,13 +76,36 @@ class JobStore:
                 "retained_active_jobs": len(retained),
             }
 
-    def create(self, request: SpeechRequest, retry_of: str | None = None) -> JobInfo:
+    def delete_terminal(self, job_id: str) -> dict[str, int | str]:
+        """Remove one finished job record without touching its audio file."""
+        with self._lock:
+            jobs = self._load()
+            job = jobs.get(job_id)
+            if job is None:
+                raise KeyError(job_id)
+            if job.status not in {JobStatus.succeeded, JobStatus.failed, JobStatus.cancelled}:
+                raise RuntimeError("进行中的任务不能移除记录。")
+            jobs.pop(job_id, None)
+            self._save(jobs)
+            removed_logs = 0
+            if job.log_file:
+                try:
+                    log_path = Path(job.log_file)
+                    if log_path.is_file():
+                        log_path.unlink()
+                        removed_logs = 1
+                except OSError:
+                    pass
+            return {"job_id": job_id, "removed_logs": removed_logs}
+
+    def create(self, request: SpeechRequest, retry_of: str | None = None, source: str = "speech") -> JobInfo:
         with self._lock:
             job_id = uuid4().hex
             job = JobInfo(
                 id=job_id,
                 status=JobStatus.queued,
                 request=request,
+                source=source,
                 log_file=str(self.log_dir / f"{job_id}.log"),
                 retry_of=retry_of,
             )
@@ -312,8 +335,8 @@ class JobRunner:
         if not self._queue.empty():
             self._start_worker_if_needed()
 
-    def enqueue(self, request: SpeechRequest, retry_of: str | None = None) -> JobInfo:
-        job = self.store.create(request, retry_of=retry_of)
+    def enqueue(self, request: SpeechRequest, retry_of: str | None = None, source: str = "speech") -> JobInfo:
+        job = self.store.create(request, retry_of=retry_of, source=source)
         if is_cloud_tts_request(request):
             self._cloud_executor.submit(self._run_job, job.id)
         else:
@@ -334,7 +357,7 @@ class JobRunner:
             raise KeyError(job_id)
         if job.status not in {JobStatus.failed, JobStatus.cancelled}:
             raise RuntimeError("仅失败或已取消的任务可以重试。")
-        return self.enqueue(job.request, retry_of=job.id)
+        return self.enqueue(job.request, retry_of=job.id, source=job.source)
 
     def cancel(self, job_id: str, force_running: bool = False) -> JobInfo:
         return self.store.cancel(job_id, force_running=force_running)

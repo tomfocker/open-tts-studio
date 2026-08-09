@@ -1087,6 +1087,7 @@ export type DoubaoImportedBook = {
 };
 
 export type DoubaoRealtimeTurn = {
+  taskId: string;
   assistantText: string;
   audio: SpeechResult;
   model: string;
@@ -1204,6 +1205,35 @@ export type DoubaoPrefetchCacheDetail = {
       updatedAt?: string;
     };
   } | null;
+};
+
+export type DoubaoPrefetchSegmentSummary = {
+  segmentId: string;
+  text: string;
+  audioFile?: string | null;
+  audioUrl?: string | null;
+  fileSize?: number;
+  exists: boolean;
+  error?: string | null;
+};
+
+export type DoubaoPrefetchChapterSummary = {
+  chapterId: string;
+  chapterIndex: number;
+  chapterTitle: string;
+  status: string;
+  completedSegments: number;
+  totalSegments: number;
+  directoryPath: string;
+  segments: DoubaoPrefetchSegmentSummary[];
+};
+
+export type DoubaoPrefetchTaskSummary = {
+  taskId: string;
+  bookId: string;
+  bookName: string;
+  bookDirectoryPath: string;
+  chapters: DoubaoPrefetchChapterSummary[];
 };
 
 export type DoubaoCacheStats = {

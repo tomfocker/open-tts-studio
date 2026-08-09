@@ -80,6 +80,29 @@ class BatchProjectStore:
             self._save(projects)
             return updated
 
+    def remove_segment_result_history(self, project_id: str, segment_id: str) -> BatchProject:
+        """Forget one batch result after its entity file was removed manually."""
+        with self._lock:
+            projects = self._load()
+            project = projects.get(project_id)
+            if project is None:
+                raise KeyError(project_id)
+            if project.status in {BatchProjectStatus.queued, BatchProjectStatus.running, BatchProjectStatus.cancelling}:
+                raise RuntimeError("批量任务正在执行，不能移除当前成果记录。")
+            segment = next((item for item in project.segments if item.id == segment_id), None)
+            if segment is None:
+                raise KeyError(segment_id)
+            if segment.result is None:
+                raise RuntimeError("该批量成果记录已经移除。")
+            updated_segments = [
+                item.model_copy(update={"result": None}) if item.id == segment_id else item
+                for item in project.segments
+            ]
+            updated = project.model_copy(update={"segments": updated_segments, "updated_at": utc_now()})
+            projects[project_id] = updated
+            self._save(projects)
+            return updated
+
     def queue(self, project_id: str) -> BatchProject:
         with self._lock:
             projects = self._load()

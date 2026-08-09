@@ -73,7 +73,7 @@ def _asset_metadata(root: Path) -> dict[str, dict]:
         metadata.setdefault(
             asset_id,
             {
-                "source": "speech",
+                "source": getattr(job, "source", "speech"),
                 "origin": _origin_for_model(job.result.model),
                 "model": job.result.model,
                 "text": job.request.input,

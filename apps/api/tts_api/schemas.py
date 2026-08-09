@@ -343,6 +343,9 @@ class JobInfo(BaseModel):
     id: str
     status: JobStatus
     request: SpeechRequest
+    # ``source`` keeps cloud realtime turns distinguishable from ordinary
+    # single-sentence synthesis while retaining the same durable job store.
+    source: str = "speech"
     result: SpeechResult | None = None
     error: str | None = None
     stage: str = "queued"

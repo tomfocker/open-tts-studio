@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from tts_api.adapters.doubao_web import DEFAULT_DOUBAO_VOICE, DoubaoWebAdapter
+from tts_api.jobs import get_job_store
 from tts_api.llm import DEFAULT_SYSTEM_PROMPT, chat_completion
 from tts_api.schemas import SpeechRequest
 
@@ -55,6 +56,21 @@ def generate_doubao_realtime_turn(request: DoubaoRealtimeTurnRequest) -> dict:
     ]
     if not any(message["role"] == "user" for message in messages):
         raise HTTPException(status_code=422, detail="请先输入一句想说的话。")
+    store = get_job_store()
+    user_text = next((message["content"] for message in reversed(messages) if message["role"] == "user"), "实时对话")
+    job = store.create(
+        SpeechRequest(
+            model="doubao-web",
+            input=user_text,
+            voice=request.voice_id,
+            speed=max(0.25, min(4.0, 1 + request.speech_rate / 50)),
+            pitch=request.pitch,
+            response_format=request.response_format,
+        ),
+        source="realtime",
+    )
+    store.mark_running(job.id)
+    store.report_progress(job.id, "waiting_cloud_request", 12, "实时对话已进入云端请求队列。")
     try:
         reply = chat_completion(
             base_url=request.base_url,
@@ -66,6 +82,7 @@ def generate_doubao_realtime_turn(request: DoubaoRealtimeTurnRequest) -> dict:
             timeout_seconds=90,
         )
         assistant_text = str(reply["content"]).strip()
+        store.report_progress(job.id, "starting_adapter", 55, "LLM 回复已返回，正在交给豆包整段合成。")
         audio = DoubaoWebAdapter().synthesize(
             SpeechRequest(
                 model="doubao-web",
@@ -76,9 +93,15 @@ def generate_doubao_realtime_turn(request: DoubaoRealtimeTurnRequest) -> dict:
                 response_format=request.response_format,
             )
         )
-    except (ValueError, RuntimeError) as exc:
+        store.mark_succeeded(job.id, audio)
+    except Exception as exc:
+        try:
+            store.mark_failed(job.id, str(exc))
+        except Exception:
+            pass
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {
+        "taskId": job.id,
         "assistantText": assistant_text,
         "audio": audio.model_dump(),
         "model": reply["model"],

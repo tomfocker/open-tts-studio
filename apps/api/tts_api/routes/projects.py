@@ -31,6 +31,17 @@ def get_project(project_id: str) -> BatchProject:
     return _get_project_or_404(project_id)
 
 
+@router.delete("/v1/projects/{project_id}/segments/{segment_id}/history")
+def remove_project_segment_history(project_id: str, segment_id: str) -> dict[str, str]:
+    try:
+        get_project_store().remove_segment_result_history(project_id, segment_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"Unknown project or segment: {exc.args[0]}") from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"project_id": project_id, "segment_id": segment_id}
+
+
 @router.patch("/v1/projects/{project_id}", response_model=BatchProject)
 def update_project(project_id: str, payload: BatchProjectUpdate) -> BatchProject:
     if payload.segments is not None and not any(segment.text.strip() for segment in payload.segments):

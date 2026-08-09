@@ -90,7 +90,7 @@ def _speech_results(job) -> list[TaskResult]:
         _file_result(
             f"speech:{job.id}:audio",
             "audio",
-            "语音成品",
+            "实时回复音频" if job.source == "realtime" else "语音成品",
             job.result.file_path,
             job.result.audio_url,
             model=job.result.model,
@@ -174,8 +174,8 @@ def list_tasks() -> dict:
     speech_tasks = [
         TaskSummary(
             id=job.id,
-            source="speech",
-            title=f"{job.request.model} · {job.request.input[:42]}",
+            source=job.source,
+            title=(f"实时对话 · {job.request.input[:42]}" if job.source == "realtime" else f"{job.request.model} · {job.request.input[:42]}"),
             status=job.status,
             stage=job.stage,
             progress_percent=job.progress_percent,
@@ -185,8 +185,8 @@ def list_tasks() -> dict:
             completed_at=job.completed_at,
             error=job.error,
             log_file=job.log_file,
-            retryable=job.status.value in {"failed", "cancelled"},
-            cancelable=job.status.value in {"queued", "running"},
+            retryable=job.source != "realtime" and job.status.value in {"failed", "cancelled"},
+            cancelable=job.source != "realtime" and job.status.value in {"queued", "running"},
             events=job.events,
             results=_speech_results(job),
         )

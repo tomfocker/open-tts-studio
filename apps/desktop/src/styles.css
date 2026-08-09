@@ -327,6 +327,789 @@
   color: #9f3d3d;
 }
 
+/* Voice library workspace: role list, reference collection, and inspector stay visible together. */
+.voiceManagerOverlay {
+  padding: 20px;
+}
+
+.voiceManagerDialog {
+  width: min(1240px, calc(100vw - 40px));
+  max-height: min(900px, calc(100dvh - 40px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.voiceManagerHeader {
+  padding: 16px 20px 14px;
+}
+
+.voiceManagerHeaderTitle {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.voiceManagerHeaderTitle > strong {
+  color: var(--text);
+  font-size: 19px;
+  letter-spacing: -0.02em;
+}
+
+.voiceManagerHeaderTitle > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voiceManagerEyebrow,
+.voiceManagerHeaderActions,
+.voiceManagerRule,
+.voiceManagerActiveState,
+.voiceManagerSaveState,
+.voiceInspectorActiveBadge,
+.voiceReferenceCardIdentity,
+.voiceReferenceCardMeta,
+.voiceInspectorPlayer,
+.voiceInspectorActionRow,
+.voiceManagerRoleActions {
+  display: flex;
+  align-items: center;
+}
+
+.voiceManagerEyebrow {
+  gap: 6px;
+  color: var(--accent-dark);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+}
+
+.voiceManagerHeaderCount {
+  margin-left: 3px;
+  padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  color: var(--muted);
+  font-family: inherit;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.voiceManagerHeaderActions {
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.voiceManagerRule {
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--line));
+  border-radius: 8px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-strong));
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.voiceManagerBody {
+  display: block;
+  overflow: hidden;
+  padding: 0;
+}
+
+.voiceManagerLayout {
+  grid-template-columns: 258px minmax(0, 1fr);
+  min-height: 0;
+  height: min(690px, calc(100dvh - 180px));
+  border: 0;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--panel) 72%, var(--panel-strong));
+}
+
+.voiceManagerList {
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 14px;
+  border-right: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 70%, var(--accent) 5%);
+}
+
+.voiceManagerListHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.voiceManagerListHeader > div {
+  display: grid;
+  gap: 3px;
+}
+
+.voiceManagerListHeader strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.voiceManagerListHeader small,
+.voiceManagerListFooter {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.voiceManagerListHeader > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel-strong));
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.voiceManagerSearch {
+  min-width: 0;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 9px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-strong) 72%, transparent);
+  box-shadow: var(--inner);
+}
+
+.voiceManagerSearch:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent), var(--inner);
+}
+
+.voiceManagerSearch input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+
+.voiceManagerSearch input::placeholder {
+  color: color-mix(in srgb, var(--muted) 75%, transparent);
+}
+
+.voiceManagerListItems {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.voiceManagerListItem {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  gap: 9px;
+  min-height: 58px;
+  padding: 9px;
+  border-radius: 10px;
+}
+
+.voiceManagerListItem .voiceAvatar {
+  width: 38px;
+  height: 38px;
+  font-size: 14px;
+}
+
+.voiceManagerListItem:hover,
+.voiceManagerListItem.active {
+  border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+}
+
+.voiceManagerListItem.active {
+  box-shadow: 0 7px 16px color-mix(in srgb, var(--accent) 10%, transparent), var(--inner);
+}
+
+.voiceManagerListCheck {
+  align-self: center;
+  color: var(--accent-dark);
+}
+
+.voiceManagerListNoResults {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 32px 12px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+
+.voiceManagerListFooter {
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+
+.voiceManagerDetail {
+  min-height: 0;
+  align-content: start;
+  gap: 16px;
+  padding: 18px 20px 20px;
+  overflow: auto;
+}
+
+.voiceManagerRoleHeading {
+  align-items: center;
+  gap: 18px;
+}
+
+.voiceManagerRoleIdentity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.voiceAvatar.voiceAvatarRole {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  font-size: 16px;
+}
+
+.voiceManagerRoleIdentity > div,
+.voiceInspectorHeading > div,
+.voiceInspectorPlayer > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.voiceManagerOverline {
+  color: var(--accent-dark) !important;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 9px !important;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.voiceManagerRoleIdentity strong {
+  font-size: 17px;
+}
+
+.voiceManagerRoleActions {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.voiceManagerActiveState {
+  gap: 6px;
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.voiceManagerActiveState.muted {
+  color: var(--muted);
+}
+
+.voiceManagerActiveDot,
+.voiceManagerSaveDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.voiceManagerActiveState.muted .voiceManagerActiveDot {
+  background: var(--muted);
+  box-shadow: none;
+}
+
+.voiceAvatarEditor {
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--panel-strong));
+}
+
+.voiceManagerWorkspaceGrid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(290px, 0.95fr) minmax(330px, 1.05fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.voiceReferenceSection,
+.voiceManagerInspector {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--panel-strong) 84%, transparent);
+  box-shadow: var(--inner);
+}
+
+.voiceReferenceSection {
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+.voiceReferenceHeading {
+  gap: 12px;
+}
+
+.voiceReferenceHeading strong {
+  font-size: 14px;
+}
+
+.voiceReferenceList {
+  display: grid;
+  gap: 8px;
+  max-height: 430px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.voiceReferenceCard {
+  gap: 8px;
+  padding: 11px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 64%, var(--panel-strong));
+}
+
+.voiceReferenceCard.selected {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-strong));
+  box-shadow: 0 8px 16px color-mix(in srgb, var(--accent) 10%, transparent), var(--inner);
+}
+
+.voiceReferenceCardTopline {
+  align-items: flex-start;
+}
+
+.voiceReferenceCardIdentity {
+  min-width: 0;
+  gap: 9px;
+}
+
+.voiceReferenceCardIdentity > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.voiceReferencePlay,
+.voiceInspectorPlay {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: white;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 5px 11px color-mix(in srgb, var(--accent) 26%, transparent);
+  transition: transform var(--motion-fast) var(--motion-ease), filter var(--motion-fast) ease;
+}
+
+.voiceReferencePlay {
+  width: 29px;
+  height: 29px;
+  border-radius: 9px;
+}
+
+.voiceReferencePlay:hover:not(:disabled),
+.voiceInspectorPlay:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.03);
+  filter: brightness(1.04);
+}
+
+.voiceReferencePlay.isPlaying {
+  animation: voicePreviewPulse 1.45s ease-in-out infinite;
+}
+
+.voiceReferenceBadge {
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 15%, var(--panel-strong));
+  font-size: 10px;
+}
+
+.voiceReferenceCardMeta {
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.voiceReferenceCardMeta span:last-child {
+  color: color-mix(in srgb, var(--muted) 86%, transparent);
+}
+
+.voiceReferenceWaveformWrap {
+  min-width: 0;
+  height: 38px;
+  overflow: hidden;
+  border-radius: 7px;
+}
+
+.voiceReferenceWaveform {
+  width: 100%;
+  height: 38px;
+  display: block;
+  border: 0;
+  border-radius: 7px;
+}
+
+.voiceReferenceWaveformPlaceholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  color: color-mix(in srgb, var(--muted) 84%, transparent);
+  background: color-mix(in srgb, var(--panel) 52%, var(--line));
+  font-size: 10px;
+}
+
+.voiceReferenceCardActions {
+  min-height: 28px;
+  margin-top: 0;
+}
+
+.voiceReferenceCardAction {
+  min-height: 28px;
+  color: var(--accent-dark);
+}
+
+.voiceReferenceEmptySection {
+  min-height: 220px;
+  align-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.voiceReferenceEmptySection strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.voiceReferenceEmptySection span {
+  max-width: 260px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.voiceReferenceEmptyIcon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 11%, var(--panel-strong));
+}
+
+.voiceManagerInspector {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 14px;
+}
+
+.voiceInspectorHeading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.voiceInspectorHeading strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voiceInspectorHeading > div > span:not(.voiceManagerOverline) {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voiceInspectorActiveBadge {
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 13%, var(--panel-strong));
+  font-size: 10px;
+  font-weight: 740;
+  white-space: nowrap;
+}
+
+.voiceInspectorPlayer {
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+}
+
+.voiceInspectorPlay {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+
+.voiceInspectorPlayer strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.voiceInspectorPlayer span {
+  color: var(--muted);
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+}
+
+.voiceInspectorActionRow {
+  gap: 8px;
+}
+
+.voiceInspectorActionRow .pathPickButton,
+.voiceInspectorActionRow .voiceReferenceTrimButton {
+  min-width: 0;
+  flex: 1 1 0;
+  justify-content: center;
+  padding: 0 9px;
+}
+
+.voiceRepairButton {
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.voiceRepairButton:hover:not(:disabled) {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+.voiceInspectorDivider {
+  height: 1px;
+  margin: 1px 0;
+  background: color-mix(in srgb, var(--line) 82%, transparent);
+}
+
+.voiceManagerInspector .settingsField {
+  gap: 5px;
+}
+
+.voiceManagerInspector .settingsField > span {
+  font-size: 11px;
+}
+
+.voiceManagerPromptField textarea {
+  min-height: 116px;
+}
+
+.voiceInspectorModelCard {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px;
+  border-radius: 10px;
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+
+.voiceInspectorModelCard > div {
+  display: grid;
+  gap: 2px;
+}
+
+.voiceInspectorModelCard strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.voiceInspectorModelCard span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.voiceInspectorRoleField {
+  padding-top: 2px;
+}
+
+.voiceManagerMetadata {
+  gap: 6px 10px;
+  padding: 2px 0 0;
+  font-size: 10px;
+}
+
+.voiceManagerMetadata span {
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--line) 24%, transparent);
+}
+
+.voiceManagerFooter {
+  align-items: center;
+  padding: 12px 20px 16px;
+}
+
+.voiceManagerSaveState {
+  gap: 7px;
+  margin-left: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.voiceManagerSaveState .voiceManagerSaveDot {
+  width: 6px;
+  height: 6px;
+  background: color-mix(in srgb, var(--muted) 72%, transparent);
+  box-shadow: none;
+}
+
+.voiceManagerSaveState.dirty {
+  color: var(--accent-dark);
+}
+
+.voiceManagerSaveState.dirty .voiceManagerSaveDot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+@keyframes voicePreviewPulse {
+  0%, 100% { box-shadow: 0 5px 11px color-mix(in srgb, var(--accent) 26%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 13%, transparent), 0 7px 14px color-mix(in srgb, var(--accent) 26%, transparent); }
+}
+
+@media (max-width: 980px) {
+  .voiceManagerDialog {
+    width: min(920px, calc(100vw - 28px));
+  }
+
+  .voiceManagerWorkspaceGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .voiceReferenceList {
+    max-height: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .voiceManagerOverlay {
+    padding: 12px;
+  }
+
+  .voiceManagerDialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .voiceManagerHeader {
+    padding: 14px;
+  }
+
+  .voiceManagerHeaderActions .voiceManagerRule {
+    display: none;
+  }
+
+  .voiceManagerLayout {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-height: none;
+    overflow: auto;
+  }
+
+  .voiceManagerBody {
+    overflow: auto;
+  }
+
+  .voiceManagerList {
+    min-height: 210px;
+    max-height: 260px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .voiceManagerDetail {
+    padding: 14px;
+    overflow: visible;
+  }
+
+  .voiceManagerRoleHeading,
+  .voiceManagerRoleActions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .voiceManagerRoleActions {
+    width: 100%;
+  }
+
+  .voiceManagerRoleActions .pathPickButton {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .voiceManagerFooter {
+    flex-wrap: wrap;
+    padding: 12px 14px 14px;
+  }
+
+  .voiceManagerFooter .settingsFooterSpacer {
+    display: none;
+  }
+
+  .voiceManagerSaveState {
+    order: 5;
+    width: 100%;
+    margin: 0;
+  }
+}
+
 .referenceAudioEditorOverlay {
   z-index: 30;
 }
@@ -569,7 +1352,6 @@
   }
 
   .voiceManagerList {
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     border-right: 0;
     border-bottom: 1px solid var(--line);
   }
@@ -1315,6 +2097,126 @@ summary:focus-visible {
 
   .topStatus > :not(.statusDot) {
     display: none;
+  }
+}
+
+/* Final voice-library sizing: this must follow the shared dialog styles. */
+.settingsDialog.voiceManagerDialog {
+  width: min(1400px, calc(100vw - 28px));
+  max-height: min(940px, calc(100dvh - 28px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerBody {
+  min-height: 0;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerLayout {
+  height: min(750px, calc(100dvh - 164px));
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter {
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px 16px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter .settingsAction,
+.settingsDialog.voiceManagerDialog .voiceManagerDelete {
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter .settingsAction {
+  min-width: 132px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter .primaryAction {
+  min-width: 146px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerRoleActions button,
+.settingsDialog.voiceManagerDialog .voiceInspectorActionRow button,
+.settingsDialog.voiceManagerDialog .voiceReferenceCardAction,
+.settingsDialog.voiceManagerDialog .voiceRepairButton {
+  white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+  .settingsDialog.voiceManagerDialog {
+    width: calc(100vw - 24px);
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerLayout {
+    height: min(720px, calc(100dvh - 164px));
+  }
+}
+
+@media (max-width: 720px) {
+  .settingsDialog.voiceManagerDialog {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerBody {
+    overflow: auto;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerLayout {
+    height: auto;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerFooter {
+    padding: 12px 14px 14px;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerFooter .settingsAction {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+}
+
+/* Keep the voice library overrides after the shared dialog rules. */
+.settingsDialog.voiceManagerDialog {
+  width: min(1240px, calc(100vw - 40px));
+  max-height: min(900px, calc(100dvh - 40px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerBody {
+  min-height: 0;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter {
+  align-items: center;
+  padding: 12px 20px 16px;
+}
+
+@media (max-width: 980px) {
+  .settingsDialog.voiceManagerDialog {
+    width: min(920px, calc(100vw - 28px));
+  }
+}
+
+@media (max-width: 720px) {
+  .settingsDialog.voiceManagerDialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerBody {
+    overflow: auto;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerFooter {
+    padding: 12px 14px 14px;
   }
 }
 
@@ -7144,6 +8046,10 @@ audio {
 .taskSourceTag.source-audio_separation { --task-source: #8c62cf; }
 .taskResultCard.source-alignment,
 .taskSourceTag.source-alignment { --task-source: #17849d; }
+.taskResultCard.source-realtime,
+.taskSourceTag.source-realtime { --task-source: #b45e87; }
+.taskResultCard.source-ebook,
+.taskSourceTag.source-ebook { --task-source: #1a9285; }
 .taskResultCard.source-untracked,
 .taskSourceTag.source-untracked { --task-source: #7e9aae; }
 
@@ -9647,12 +10553,12 @@ summary:focus-visible {
   min-width: 0;
   min-height: 0;
   height: 100%;
-  padding: 12px 14px 14px;
+  padding: 10px 14px 14px;
   color: var(--text);
   background: linear-gradient(145deg, color-mix(in srgb, var(--panel) 88%, white), var(--app-bg));
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 14px;
+  gap: 10px;
   overflow: auto;
 }
 
@@ -9669,17 +10575,17 @@ summary:focus-visible {
 
 .assetCenterHeader {
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
 }
 
 .assetCenterHeading {
-  gap: 11px;
+  gap: 9px;
 }
 
 .assetCenterHeadingIcon {
-  width: 42px;
-  height: 42px;
-  border-radius: 11px;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
   color: var(--accent-dark);
   background: color-mix(in srgb, var(--accent) 13%, var(--panel-strong));
   display: grid;
@@ -9691,25 +10597,11 @@ summary:focus-visible {
   min-width: 0;
 }
 
-.assetCenterHeading > div > span {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 720;
-  letter-spacing: 0.04em;
-}
-
 .assetCenterHeading h1 {
-  margin: 2px 0 0;
+  margin: 0;
   color: var(--text);
-  font-size: 25px;
+  font-size: 20px;
   line-height: 1.15;
-}
-
-.assetCenterHeading p {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 .assetCenterHeaderActions {
@@ -9722,7 +10614,7 @@ summary:focus-visible {
 .assetCenterHeaderActions .pathPickButton,
 .assetCenterReturnButton,
 .assetCenterQueueButton {
-  height: 38px;
+  height: 34px;
   border: 0;
   border-radius: 8px;
   padding: 0 11px;
@@ -9731,7 +10623,7 @@ summary:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 760;
 }
 
@@ -9771,21 +10663,22 @@ summary:focus-visible {
   min-width: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 9px;
+  gap: 8px;
 }
 
 .assetCenterSummary button {
   min-width: 0;
-  min-height: 62px;
+  min-height: 46px;
   border: 1px solid transparent;
   border-radius: 9px;
-  padding: 10px 12px;
+  padding: 7px 11px;
   color: var(--muted);
   background: color-mix(in srgb, var(--panel-strong) 74%, transparent);
   cursor: pointer;
-  display: grid;
-  align-content: center;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   text-align: left;
   box-shadow: var(--inner);
 }
@@ -9805,12 +10698,13 @@ summary:focus-visible {
 .assetCenterSummary span {
   font-size: 12px;
   font-weight: 720;
+  white-space: nowrap;
 }
 
 .assetCenterSummary strong {
   color: currentColor;
   font-family: "JetBrains Mono", Consolas, monospace;
-  font-size: 21px;
+  font-size: 19px;
   line-height: 1;
 }
 
@@ -9955,6 +10849,8 @@ summary:focus-visible {
 .assetSourceDot.source-audio_enhancement { background: #2e936f; }
 .assetSourceDot.source-audio_separation { background: #8c62cf; }
 .assetSourceDot.source-alignment { background: #17849d; }
+.assetSourceDot.source-realtime { background: #b45e87; }
+.assetSourceDot.source-ebook { background: #1a9285; }
 
 .assetCenterListPanel {
   display: grid;
@@ -10023,6 +10919,14 @@ summary:focus-visible {
   scrollbar-width: thin;
 }
 
+.assetDateGroup { min-width: 0; border-bottom: 1px solid var(--line); }
+.assetDateGroupHeader { width: 100%; min-height: 36px; border: 0; border-bottom: 1px solid color-mix(in srgb, var(--line) 68%, transparent); padding: 0 12px; color: var(--muted); background: color-mix(in srgb, var(--surface-well) 72%, transparent); cursor: pointer; display: flex; align-items: center; gap: 7px; text-align: left; }
+.assetDateGroupHeader:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 7%, var(--surface-well)); }
+.assetDateGroupHeader svg { color: var(--accent-dark); transition: transform 160ms ease; }
+.assetDateGroup.collapsed .assetDateGroupHeader svg { transform: rotate(-90deg); }
+.assetDateGroupHeader strong { color: var(--text); font-size: 11px; font-weight: 760; }
+.assetDateGroupHeader span { margin-left: auto; font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; }
+
 .assetCenterRow {
   min-width: 0;
   min-height: 72px;
@@ -10043,6 +10947,9 @@ summary:focus-visible {
 .assetCenterRow.missing {
   background: color-mix(in srgb, #b16843 10%, var(--panel-strong));
 }
+
+.assetCenterRow.summary { background: color-mix(in srgb, #1a9285 7%, var(--panel-strong)); }
+.assetCenterRow.summary .assetRowCheckbox { opacity: 0.46; }
 
 .assetRowCheckbox {
   display: grid;
@@ -10083,6 +10990,7 @@ summary:focus-visible {
 .assetResultKindIcon.kind-transcript,
 .assetResultKindIcon.kind-subtitle,
 .assetResultKindIcon.kind-alignment { color: #a16f1f; background: rgba(189, 129, 26, 0.13); }
+.assetResultKindIcon.kind-ebook { color: #187d73; background: rgba(26, 146, 133, 0.13); }
 
 .assetCenterRowMain strong,
 .assetCenterRowMain small {
@@ -10211,6 +11119,29 @@ summary:focus-visible {
 .assetInspectorPreviewEmpty { color: var(--muted); display: grid; place-items: center; gap: 8px; text-align: center; }
 .assetInspectorPreviewEmpty svg { width: 30px; height: 30px; color: var(--accent-dark); }
 .assetInspectorPreviewEmpty span { max-width: 230px; font-size: 11px; line-height: 1.45; }
+.ebookInspectorPreview { width: 100%; align-self: stretch; display: grid; gap: 10px; }
+.ebookInspectorBook { display: flex; align-items: center; gap: 9px; padding: 2px 2px 7px; border-bottom: 1px solid var(--line); }
+.ebookInspectorBook svg { flex: 0 0 auto; color: var(--accent-dark); }
+.ebookInspectorBook div { min-width: 0; display: grid; gap: 3px; }
+.ebookInspectorBook strong { color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ebookInspectorBook span, .ebookInspectorChapterDetail header span { color: var(--muted); font-size: 10px; }
+.ebookInspectorChapterList { max-height: 154px; overflow: auto; display: grid; gap: 4px; }
+.ebookInspectorChapterList button { min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 6px; padding: 7px 8px; color: var(--muted); background: color-mix(in srgb, var(--panel-strong) 62%, transparent); text-align: left; }
+.ebookInspectorChapterList button:hover, .ebookInspectorChapterList button.active { border-color: color-mix(in srgb, var(--accent) 44%, var(--line)); color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong)); }
+.ebookInspectorChapterList button span { font-size: 10px; }
+.ebookInspectorChapterList button strong { min-width: 0; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.ebookInspectorChapterList button em { color: var(--accent-dark); font-size: 10px; font-style: normal; font-family: "JetBrains Mono", Consolas, monospace; }
+.ebookInspectorChapterDetail { min-width: 0; display: grid; gap: 8px; }
+.ebookInspectorChapterDetail > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ebookInspectorChapterDetail > header > div { min-width: 0; display: grid; gap: 3px; }
+.ebookInspectorChapterDetail > header strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ebookInspectorSegments { max-height: 280px; overflow: auto; display: grid; gap: 7px; }
+.ebookInspectorSegments article { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--panel-strong) 56%, transparent); }
+.ebookInspectorSegments article > div { min-width: 0; display: grid; gap: 3px; }
+.ebookInspectorSegments article span { color: var(--accent-dark); font-size: 10px; font-weight: 700; }
+.ebookInspectorSegments article p { margin: 0; color: var(--text); font-size: 11px; line-height: 1.45; }
+.ebookInspectorSegments article small { color: var(--muted); font-size: 10px; }
+.ebookInspectorSegments audio { height: 32px; }
 .assetInspectorText { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 
 .assetInspectorMeta {
@@ -10311,6 +11242,8 @@ summary:focus-visible {
 .taskQueueItem.source-transcription { border-left-color: #4c9c9b; }
 .taskQueueItem.source-audio_enhancement { border-left-color: #b48354; }
 .taskQueueItem.source-audio_separation { border-left-color: #ad6a9f; }
+.taskQueueItem.source-realtime { border-left-color: #b45e87; }
+.taskQueueItem.source-ebook { border-left-color: #1a9285; }
 .taskQueueItem.failed { border-left-color: #b16843; }
 .taskQueueItem.cancelled { border-left-color: #8495a4; }
 .taskQueueItem.succeeded, .taskQueueItem.completed { border-left-color: #4f9d72; }
@@ -10326,6 +11259,8 @@ summary:focus-visible {
 .taskQueueStateLine strong { flex: 0 0 auto; color: var(--text); font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; }
 .taskQueueStateLine.failed strong { color: #b16843; }
 .taskQueueStateLine.cancelled strong { color: #8495a4; }
+.taskQueueStateLine.paused strong { color: #9a761e; }
+.taskQueueStateLine.partial strong { color: #b16843; }
 .taskQueueMeta { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .taskQueueMeta span { min-width: 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .taskQueueMeta strong { flex: 0 0 auto; color: var(--muted); font-family: "JetBrains Mono", Consolas, monospace; font-size: 10px; }
@@ -10339,6 +11274,8 @@ summary:focus-visible {
 .taskQueueEvents > div.error strong, .taskQueueEvents > div.error span { color: #a04d4d; }
 .taskQueueActions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .taskQueueActions .pathPickButton { height: 32px; font-size: 11px; }
+.taskQueueActions .taskQueueMissingAction { color: #a04d4d; background: color-mix(in srgb, #b16843 10%, var(--panel)); }
+.taskQueueActions .taskQueueMissingAction:hover { color: #8f3e3e; background: color-mix(in srgb, #b16843 16%, var(--panel)); }
 .taskQueueLink { margin-right: auto; border: 0; padding: 0 3px; color: var(--accent-dark); background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 720; }
 .taskCenterInlineConfirm { margin: 0; }
 .taskCenterDrawerFooter { min-height: 52px; padding: 8px 14px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
@@ -10417,6 +11354,105 @@ summary:focus-visible {
   box-shadow: 0 0 0 5px rgba(112, 212, 151, 0.14), 0 14px 26px rgba(0, 0, 0, 0.34), var(--inner);
 }
 
+.settingsDialog.settingsCenterDialog {
+  position: relative;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+}
+
+.settingsCenterHeader {
+  min-height: 56px;
+  padding: 10px 18px;
+}
+
+.settingsCenterHeader strong,
+.voiceManagerHeader strong {
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.settingsCenterHeader > div,
+.voiceManagerHeader > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.settingsCenterHeader .modalClose,
+.voiceManagerHeader .modalClose {
+  width: 36px;
+  height: 36px;
+}
+
+.settingsCenterDialog .settingsOverview {
+  grid-template-columns: 1fr;
+  padding: 14px 18px 10px;
+  border-top: 0;
+}
+
+.settingsCenterDialog .settingsOverviewIntro {
+  display: none;
+}
+
+.settingsCenterDialog .settingsOverviewItems {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-right: 44px;
+}
+
+.settingsCenterDialog .settingsSections {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.settingsCenterDialog .settingsSectionTab {
+  min-height: 36px;
+}
+
+.settingsDialog.voiceManagerDialog {
+  position: relative;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerList {
+  padding-top: 16px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerDetail {
+  padding-top: 16px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerRoleHeading {
+  padding-right: 0;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerListCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerRoleIdentityLine {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 7px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerRoleIdentityLine .voiceManagerOverline,
+.settingsDialog.voiceManagerDialog .voiceManagerRoleIdentityLine strong {
+  flex: 0 0 auto;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerRoleMeta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .voiceCard,
   .voiceCard::after,
@@ -10452,5 +11488,85 @@ summary:focus-visible {
   .settingsFeedback,
   .voiceToast {
     transition-duration: 1ms;
+  }
+}
+
+/* Final voice-library sizing: this must follow the shared dialog styles. */
+.settingsDialog.voiceManagerDialog {
+  width: min(1400px, calc(100vw - 28px));
+  max-height: min(940px, calc(100dvh - 28px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerBody {
+  min-height: 0;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerLayout {
+  height: min(750px, calc(100dvh - 164px));
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter {
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px 16px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter .settingsAction,
+.settingsDialog.voiceManagerDialog .voiceManagerDelete {
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter .settingsAction {
+  min-width: 132px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerFooter .primaryAction {
+  min-width: 146px;
+}
+
+.settingsDialog.voiceManagerDialog .voiceManagerRoleActions button,
+.settingsDialog.voiceManagerDialog .voiceInspectorActionRow button,
+.settingsDialog.voiceManagerDialog .voiceReferenceCardAction,
+.settingsDialog.voiceManagerDialog .voiceRepairButton {
+  white-space: nowrap;
+}
+
+@media (max-width: 980px) {
+  .settingsDialog.voiceManagerDialog {
+    width: calc(100vw - 24px);
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerLayout {
+    height: min(720px, calc(100dvh - 164px));
+  }
+}
+
+@media (max-width: 720px) {
+  .settingsDialog.voiceManagerDialog {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerBody {
+    overflow: auto;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerLayout {
+    height: auto;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerFooter {
+    padding: 12px 14px 14px;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerFooter .settingsAction {
+    min-width: 0;
+    flex: 1 1 auto;
   }
 }

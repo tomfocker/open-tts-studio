@@ -118,6 +118,14 @@ def test_legado_prefetch_task_lifecycle_and_cache_management(tmp_path, monkeypat
     assert tasks[0]["taskId"] == task_id
     cache = client.get("/api/legado/prefetch/cache/book-1/chapter-1").json()["data"]
     assert cache["exists"] is True
+    summary = client.get(f"/api/legado/prefetch/tasks/{task_id}/summary")
+    assert summary.status_code == 200
+    summary_data = summary.json()["data"]
+    assert summary_data["bookName"] == "一本书"
+    assert summary_data["chapters"][0]["segments"][0]["exists"] is True
+    segment_url = summary_data["chapters"][0]["segments"][0]["audioUrl"]
+    assert segment_url
+    assert client.get(segment_url).content == b"route-mp3"
     audio = client.get("/api/legado/prefetch/audio", params={"text": "正文第一段"})
     assert audio.content == b"route-mp3"
 

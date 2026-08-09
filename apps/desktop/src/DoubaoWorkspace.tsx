@@ -119,7 +119,7 @@ type DoubaoWorkspaceProps = {
   initialTab?: WorkspaceTab;
 };
 
-type WorkspaceTab = "synthesis" | "realtime" | "accounts" | "reader" | "cache" | "maintenance";
+type WorkspaceTab = "synthesis" | "realtime" | "accounts" | "reader" | "maintenance";
 type ReaderConfigTemplate = "default" | "fast" | "safe" | "custom";
 
 type CookieDraft = {
@@ -932,8 +932,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
       `已创建 ${selectedChapters.length} 章预制任务`
     );
     if (result) {
-      setTab("cache");
       await refreshTaskAndCacheState();
+      setMessage("已提交到全局任务中心，可在侧边任务栏查看电子书进度。");
     }
   }
 
@@ -1080,10 +1080,10 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
     realtime: { eyebrow: "制作", title: "实时对话", description: "全局 LLM 回复后由豆包整段朗读" },
     reader: { eyebrow: "制作", title: "批量电子书", description: "导入 TXT / EPUB 或连接 Legado 书架" },
     accounts: { eyebrow: "管理", title: "账号与 Cookie", description: "登录、验证与轮换云端账号" },
-    cache: { eyebrow: "管理", title: "任务与缓存", description: "追踪章节进度，管理已生成音频" },
     maintenance: { eyebrow: "系统", title: "运行维护", description: "调整请求策略与查看维护文档" }
   };
   const currentTabMeta = tabMeta[tab];
+  const legacyTab = tab as string;
 
   return (
     <section className="doubaoWorkspace" aria-label="云端语音合成工作台">
@@ -1113,9 +1113,6 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             <span className="doubaoTabGroupLabel">管理</span>
             <button className={tab === "accounts" ? "active" : ""} onClick={() => setTab("accounts")}>
               <KeyRound size={15} /><span>账号</span>
-            </button>
-            <button className={tab === "cache" ? "active" : ""} onClick={() => setTab("cache")}>
-              <Database size={15} /><span>任务</span>
             </button>
             <button className={tab === "maintenance" ? "active" : ""} onClick={() => setTab("maintenance")}>
               <Settings2 size={15} /><span>维护</span>
@@ -1579,7 +1576,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
           </div>
         )}
 
-        {tab === "cache" && (
+        {legacyTab === "cache" && (
           <div className="doubaoCacheLayout">
             <section className="doubaoCacheSummary">
               <article><span><Activity size={18} /></span><div><strong>{tasks.filter((task) => task.status === "processing").length}</strong><small>运行中任务</small></div></article>

@@ -418,6 +418,109 @@ def prefetch_tasks() -> dict:
     return _success(get_legado_services().prefetch.list(), "获取任务列表成功")
 
 
+def _prefetch_segment_path(services: LegadoServices, book_id: str, chapter_id: str, segment_id: str) -> tuple[Path, dict] | None:
+    """Resolve one cached segment without allowing paths outside the cache root."""
+    index = services.audio_cache.load_chapter_index(book_id, chapter_id)
+    if not index:
+        return None
+    segment = next(
+        (
+            item
+            for item in index.get("segments", [])
+            if isinstance(item, dict) and safe_cache_id(item.get("segmentId")) == safe_cache_id(segment_id)
+        ),
+        None,
+    )
+    if not segment:
+        return None
+    chapter_dir = services.audio_cache.chapter_dir(book_id, chapter_id).resolve()
+    relative_file = str(segment.get("audioFile") or f"audio/{segment.get('segmentId', '')}.mp3")
+    path = (chapter_dir / relative_file).resolve()
+    try:
+        path.relative_to(chapter_dir)
+    except ValueError:
+        return None
+    return path, segment
+
+
+@router.get("/legado/prefetch/tasks/{task_id}/summary")
+def prefetch_task_summary(task_id: str) -> dict:
+    """Return chapter/segment metadata for the成果中心电子书 inspector.
+
+    The directory paths are generated exclusively from the configured Doubao
+    cache root; callers cannot supply arbitrary filesystem paths.
+    """
+    services = get_legado_services()
+    task = services.prefetch.get(task_id)
+    if not task:
+        raise _error("任务不存在", 404)
+    book_info = task.get("bookInfo") or {}
+    book_id = str(book_info.get("bookId") or book_info.get("bookUrl") or "")
+    book_name = str(book_info.get("bookName") or book_info.get("name") or "未命名电子书")
+    book_directory = (services.audio_cache.books_dir / safe_cache_id(book_id)).resolve()
+    chapters_info = task.get("chaptersInfo") or []
+    chapters: list[dict] = []
+    for position, state in enumerate(task.get("chapters") or []):
+        info = chapters_info[position] if position < len(chapters_info) and isinstance(chapters_info[position], dict) else {}
+        chapter_id = str(state.get("chapterId") or info.get("chapterId") or info.get("chapterUrl") or info.get("url") or info.get("chapterIndex", position))
+        chapter_index = int(state.get("chapterIndex", info.get("chapterIndex", info.get("index", position))))
+        chapter_title = str(state.get("chapterTitle") or info.get("chapterTitle") or info.get("title") or f"第{chapter_index + 1}章")
+        index = services.audio_cache.load_chapter_index(book_id, chapter_id) or {}
+        metadata = index.get("metadata") or {}
+        segment_items: list[dict] = []
+        for segment in index.get("segments", []):
+            if not isinstance(segment, dict):
+                continue
+            segment_id = str(segment.get("segmentId") or "")
+            resolved = _prefetch_segment_path(services, book_id, chapter_id, segment_id) if segment_id else None
+            path = resolved[0] if resolved else None
+            segment_items.append(
+                {
+                    "segmentId": segment_id,
+                    "text": str(segment.get("text") or ""),
+                    "audioFile": segment.get("audioFile"),
+                    "audioUrl": f"/api/legado/prefetch/audio/{safe_cache_id(book_id)}/{safe_cache_id(chapter_id)}/{safe_cache_id(segment_id)}" if path and path.is_file() else None,
+                    "fileSize": int(segment.get("fileSize") or (path.stat().st_size if path and path.is_file() else 0)),
+                    "exists": bool(path and path.is_file() and path.stat().st_size > 0),
+                    "error": segment.get("error"),
+                }
+            )
+        chapters.append(
+            {
+                "chapterId": chapter_id,
+                "chapterIndex": chapter_index,
+                "chapterTitle": chapter_title,
+                "status": str(state.get("status") or metadata.get("status") or "pending"),
+                "completedSegments": int(state.get("completedSegments") or metadata.get("completedSegments") or 0),
+                "totalSegments": int(state.get("totalSegments") or metadata.get("totalSegments") or len(segment_items)),
+                "directoryPath": str(services.audio_cache.chapter_dir(book_id, chapter_id).resolve()) if services.audio_cache.chapter_dir(book_id, chapter_id).is_dir() else "",
+                "segments": segment_items,
+            }
+        )
+    return _success(
+        {
+            "taskId": task_id,
+            "bookId": book_id,
+            "bookName": book_name,
+            "bookDirectoryPath": str(book_directory) if book_directory.is_dir() else "",
+            "chapters": chapters,
+        },
+        "获取电子书成果详情成功",
+    )
+
+
+@router.get("/legado/prefetch/audio/{book_id}/{chapter_id}/{segment_id}")
+def prefetch_segment_audio(book_id: str, chapter_id: str, segment_id: str) -> FileResponse:
+    services = get_legado_services()
+    resolved = _prefetch_segment_path(services, book_id, chapter_id, segment_id)
+    if not resolved:
+        raise _error("未找到该章节音频", 404)
+    path, _segment = resolved
+    if not path.is_file() or path.stat().st_size <= 0:
+        raise _error("该段音频尚未生成", 404)
+    return FileResponse(path, media_type="audio/mpeg", headers={"Content-Length": str(path.stat().st_size)})
+
+
 @router.delete("/legado/prefetch/tasks/{task_id}")
 def prefetch_delete_task(task_id: str) -> dict:
     if not get_legado_services().prefetch.delete_task(task_id):

@@ -155,3 +155,27 @@ def test_clear_job_history_api_keeps_generated_audio_files(tmp_path: Path, monke
     assert clear_response.json()["removed_jobs"] == 1
     assert output_path.is_file()
     assert client.get("/v1/tts/jobs").json() == []
+
+
+def test_delete_one_terminal_history_record_keeps_generated_audio_file(tmp_path: Path, monkeypatch):
+    client = make_jobs_client(tmp_path, monkeypatch)
+    response = client.post("/v1/tts/jobs", json={"model": "mock-tts", "input": "只移除记录"})
+    completed = wait_for_terminal_job(client, response.json()["id"])
+    output_path = Path(completed["result"]["file_path"])
+
+    removed = client.delete(f"/v1/tts/jobs/{completed['id']}/history")
+
+    assert removed.status_code == 200
+    assert removed.json()["job_id"] == completed["id"]
+    assert output_path.is_file()
+    assert client.get(f"/v1/tts/jobs/{completed['id']}").status_code == 404
+
+
+def test_delete_one_history_record_rejects_active_job(tmp_path: Path, monkeypatch):
+    client = make_jobs_client(tmp_path, monkeypatch)
+    store = JobStore(get_settings().tasks_file, get_settings().task_log_dir)
+    job = store.create(SpeechRequest(model="mock-tts", input="正在进行"))
+
+    response = client.delete(f"/v1/tts/jobs/{job.id}/history")
+
+    assert response.status_code == 409

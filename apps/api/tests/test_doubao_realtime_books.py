@@ -95,5 +95,10 @@ def test_doubao_realtime_turn_reuses_global_llm_and_web_adapter(tmp_path, monkey
     assert response.status_code == 200
     assert response.json()["assistantText"] == "你好，主人。"
     assert response.json()["audio"]["audio_url"] == "/outputs/realtime.mp3"
+    assert response.json()["taskId"]
+    tasks = client.get("/v1/tasks").json()["tasks"]
+    task = next(item for item in tasks if item["id"] == response.json()["taskId"])
+    assert task["source"] == "realtime"
+    assert task["results"][0]["label"] == "实时回复音频"
     assert captured["messages"][0]["role"] == "system"
     assert captured["messages"][-1] == {"role": "user", "content": "请和我打个招呼"}

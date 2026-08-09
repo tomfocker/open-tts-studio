@@ -26,6 +26,7 @@ import type {
   DoubaoLegacySettings,
   DoubaoPrefetchTask,
   DoubaoPrefetchCacheDetail,
+  DoubaoPrefetchTaskSummary,
   DoubaoQrSession,
   DoubaoQrStatus,
   DoubaoStatus,
@@ -484,6 +485,10 @@ export function clearSpeechJobHistory(): Promise<{
   return jobRequest("/v1/tts/jobs/history", { method: "DELETE" });
 }
 
+export function deleteSpeechJobHistoryRecord(jobId: string): Promise<{ job_id: string; removed_logs: number }> {
+  return jobRequest(`/v1/tts/jobs/${encodeURIComponent(jobId)}/history`, { method: "DELETE" });
+}
+
 export async function fetchTaskSummaries(): Promise<TaskSummary[]> {
   const payload = await jobRequest<{ tasks: TaskSummary[] }>("/v1/tasks");
   return payload.tasks;
@@ -515,6 +520,10 @@ async function projectRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchBatchProjects(): Promise<BatchProject[]> {
   return projectRequest<BatchProject[]>("/v1/projects");
+}
+
+export function deleteBatchProjectSegmentHistory(projectId: string, segmentId: string): Promise<{ project_id: string; segment_id: string }> {
+  return projectRequest(`/v1/projects/${encodeURIComponent(projectId)}/segments/${encodeURIComponent(segmentId)}/history`, { method: "DELETE" });
 }
 
 export function createBatchProject(payload: BatchProjectCreate): Promise<BatchProject> {
@@ -1096,6 +1105,10 @@ export function fetchDoubaoPrefetchCacheDetail(bookId: string, chapterId: string
   return doubaoData(
     `/api/legado/prefetch/cache/${encodeURIComponent(bookId)}/${encodeURIComponent(chapterId)}`
   );
+}
+
+export function fetchDoubaoPrefetchTaskSummary(taskId: string): Promise<DoubaoPrefetchTaskSummary> {
+  return doubaoData(`/api/legado/prefetch/tasks/${encodeURIComponent(taskId)}/summary`);
 }
 
 export function deleteDoubaoPrefetchChapter(bookId: string, chapterId: string): Promise<unknown> {

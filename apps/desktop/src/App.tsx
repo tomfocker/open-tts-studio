@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  BookOpen,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -61,6 +62,8 @@ import {
   createVoice,
   createBatchProject,
   deleteAudioAsset,
+  deleteBatchProjectSegmentHistory,
+  deleteSpeechJobHistoryRecord,
   deleteVoice,
   deleteVoiceReference,
   exportVoicePackage,
@@ -78,12 +81,18 @@ import {
   exportSettingsBackup,
   fetchDoubaoStatus,
   fetchDoubaoVoices,
+  fetchDoubaoPrefetchTasks,
+  fetchDoubaoPrefetchTaskSummary,
   getApiBase,
   importSettingsBackup,
   importVoicePackage,
   inspectModelPackage,
   prewarmRealtimeRuntime,
   polishVoicePrompt,
+  pauseDoubaoPrefetch,
+  resumeDoubaoPrefetch,
+  cancelDoubaoPrefetch,
+  retryDoubaoPrefetch,
   registerModelPackage,
   releaseRealtimeRuntime,
   reserveRealtimeRuntime,
@@ -135,6 +144,8 @@ import type {
   BilibiliVideoQuality,
   DoubaoStatus,
   DoubaoVoice,
+  DoubaoPrefetchTask,
+  DoubaoPrefetchTaskSummary,
   ModelDirectory,
   ModelHealthResult,
   ModelInfo,
@@ -167,6 +178,7 @@ type TaskCenterResult = TaskResult & {
   asset: AudioAsset | null;
   bilibili_history_id?: string;
   relation: "task" | "orphan" | "history";
+  summary_only?: boolean;
 };
 
 declare global {
@@ -1486,6 +1498,12 @@ function taskStatusLabel(status: string) {
   if (status === "cancelled") {
     return "已取消";
   }
+  if (status === "paused") {
+    return "已暂停";
+  }
+  if (status === "partial") {
+    return "部分完成";
+  }
   return status || "未知";
 }
 
@@ -1499,6 +1517,13 @@ function taskEventStageLabel(stage: string) {
     preparing_cloud: "校验云端账号",
     starting_adapter: "开始合成",
     finalizing: "整理音频",
+    ebook_prefetching: "预制章节",
+    ebook_completed: "电子书完成",
+    ebook_paused: "电子书暂停",
+    ebook_cancelled: "电子书已取消",
+    ebook_failed: "电子书待处理",
+    downloaded: "已下载",
+    file_missing: "文件缺失",
     completed: "已完成",
     failed: "失败",
     cancelled: "已取消"
@@ -1528,6 +1553,12 @@ function taskSourceLabel(source: TaskSummary["source"]) {
   if (source === "alignment") {
     return "强制对齐";
   }
+  if (source === "realtime") {
+    return "实时对话";
+  }
+  if (source === "ebook") {
+    return "电子书";
+  }
   return "监控目录";
 }
 
@@ -1553,10 +1584,16 @@ function taskResultKindLabel(kind: string) {
   if (kind === "separation") {
     return "分轨音频";
   }
+  if (kind === "ebook") {
+    return "电子书章节";
+  }
   return "文件";
 }
 
 function taskResultIcon(kind: string) {
+  if (kind === "ebook") {
+    return <BookOpen size={15} strokeWidth={1.9} />;
+  }
   if (kind === "video") {
     return <Film size={15} strokeWidth={1.9} />;
   }
@@ -1567,6 +1604,71 @@ function taskResultIcon(kind: string) {
     return <FileText size={15} strokeWidth={1.9} />;
   }
   return <FileText size={15} strokeWidth={1.9} />;
+}
+
+function ebookPrefetchProgress(task: DoubaoPrefetchTask) {
+  const chapters = task.chapters ?? [];
+  const total = chapters.length || Number(task.progress?.total || 0);
+  const completed = chapters.length
+    ? chapters.filter((chapter) => chapter.status === "completed").length
+    : Number(task.progress?.completed?.length || 0);
+  const failed = chapters.length
+    ? chapters.filter((chapter) => chapter.status === "failed").length
+    : Number(task.progress?.failed?.length || 0);
+  return { total, completed, failed, percent: total > 0 ? Math.round((completed / total) * 100) : 0 };
+}
+
+function asEbookTaskSummary(task: DoubaoPrefetchTask): TaskSummary {
+  const progress = ebookPrefetchProgress(task);
+  const status = task.status === "processing" ? "running" : task.status;
+  const bookName = String(task.bookInfo.bookName || "未命名电子书");
+  const hasFailure = progress.failed > 0;
+  const error = task.chapters?.find((chapter) => chapter.error)?.error
+    || task.progress?.failed?.[0]?.error
+    || null;
+  const stage = status === "running"
+    ? "ebook_prefetching"
+    : status === "completed"
+      ? "ebook_completed"
+      : status === "paused"
+        ? "ebook_paused"
+        : status === "cancelled"
+          ? "ebook_cancelled"
+          : hasFailure ? "ebook_failed" : "ebook_pending";
+  const message = status === "running"
+    ? `正在预制第 ${Math.min(progress.completed + 1, Math.max(progress.total, 1))}/${progress.total || "?"} 章。`
+    : status === "completed"
+      ? `已完成 ${progress.completed}/${progress.total} 章电子书音频。`
+      : status === "paused"
+        ? `已暂停，已完成 ${progress.completed}/${progress.total} 章。`
+        : status === "cancelled"
+          ? `已取消，已保留 ${progress.completed}/${progress.total} 章成果。`
+          : error || `已完成 ${progress.completed}/${progress.total} 章，${progress.failed} 章需要处理。`;
+  return {
+    id: `ebook:${task.taskId}`,
+    source: "ebook",
+    title: `《${bookName}》 · ${progress.total || "?"} 章音频`,
+    status,
+    stage,
+    progress_percent: status === "completed" ? 100 : progress.percent,
+    created_at: task.createdAt,
+    updated_at: task.updatedAt,
+    completed_at: ["completed", "partial", "failed", "cancelled"].includes(status) ? task.updatedAt : null,
+    error,
+    retryable: ["paused", "cancelled", "partial", "failed"].includes(status),
+    cancelable: status === "running",
+    events: [{ occurred_at: task.updatedAt, stage, message, level: error ? "error" : "info" }],
+    results: [{
+      id: `ebook:${task.taskId}:summary`,
+      kind: "ebook",
+      label: "电子书章节汇总",
+      file_name: `《${bookName}》 · ${progress.completed}/${progress.total || "?"} 章音频`,
+      model: "doubao-web",
+      text: message,
+      exists: true,
+      downloadable: false
+    }]
+  };
 }
 
 function taskResultContextLabel(result: Pick<TaskCenterResult, "file_name" | "label" | "task_title">) {
@@ -1586,6 +1688,14 @@ function taskResultRelationLabel(relation: TaskCenterResult["relation"]) {
     return "历史记录";
   }
   return "已关联任务";
+}
+
+function resultDateGroup(value: string): { key: string; label: string } {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { key: "unknown", label: "未标记日期" };
+  const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  const label = date.toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+  return { key, label };
 }
 
 function resolveTaskResultUrl(url: string) {
@@ -1711,6 +1821,9 @@ function isBackendConnectionError(error: unknown) {
 function audioAssetSourceLabel(source: AudioAsset["source"]) {
   if (source === "speech") {
     return "单句生成";
+  }
+  if (source === "realtime") {
+    return "实时对话";
   }
   if (source === "batch_project") {
     return "批量旁白";
@@ -2012,6 +2125,14 @@ export function App() {
   const [voiceManagerAction, setVoiceManagerAction] = useState<string | null>(null);
   const [voiceManagerMessage, setVoiceManagerMessage] = useState<string | null>(null);
   const [voiceManagerError, setVoiceManagerError] = useState<string | null>(null);
+  const [voiceManagerQuery, setVoiceManagerQuery] = useState("");
+  const [voiceManagerPreviewId, setVoiceManagerPreviewId] = useState<string | null>(null);
+  const [voiceManagerPreviewPlaying, setVoiceManagerPreviewPlaying] = useState(false);
+  const [voiceManagerPreviewLoading, setVoiceManagerPreviewLoading] = useState(false);
+  const [voiceManagerPreviewTime, setVoiceManagerPreviewTime] = useState(0);
+  const [voiceManagerPreviewDuration, setVoiceManagerPreviewDuration] = useState(0);
+  const [voiceManagerPreviewPeaks, setVoiceManagerPreviewPeaks] = useState<number[]>([]);
+  const [voiceManagerPreviewWaveformStatus, setVoiceManagerPreviewWaveformStatus] = useState<WaveformStatus>("idle");
   const [avatarPickerOpen, setAvatarPickerOpen] = useState(false);
   const [cloneMode, setCloneMode] = useState<CloneMode>("可控克隆");
   const [input, setInput] = useState("你好，这是 IndexTTS2 的本地桌面软件测试。");
@@ -2052,11 +2173,18 @@ export function App() {
   const [taskCenterSourceFilter, setTaskCenterSourceFilter] = useState("all");
   const [selectedTaskResultIds, setSelectedTaskResultIds] = useState<string[]>([]);
   const [selectedTaskResultId, setSelectedTaskResultId] = useState<string | null>(null);
+  const [collapsedResultDateGroups, setCollapsedResultDateGroups] = useState<Set<string>>(new Set());
+  const seenResultDateGroupsRef = useRef<Set<string>>(new Set());
   const [bilibiliHistoryItems, setBilibiliHistoryItems] = useState<BilibiliMediaHistoryItem[]>([]);
   const [remoteTasks, setRemoteTasks] = useState<TaskSummary[]>([]);
+  const [ebookPrefetchTasks, setEbookPrefetchTasks] = useState<DoubaoPrefetchTask[]>([]);
   const [taskCenterAction, setTaskCenterAction] = useState<string | null>(null);
   const [taskCenterError, setTaskCenterError] = useState<string | null>(null);
   const [taskCenterMessage, setTaskCenterMessage] = useState<string | null>(null);
+  const [ebookInspectorSummary, setEbookInspectorSummary] = useState<DoubaoPrefetchTaskSummary | null>(null);
+  const [ebookInspectorLoading, setEbookInspectorLoading] = useState(false);
+  const [ebookInspectorError, setEbookInspectorError] = useState<string | null>(null);
+  const [ebookInspectorChapterId, setEbookInspectorChapterId] = useState<string | null>(null);
   const [taskHistoryClearConfirmOpen, setTaskHistoryClearConfirmOpen] = useState(false);
   const [audioLibraryOpen, setAudioLibraryOpen] = useState(false);
   const [monitorPanelOpen, setMonitorPanelOpen] = useState(false);
@@ -2192,6 +2320,9 @@ export function App() {
   const referenceAudioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const referenceAudioPreviewUrlRef = useRef<string | null>(null);
   const referenceAudioWaveformRequestRef = useRef(0);
+  const voiceManagerPreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceManagerPreviewUrlRef = useRef<string | null>(null);
+  const voiceManagerPreviewWaveformRequestRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
   const batchFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -2275,6 +2406,29 @@ export function App() {
       ?? null,
     [managedReferenceId, managedVoice]
   );
+  const filteredManagedVoices = useMemo(() => {
+    const query = voiceManagerQuery.trim().toLocaleLowerCase();
+    if (!query) {
+      return visibleManagedVoices;
+    }
+    return visibleManagedVoices.filter((voice) =>
+      [voice.name, voice.subtitle, ...voice.references.map((reference) => reference.name)]
+        .some((value) => value.toLocaleLowerCase().includes(query))
+    );
+  }, [visibleManagedVoices, voiceManagerQuery]);
+  const voiceManagerDirty = useMemo(() => {
+    if (!managedVoice) {
+      return false;
+    }
+    if (voiceManagerDraft.name.trim() !== managedVoice.name) {
+      return true;
+    }
+    if (!managedReference) {
+      return false;
+    }
+    return voiceManagerDraft.referenceName.trim() !== managedReference.name
+      || (voiceManagerDraft.referenceText.trim() || "") !== (managedReference.referenceText?.trim() || "");
+  }, [managedReference, managedVoice, voiceManagerDraft]);
   const managedReferenceRecognitionKey = managedVoice && managedReference ? `${managedVoice.id}:${managedReference.id}` : "";
   const editingBatchProject = useMemo(
     () => batchProjects.find((project) => project.id === editingBatchProjectId) ?? null,
@@ -2470,10 +2624,34 @@ export function App() {
       results: []
     };
   }, [samplerPendingAction, samplerState]);
+  const bilibiliHistoryTasks = useMemo<TaskSummary[]>(() => bilibiliHistoryItems.map((item) => ({
+    id: `bilibili:${item.id}`,
+    source: "bilibili",
+    title: item.title ?? item.itemTitle ?? "B 站媒体下载",
+    status: item.exists ? "completed" : "failed",
+    stage: item.exists ? "downloaded" : "file_missing",
+    progress_percent: item.exists ? 100 : 0,
+    created_at: item.downloadedAt,
+    updated_at: item.downloadedAt,
+    completed_at: item.downloadedAt,
+    error: item.exists ? null : "历史下载文件已不存在。",
+    retryable: !item.exists,
+    cancelable: false,
+    events: [{
+      occurred_at: item.downloadedAt,
+      stage: item.exists ? "downloaded" : "file_missing",
+      message: item.exists ? "媒体下载已完成，可在成果中心继续取样或转写。" : "历史下载记录仍在，但本地媒体文件已不存在。",
+      level: item.exists ? "info" : "error"
+    }],
+    results: []
+  })), [bilibiliHistoryItems]);
   const taskCenterTasks = useMemo(() => {
-    const allTasks = samplerTask ? [samplerTask, ...remoteTasks] : remoteTasks;
+    const ebookTasks = ebookPrefetchTasks.map(asEbookTaskSummary);
+    const allTasks = samplerTask
+      ? [samplerTask, ...bilibiliHistoryTasks, ...ebookTasks, ...remoteTasks]
+      : [...bilibiliHistoryTasks, ...ebookTasks, ...remoteTasks];
     return [...allTasks].sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
-  }, [remoteTasks, samplerTask]);
+  }, [bilibiliHistoryTasks, ebookPrefetchTasks, remoteTasks, samplerTask]);
   const taskCenterResults = useMemo<TaskCenterResult[]>(() => {
     const results: TaskCenterResult[] = [];
     const representedFilePaths = new Set<string>();
@@ -2490,7 +2668,8 @@ export function App() {
           status: task.status,
           created_at: task.completed_at ?? task.updated_at,
           asset: result.file_path ? audioAssets.find((asset) => asset.file_path === result.file_path) ?? null : null,
-          relation: "task"
+          relation: "task",
+          summary_only: result.kind === "ebook"
         });
       }
     }
@@ -2555,6 +2734,7 @@ export function App() {
         || result.kind === taskCenterResultFilter
         || (taskCenterResultFilter === "orphan" && result.relation === "orphan")
         || (taskCenterResultFilter === "audio_family" && ["audio", "enhancement", "separation"].includes(result.kind))
+        || (taskCenterResultFilter === "ebook" && result.kind === "ebook")
         || (taskCenterResultFilter === "documents" && ["transcript", "subtitle", "alignment"].includes(result.kind))
         || (taskCenterResultFilter === "media" && ["audio", "enhancement", "separation", "video"].includes(result.kind));
       if (!matchesKind) {
@@ -2571,12 +2751,42 @@ export function App() {
         .some((value) => value.toLocaleLowerCase().includes(search));
     });
   }, [taskCenterResultFilter, taskCenterResults, taskCenterSearch, taskCenterSourceFilter]);
+  const visibleTaskCenterResultGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; results: TaskCenterResult[] }>();
+    for (const result of visibleTaskCenterResults) {
+      const dateGroup = resultDateGroup(result.created_at);
+      const group = groups.get(dateGroup.key) ?? { ...dateGroup, results: [] };
+      group.results.push(result);
+      groups.set(dateGroup.key, group);
+    }
+    return [...groups.values()];
+  }, [visibleTaskCenterResults]);
+  useEffect(() => {
+    setCollapsedResultDateGroups((current) => {
+      if (visibleTaskCenterResultGroups.length === 0) return new Set();
+      const visibleKeys = new Set(visibleTaskCenterResultGroups.map((group) => group.key));
+      const newlyVisibleGroups = visibleTaskCenterResultGroups.filter((group) => !seenResultDateGroupsRef.current.has(group.key));
+      const next = new Set([...current].filter((key) => visibleKeys.has(key)));
+      for (const group of newlyVisibleGroups) {
+        if (group.key !== visibleTaskCenterResultGroups[0].key) next.add(group.key);
+      }
+      if (newlyVisibleGroups.some((group) => group.key === visibleTaskCenterResultGroups[0].key)) {
+        next.delete(visibleTaskCenterResultGroups[0].key);
+      }
+      seenResultDateGroupsRef.current = visibleKeys;
+      return next;
+    });
+  }, [visibleTaskCenterResultGroups]);
   const selectedTaskResults = useMemo(
     () => taskCenterResults.filter((result) => selectedTaskResultIds.includes(result.id)),
     [selectedTaskResultIds, taskCenterResults]
   );
-  const allVisibleTaskResultsSelected = visibleTaskCenterResults.length > 0
-    && visibleTaskCenterResults.every((result) => selectedTaskResultIds.includes(result.id));
+  const selectableVisibleTaskResults = useMemo(
+    () => visibleTaskCenterResults.filter((result) => !result.summary_only),
+    [visibleTaskCenterResults]
+  );
+  const allVisibleTaskResultsSelected = selectableVisibleTaskResults.length > 0
+    && selectableVisibleTaskResults.every((result) => selectedTaskResultIds.includes(result.id));
   const activeTaskCount = useMemo(
     () => taskCenterTasks.filter((task) => task.status === "queued" || task.status === "running" || task.status === "cancelling").length,
     [taskCenterTasks]
@@ -2601,6 +2811,41 @@ export function App() {
     () => taskCenterResults.find((result) => result.id === selectedTaskResultId) ?? visibleTaskCenterResults[0] ?? null,
     [selectedTaskResultId, taskCenterResults, visibleTaskCenterResults]
   );
+  const selectedEbookTaskId = selectedTaskResult?.summary_only
+    ? selectedTaskResult.task_id.replace(/^ebook:/, "")
+    : null;
+  useEffect(() => {
+    let disposed = false;
+    if (!selectedEbookTaskId) {
+      setEbookInspectorSummary(null);
+      setEbookInspectorChapterId(null);
+      setEbookInspectorError(null);
+      setEbookInspectorLoading(false);
+      return undefined;
+    }
+    setEbookInspectorLoading(true);
+    setEbookInspectorError(null);
+    void fetchDoubaoPrefetchTaskSummary(selectedEbookTaskId)
+      .then((summary) => {
+        if (disposed) return;
+        setEbookInspectorSummary(summary);
+        setEbookInspectorChapterId((current) => current && summary.chapters.some((chapter) => chapter.chapterId === current)
+          ? current
+          : summary.chapters[0]?.chapterId ?? null);
+      })
+      .catch((error) => {
+        if (disposed) return;
+        setEbookInspectorSummary(null);
+        setEbookInspectorError(error instanceof Error ? error.message : "无法读取电子书章节成果");
+      })
+      .finally(() => {
+        if (!disposed) setEbookInspectorLoading(false);
+      });
+    return () => { disposed = true; };
+  }, [selectedEbookTaskId]);
+  const selectedEbookChapter = ebookInspectorSummary?.chapters.find((chapter) => chapter.chapterId === ebookInspectorChapterId)
+    ?? ebookInspectorSummary?.chapters[0]
+    ?? null;
   const taskResultSources = useMemo(
     () => [...new Set(taskCenterResults.map((result) => result.source))]
       .map((source) => ({ source, count: taskCenterResults.filter((result) => result.source === source).length }))
@@ -2636,7 +2881,10 @@ export function App() {
         || (taskCenterStatusFilter === "attention" && task.retryable)
         || (taskCenterStatusFilter === "cancelled" && task.status === "cancelled")
         || (taskCenterStatusFilter === "missing" && (task.results ?? []).some((result) => !result.exists));
-      if (!matchesStatus || (taskCenterTaskSourceFilter !== "all" && task.source !== taskCenterTaskSourceFilter)) {
+      const matchesSource = taskCenterTaskSourceFilter === "all"
+        || (taskCenterTaskSourceFilter === "batch" && ["batch_project", "ebook"].includes(task.source))
+        || task.source === taskCenterTaskSourceFilter;
+      if (!matchesStatus || !matchesSource) {
         return false;
       }
       if (!search) {
@@ -2983,7 +3231,112 @@ export function App() {
     queueModelWarmup(selectedModelRef.current);
   }
 
+  function stopVoiceManagerPreview() {
+    voiceManagerPreviewWaveformRequestRef.current += 1;
+    const player = voiceManagerPreviewAudioRef.current;
+    if (player) {
+      player.onplay = null;
+      player.onpause = null;
+      player.onended = null;
+      player.ontimeupdate = null;
+      player.onloadedmetadata = null;
+      player.onerror = null;
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+    }
+    voiceManagerPreviewAudioRef.current = null;
+    if (voiceManagerPreviewUrlRef.current) {
+      URL.revokeObjectURL(voiceManagerPreviewUrlRef.current);
+      voiceManagerPreviewUrlRef.current = null;
+    }
+    setVoiceManagerPreviewId(null);
+    setVoiceManagerPreviewPlaying(false);
+    setVoiceManagerPreviewLoading(false);
+    setVoiceManagerPreviewTime(0);
+    setVoiceManagerPreviewDuration(0);
+    setVoiceManagerPreviewPeaks([]);
+    setVoiceManagerPreviewWaveformStatus("idle");
+  }
+
+  async function toggleVoiceManagerPreview(reference: VoiceReferencePreset) {
+    if (!reference.referenceAudio) {
+      setVoiceManagerError("该参考片段没有可试听的音频。");
+      return;
+    }
+    const currentPlayer = voiceManagerPreviewAudioRef.current;
+    if (voiceManagerPreviewId === reference.id && currentPlayer) {
+      if (currentPlayer.paused) {
+        try {
+          await currentPlayer.play();
+        } catch (err) {
+          setVoiceManagerError(err instanceof Error ? err.message : "无法播放这条参考音频。");
+        }
+      } else {
+        currentPlayer.pause();
+      }
+      return;
+    }
+
+    const readAudio = reference.referenceAudioManaged ? window.desktopFiles?.readManagedReferenceAudio : window.desktopFiles?.readSelectedAudio;
+    if (!readAudio) {
+      setVoiceManagerError("请在桌面软件中试听参考片段。");
+      return;
+    }
+
+    stopVoiceManagerPreview();
+    setVoiceManagerPreviewLoading(true);
+    setVoiceManagerPreviewWaveformStatus("loading");
+    setVoiceManagerError(null);
+    try {
+      const audioBytes = await readAudio(reference.referenceAudio);
+      const previewUrl = URL.createObjectURL(new Blob([new Uint8Array(audioBytes).buffer], { type: getAudioMimeType(reference.referenceAudio) }));
+      const player = new Audio(previewUrl);
+      const waveformRequestId = voiceManagerPreviewWaveformRequestRef.current + 1;
+      voiceManagerPreviewWaveformRequestRef.current = waveformRequestId;
+      voiceManagerPreviewUrlRef.current = previewUrl;
+      voiceManagerPreviewAudioRef.current = player;
+      setVoiceManagerPreviewId(reference.id);
+      setVoiceManagerPreviewTime(0);
+      setVoiceManagerPreviewPeaks([]);
+      player.preload = "metadata";
+      player.onplay = () => setVoiceManagerPreviewPlaying(true);
+      player.onpause = () => setVoiceManagerPreviewPlaying(false);
+      player.onended = () => {
+        setVoiceManagerPreviewPlaying(false);
+        setVoiceManagerPreviewTime(0);
+      };
+      player.ontimeupdate = () => setVoiceManagerPreviewTime(player.currentTime);
+      player.onloadedmetadata = () => setVoiceManagerPreviewDuration(Number.isFinite(player.duration) ? player.duration : 0);
+      player.onerror = () => setVoiceManagerError("这条音频无法在应用内播放，请检查编码或换一个文件。");
+      void decodeWaveformPeaks(new Uint8Array(audioBytes).buffer)
+        .then((peaks) => {
+          if (voiceManagerPreviewWaveformRequestRef.current === waveformRequestId) {
+            setVoiceManagerPreviewPeaks(peaks);
+            setVoiceManagerPreviewWaveformStatus("ready");
+          }
+        })
+        .catch(() => {
+          if (voiceManagerPreviewWaveformRequestRef.current === waveformRequestId) {
+            setVoiceManagerPreviewWaveformStatus("unavailable");
+          }
+        });
+      await player.play();
+    } catch (err) {
+      stopVoiceManagerPreview();
+      setVoiceManagerError(err instanceof Error ? err.message : "无法读取这条参考音频。");
+    } finally {
+      setVoiceManagerPreviewLoading(false);
+    }
+  }
+
+  function closeVoiceManager() {
+    stopVoiceManagerPreview();
+    setVoiceManagerOpen(false);
+  }
+
   function openVoiceManager() {
+    stopVoiceManagerPreview();
     const preferred = visibleManagedVoices.find((voice) => voice.id === selectedVoice) ?? visibleManagedVoices[0] ?? null;
     setManagedVoiceId(preferred?.id ?? null);
     const referenceId = preferred?.activeReferenceId ?? preferred?.references[0]?.id ?? null;
@@ -2991,12 +3344,14 @@ export function App() {
     setVoiceManagerDraft(createVoiceManagerDraft(preferred, referenceId));
     setVoiceManagerError(null);
     setVoiceManagerMessage(null);
+    setVoiceManagerQuery("");
     setAvatarPickerOpen(false);
     setVoiceManagerOpen(true);
     void loadVoices();
   }
 
   function selectManagedVoice(voice: VoicePreset) {
+    stopVoiceManagerPreview();
     setManagedVoiceId(voice.id);
     const referenceId = voice.activeReferenceId ?? voice.references[0]?.id ?? null;
     setManagedReferenceId(referenceId);
@@ -3009,6 +3364,9 @@ export function App() {
   function selectManagedReference(referenceId: string) {
     if (!managedVoice) {
       return;
+    }
+    if (referenceId !== managedReference?.id) {
+      stopVoiceManagerPreview();
     }
     setManagedReferenceId(referenceId);
     setVoiceManagerDraft(createVoiceManagerDraft(managedVoice, referenceId));
@@ -3053,7 +3411,7 @@ export function App() {
       throw new Error("此版本暂不支持导入前试听，请更新桌面软件后重试。");
     }
     const audioBytes = await readAudio(sourcePath);
-    const previewUrl = URL.createObjectURL(new Blob([audioBytes], { type: getAudioMimeType(sourcePath) }));
+    const previewUrl = URL.createObjectURL(new Blob([new Uint8Array(audioBytes).buffer], { type: getAudioMimeType(sourcePath) }));
     if (referenceAudioPreviewUrlRef.current) {
       URL.revokeObjectURL(referenceAudioPreviewUrlRef.current);
     }
@@ -4035,9 +4393,15 @@ export function App() {
 
   async function loadTaskSummaries() {
     try {
-      setRemoteTasks(await fetchTaskSummaries());
+      const [tasks, ebookTasks] = await Promise.all([
+        fetchTaskSummaries(),
+        fetchDoubaoPrefetchTasks().catch(() => [] as DoubaoPrefetchTask[])
+      ]);
+      setRemoteTasks(tasks);
+      setEbookPrefetchTasks(ebookTasks);
     } catch {
       setRemoteTasks([]);
+      setEbookPrefetchTasks([]);
     }
   }
 
@@ -5670,6 +6034,9 @@ export function App() {
       } else if (task.source === "bilibili") {
         await onSamplerCancel();
         setTaskCenterMessage("已向 B 站取样任务发送取消请求。");
+      } else if (task.source === "ebook") {
+        await cancelDoubaoPrefetch(task.id.replace(/^ebook:/, ""));
+        setTaskCenterMessage("电子书预制任务已停止，已完成章节会保留。");
       } else {
         throw new Error("当前任务类型暂不支持安全取消。");
       }
@@ -5707,6 +6074,14 @@ export function App() {
         setSamplerOpen(true);
         setTaskCenterOpen(false);
         setTaskCenterMessage("已打开 B 站取样窗口，请重新发起操作。");
+      } else if (task.source === "ebook") {
+        const taskId = task.id.replace(/^ebook:/, "");
+        if (task.status === "paused" || task.status === "cancelled") {
+          await resumeDoubaoPrefetch(taskId);
+        } else {
+          await retryDoubaoPrefetch(taskId);
+        }
+        setTaskCenterMessage("电子书失败章节已重新排队。");
       } else {
         throw new Error("当前任务类型暂不支持重试。");
       }
@@ -5786,6 +6161,57 @@ export function App() {
     }
   }
 
+  async function onClearMissingTaskRecords(task: TaskSummary) {
+    const missingResults = (task.results ?? []).filter((result) => !result.exists);
+    const isSpeechTask = ["speech", "realtime"].includes(task.source);
+    const projectId = task.source === "batch_project" && task.id.startsWith("project:")
+      ? task.id.replace(/^project:/, "")
+      : null;
+    const removableBatchResults = projectId
+      ? missingResults
+        .map((result) => ({ result, segmentId: result.id.split(":segment:").pop() ?? "" }))
+        .filter(({ result, segmentId }) => result.id.includes(":segment:") && segmentId)
+      : [];
+    if (missingResults.length === 0) {
+      setTaskCenterError("这项任务没有可清理的缺失文件记录。");
+      return;
+    }
+    if (!isSpeechTask && removableBatchResults.length === 0) {
+      setTaskCenterError("这类任务暂不支持批量清理缺失记录，请在成果详情中逐项处理。");
+      return;
+    }
+    const confirmed = window.confirm(
+      isSpeechTask
+        ? `移除“${task.title}”的缺失任务记录？\n\n只删除任务记录和诊断日志，不会删除其他成果文件。`
+        : `移除“${task.title}”中的 ${removableBatchResults.length} 条缺失成果记录？\n\n只清理任务记录，不会删除其他成果文件。`
+    );
+    if (!confirmed) return;
+    setTaskCenterAction(`clear-missing-${task.id}`);
+    setTaskCenterError(null);
+    setTaskCenterMessage(null);
+    try {
+      if (isSpeechTask) {
+        await deleteSpeechJobHistoryRecord(task.id);
+        setRemoteTasks((tasks) => tasks.filter((item) => item.id !== task.id));
+      } else if (projectId) {
+        for (const { segmentId } of removableBatchResults) {
+          await deleteBatchProjectSegmentHistory(projectId, segmentId);
+        }
+        const missingIds = new Set(removableBatchResults.map(({ result }) => result.id));
+        setRemoteTasks((tasks) => tasks.map((item) => item.id === task.id
+          ? { ...item, results: item.results.filter((result) => !missingIds.has(result.id)) }
+          : item));
+      }
+      setSelectedTaskResultIds((ids) => ids.filter((id) => !missingResults.some((result) => result.id === id)));
+      await Promise.all([loadTaskSummaries(), loadBatchProjects(), loadAudioAssets()]);
+      setTaskCenterMessage(isSpeechTask ? `已移除缺失任务记录：${task.title}。` : `已移除 ${removableBatchResults.length} 条缺失成果记录。`);
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "清理缺失记录失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
   async function openTaskLog(task: TaskSummary) {
     if (!task.log_file || !window.desktopFiles?.openPath) {
       setTaskCenterError("当前任务没有可打开的本地日志文件。");
@@ -5822,6 +6248,11 @@ export function App() {
   }
 
   async function onOpenTaskResult(result: TaskCenterResult) {
+    if (result.summary_only) {
+      setSelectedTaskResultId(result.id);
+      setTaskCenterMessage(`已打开 ${result.file_name} 的章节成果。`);
+      return;
+    }
     if (result.bilibili_history_id) {
       setSamplerOpen(true);
       setTaskCenterOpen(false);
@@ -5864,6 +6295,24 @@ export function App() {
     }
   }
 
+  async function onOpenEbookDirectory(path: string | undefined, label: string) {
+    if (!path || !window.desktopFiles?.openPath) {
+      setTaskCenterError("电子书目录尚未准备好，或当前不是桌面预览环境。");
+      return;
+    }
+    setTaskCenterAction(`open-ebook-${label}`);
+    setTaskCenterError(null);
+    try {
+      const errorMessage = await window.desktopFiles.openPath(path);
+      if (errorMessage) throw new Error(errorMessage);
+      setTaskCenterMessage(`已打开${label}目录。`);
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : `打开${label}目录失败`);
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
   async function onDownloadTaskResult(result: TaskCenterResult) {
     if (!result.url) {
       setTaskCenterError("该结果没有可导出的内容地址。");
@@ -5888,6 +6337,10 @@ export function App() {
   }
 
   async function onDeleteTaskResult(result: TaskCenterResult) {
+    if (result.summary_only) {
+      setTaskCenterError("电子书成果是章节汇总，请在任务中心管理预制进度和缓存文件。");
+      return;
+    }
     if (result.bilibili_history_id) {
       const bridge = window.desktopBilibiliSampler;
       if (!bridge) {
@@ -5910,6 +6363,54 @@ export function App() {
         setTaskCenterMessage(`已移除下载记录：${result.file_name}；本地 MP4 文件仍保留。`);
       } catch (err) {
         setTaskCenterError(err instanceof Error ? err.message : "移除 B 站下载记录失败");
+      } finally {
+        setTaskCenterAction(null);
+      }
+      return;
+    }
+    if (!result.exists && ["speech", "realtime"].includes(result.source) && result.task_id) {
+      const confirmed = window.confirm(`移除“${result.file_name}”的缺失任务记录？\n\n只删除任务记录和诊断日志，不会删除其他成果文件。`);
+      if (!confirmed) return;
+      setTaskCenterAction(`delete-result-${result.id}`);
+      setTaskCenterError(null);
+      try {
+        await deleteSpeechJobHistoryRecord(result.task_id);
+        // Remove it optimistically so the deleted record cannot remain selected
+        // while the task-center refresh is still in flight.
+        setRemoteTasks((tasks) => tasks.filter((task) => task.id !== result.task_id));
+        setSelectedTaskResultIds((ids) => ids.filter((id) => id !== result.id));
+        if (selectedTaskResultId === result.id) setSelectedTaskResultId(null);
+        await Promise.all([loadTaskSummaries(), loadAudioAssets()]);
+        setTaskCenterMessage(`已移除任务记录：${result.file_name}；${result.exists ? "实体文件仍保留在成果中心的未关联文件中。" : "对应文件已不存在，其他文件未受影响。"}`);
+      } catch (err) {
+        setTaskCenterError(err instanceof Error ? err.message : "移除缺失任务记录失败");
+      } finally {
+        setTaskCenterAction(null);
+      }
+      return;
+    }
+    if (!result.exists && result.source === "batch_project" && result.task_id.startsWith("project:") && result.id.includes(":segment:")) {
+      const projectId = result.task_id.replace(/^project:/, "");
+      const segmentId = result.id.split(":segment:").pop() ?? "";
+      if (!projectId || !segmentId) {
+        setTaskCenterError("无法定位这条批量成果记录。");
+        return;
+      }
+      const confirmed = window.confirm(`移除“${result.file_name}”的批量成果记录？\n\n只清理任务中的成果记录，不会删除其他文件。`);
+      if (!confirmed) return;
+      setTaskCenterAction(`delete-result-${result.id}`);
+      setTaskCenterError(null);
+      try {
+        await deleteBatchProjectSegmentHistory(projectId, segmentId);
+        setRemoteTasks((tasks) => tasks.map((task) => task.id === result.task_id
+          ? { ...task, results: task.results.filter((item) => item.id !== result.id) }
+          : task));
+        setSelectedTaskResultIds((ids) => ids.filter((id) => id !== result.id));
+        if (selectedTaskResultId === result.id) setSelectedTaskResultId(null);
+        await Promise.all([loadTaskSummaries(), loadBatchProjects(), loadAudioAssets()]);
+        setTaskCenterMessage(`已移除批量成果记录：${result.file_name}。`);
+      } catch (err) {
+        setTaskCenterError(err instanceof Error ? err.message : "移除批量成果记录失败");
       } finally {
         setTaskCenterAction(null);
       }
@@ -5945,10 +6446,10 @@ export function App() {
   function toggleAllVisibleTaskResults() {
     setSelectedTaskResultIds((ids) => {
       if (allVisibleTaskResultsSelected) {
-        const visibleIds = new Set(visibleTaskCenterResults.map((result) => result.id));
+        const visibleIds = new Set(selectableVisibleTaskResults.map((result) => result.id));
         return ids.filter((id) => !visibleIds.has(id));
       }
-      return [...new Set([...ids, ...visibleTaskCenterResults.map((result) => result.id)])];
+      return [...new Set([...ids, ...selectableVisibleTaskResults.map((result) => result.id)])];
     });
   }
 
@@ -6850,6 +7351,7 @@ export function App() {
     const typeFilters = [
       { id: "all", label: "全部成果", count: taskCenterResults.length, icon: <Library size={16} strokeWidth={1.9} /> },
       { id: "audio_family", label: "音频", count: taskCenterResults.filter((result) => ["audio", "enhancement", "separation"].includes(result.kind)).length, icon: <Volume2 size={16} strokeWidth={1.9} /> },
+      { id: "ebook", label: "电子书", count: taskCenterResults.filter((result) => result.kind === "ebook").length, icon: <BookOpen size={16} strokeWidth={1.9} /> },
       { id: "video", label: "视频", count: taskCenterResults.filter((result) => result.kind === "video").length, icon: <Film size={16} strokeWidth={1.9} /> },
       { id: "documents", label: "文字与时间轴", count: taskCenterResults.filter((result) => ["transcript", "subtitle", "alignment"].includes(result.kind)).length, icon: <FileText size={16} strokeWidth={1.9} /> },
       { id: "orphan", label: "待整理文件", count: orphanTaskResultCount, icon: <FolderOpen size={16} strokeWidth={1.9} /> }
@@ -6861,9 +7363,7 @@ export function App() {
           <div className="assetCenterHeading">
             <span className="assetCenterHeadingIcon"><Library size={21} strokeWidth={1.9} /></span>
             <div>
-              <span>OpenTTS Studio</span>
               <h1>成果中心</h1>
-              <p>统一查看、试听和管理本机生成的所有音频、视频与转写文件。</p>
             </div>
           </div>
           <div className="assetCenterHeaderActions">
@@ -6875,7 +7375,7 @@ export function App() {
               <RefreshCw size={16} strokeWidth={1.9} />
               <span>刷新</span>
             </button>
-            <button className={retryableTaskCount > 0 ? "assetCenterQueueButton attention" : "assetCenterQueueButton"} onClick={() => {
+            <button className={retryableTaskCount > 0 || missingTaskResultCount > 0 ? "assetCenterQueueButton attention" : "assetCenterQueueButton"} title={activeTaskCount + retryableTaskCount + missingTaskResultCount > 0 ? `${activeTaskCount + retryableTaskCount + missingTaskResultCount} 项任务待处理` : "任务队列"} onClick={() => {
               setTaskCenterError(null);
               setTaskCenterMessage(null);
               setTaskHistoryClearConfirmOpen(false);
@@ -6884,7 +7384,7 @@ export function App() {
             }}>
               <Gauge size={16} strokeWidth={1.9} />
               <span>任务队列</span>
-              <em>{activeTaskCount + retryableTaskCount}</em>
+              {activeTaskCount + retryableTaskCount + missingTaskResultCount > 0 && <em>{activeTaskCount + retryableTaskCount + missingTaskResultCount}</em>}
             </button>
             <button className="assetCenterReturnButton" onClick={() => selectWorkspace("creation")}>
               <ChevronLeft size={16} strokeWidth={1.9} />
@@ -6895,19 +7395,16 @@ export function App() {
 
         <div className="assetCenterSummary" aria-label="成果概览">
           <button className={taskCenterResultFilter === "all" ? "active" : ""} onClick={() => setTaskCenterResultFilter("all")}>
-            <span>所有成果</span><strong>{taskCenterResults.length}</strong>
+            <span>全部成果</span><strong>{taskCenterResults.length}</strong>
           </button>
           <button className={taskCenterResultFilter === "audio_family" ? "active" : ""} onClick={() => setTaskCenterResultFilter("audio_family")}>
             <span>音频</span><strong>{taskCenterResults.filter((result) => ["audio", "enhancement", "separation"].includes(result.kind)).length}</strong>
           </button>
           <button className={taskCenterResultFilter === "documents" ? "active" : ""} onClick={() => setTaskCenterResultFilter("documents")}>
-            <span>转写与时间轴</span><strong>{taskCenterResults.filter((result) => ["transcript", "subtitle", "alignment"].includes(result.kind)).length}</strong>
+            <span>文字与时间轴</span><strong>{taskCenterResults.filter((result) => ["transcript", "subtitle", "alignment"].includes(result.kind)).length}</strong>
           </button>
           <button className={orphanTaskResultCount > 0 ? "attention" : ""} onClick={() => setTaskCenterResultFilter("orphan")}>
             <span>待整理文件</span><strong>{orphanTaskResultCount}</strong>
-          </button>
-          <button className={retryableTaskCount > 0 || missingTaskResultCount > 0 ? "attention" : ""} onClick={() => setTaskCenterOpen(true)}>
-            <span>任务待处理</span><strong>{retryableTaskCount + missingTaskResultCount}</strong>
           </button>
         </div>
 
@@ -6966,24 +7463,41 @@ export function App() {
                 <div className="assetCenterLoading" aria-label="正在读取成果"><span /><span /><span /></div>
               ) : visibleTaskCenterResults.length === 0 ? (
                 <div className="assetCenterEmpty"><Library size={26} strokeWidth={1.7} /><strong>{taskCenterResults.length === 0 ? "还没有可管理的成果" : "没有符合筛选条件的成果"}</strong><span>{taskCenterResults.length === 0 ? "语音生成、转写、增强或取样完成后，文件会自动汇集到这里。" : "尝试更换类型、来源或关键词。"}</span></div>
-              ) : visibleTaskCenterResults.map((result) => {
-                const selectedForBatch = selectedTaskResultIds.includes(result.id);
-                const current = selected?.id === result.id;
-                const opening = taskCenterAction === `open-result-${result.id}`;
-                const downloading = taskCenterAction === `download-result-${result.id}`;
+              ) : visibleTaskCenterResultGroups.map((group) => {
+                const collapsed = collapsedResultDateGroups.has(group.key);
                 return (
-                  <article key={result.id} className={`assetCenterRow ${current ? "current" : ""} ${result.exists ? "" : "missing"}`}>
-                    <label className="assetRowCheckbox" title={`选择 ${result.file_name}`}><input type="checkbox" checked={selectedForBatch} onChange={() => toggleTaskResultSelection(result.id)} /><span className="srOnly">选择 {result.file_name}</span></label>
-                    <button className="assetCenterRowMain" type="button" onClick={() => setSelectedTaskResultId(result.id)}>
-                      <span className={`assetResultKindIcon kind-${result.kind}`}>{taskResultIcon(result.kind)}</span>
-                      <span><strong title={result.file_name}>{result.file_name}</strong><small>{taskResultContextLabel(result)}</small></span>
+                  <section key={group.key} className={`assetDateGroup ${collapsed ? "collapsed" : ""}`}>
+                    <button className="assetDateGroupHeader" type="button" onClick={() => setCollapsedResultDateGroups((current) => {
+                      const next = new Set(current);
+                      if (next.has(group.key)) next.delete(group.key); else next.add(group.key);
+                      return next;
+                    })} aria-expanded={!collapsed}>
+                      <ChevronDown size={16} strokeWidth={2} />
+                      <strong>{group.label}</strong>
+                      <span>{group.results.length} 项成果</span>
                     </button>
-                    <div className="assetCenterRowTags"><span className={`taskSourceTag source-${result.source}`}>{taskSourceLabel(result.source)}</span><span className={`taskResultKindTag kind-${result.kind}`}>{taskResultKindLabel(result.kind)}</span>{result.relation !== "task" && <span className={`taskResultRelationTag relation-${result.relation}`}>{taskResultRelationLabel(result.relation)}</span>}</div>
-                    <div className="assetCenterRowMeta"><span>{result.model ?? "未关联模型"}</span><time>{formatHistoryTime(result.created_at)}</time></div>
-                    <button className="assetRowOpenButton" title={result.bilibili_history_id ? "打开媒体采样" : result.file_path ? "打开文件" : "导出文件"} disabled={taskCenterAction !== null || !result.exists} onClick={() => void onOpenTaskResult(result)}>
-                      {opening || downloading ? <Loader2 className="spin" size={16} /> : result.file_path || result.bilibili_history_id ? <FolderOpen size={16} strokeWidth={1.9} /> : <Download size={16} strokeWidth={1.9} />}<span className="srOnly">打开成果</span>
-                    </button>
-                  </article>
+                    {!collapsed && group.results.map((result) => {
+                      const selectedForBatch = selectedTaskResultIds.includes(result.id);
+                      const current = selected?.id === result.id;
+                      const opening = taskCenterAction === `open-result-${result.id}`;
+                      const downloading = taskCenterAction === `download-result-${result.id}`;
+                      const canOpen = Boolean(result.summary_only || result.file_path || result.url || result.bilibili_history_id);
+                      return (
+                        <article key={result.id} className={`assetCenterRow ${current ? "current" : ""} ${result.exists ? "" : "missing"} ${result.summary_only ? "summary" : ""}`}>
+                          <label className="assetRowCheckbox" title={result.summary_only ? "电子书章节汇总不可批量处理" : `选择 ${result.file_name}`}><input type="checkbox" disabled={result.summary_only} checked={selectedForBatch} onChange={() => toggleTaskResultSelection(result.id)} /><span className="srOnly">选择 {result.file_name}</span></label>
+                          <button className="assetCenterRowMain" type="button" onClick={() => setSelectedTaskResultId(result.id)}>
+                            <span className={`assetResultKindIcon kind-${result.kind}`}>{taskResultIcon(result.kind)}</span>
+                            <span><strong title={result.file_name}>{result.file_name}</strong><small>{taskResultContextLabel(result)}</small></span>
+                          </button>
+                          <div className="assetCenterRowTags"><span className={`taskSourceTag source-${result.source}`}>{taskSourceLabel(result.source)}</span><span className={`taskResultKindTag kind-${result.kind}`}>{taskResultKindLabel(result.kind)}</span>{result.relation !== "task" && <span className={`taskResultRelationTag relation-${result.relation}`}>{taskResultRelationLabel(result.relation)}</span>}</div>
+                          <div className="assetCenterRowMeta"><span>{result.model ?? "未关联模型"}</span><time>{formatHistoryTime(result.created_at)}</time></div>
+                          <button className="assetRowOpenButton" title={result.summary_only ? "查看章节成果" : result.bilibili_history_id ? "打开媒体采样" : result.file_path ? "打开文件" : "导出文件"} disabled={taskCenterAction !== null || !result.exists || !canOpen} onClick={() => void onOpenTaskResult(result)}>
+                            {opening || downloading ? <Loader2 className="spin" size={16} /> : result.file_path || result.bilibili_history_id ? <FolderOpen size={16} strokeWidth={1.9} /> : <Download size={16} strokeWidth={1.9} />}<span className="srOnly">打开成果</span>
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </section>
                 );
               })}
             </div>
@@ -6992,24 +7506,38 @@ export function App() {
           <aside className="assetCenterInspector" aria-label="成果详情">
             {selected ? (
               <>
-                <header className="assetInspectorHeader"><div><span className={`assetResultKindIcon kind-${selected.kind}`}>{taskResultIcon(selected.kind)}</span><div><span>{taskResultKindLabel(selected.kind)} · {taskSourceLabel(selected.source)}</span><strong title={selected.file_name}>{selected.file_name}</strong></div></div>{!selected.exists && <em>文件缺失</em>}</header>
+                <header className="assetInspectorHeader"><div><span className={`assetResultKindIcon kind-${selected.kind}`}>{taskResultIcon(selected.kind)}</span><div><span>{taskResultKindLabel(selected.kind)} · {taskSourceLabel(selected.source)}</span><strong title={selected.file_name}>{selected.file_name}</strong></div></div>{selected.summary_only ? <em>章节汇总</em> : !selected.exists && <em>文件缺失</em>}</header>
                 <div className="assetInspectorPreview">
-                  {selectedIsAudio && selected.url && selected.exists ? <audio controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : selectedIsVideo && selected.url && selected.exists ? <video controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : <div className="assetInspectorPreviewEmpty">{taskResultIcon(selected.kind)}<span>{selected.exists ? selected.text || "此成果可通过下方操作打开或导出。" : "原始文件已不存在，可从任务记录中确认来源。"}</span></div>}
+                  {selected.summary_only ? (
+                    <div className="ebookInspectorPreview">
+                      {ebookInspectorLoading ? <div className="assetInspectorPreviewEmpty"><Loader2 className="spin" size={24} /><span>正在读取章节成果…</span></div> : ebookInspectorError ? <div className="assetInspectorPreviewEmpty"><AlertCircle size={24} /><span>{ebookInspectorError}</span></div> : ebookInspectorSummary ? <>
+                        <div className="ebookInspectorBook"><BookOpen size={22} strokeWidth={1.8} /><div><strong>{ebookInspectorSummary.bookName}</strong><span>{ebookInspectorSummary.chapters.length} 个章节 · 已生成 {ebookInspectorSummary.chapters.reduce((total, chapter) => total + chapter.segments.filter((segment) => segment.exists).length, 0)} 段音频</span></div></div>
+                        <div className="ebookInspectorChapterList" aria-label="电子书章节">
+                          {ebookInspectorSummary.chapters.map((chapter) => <button type="button" key={chapter.chapterId} className={chapter.chapterId === selectedEbookChapter?.chapterId ? "active" : ""} onClick={() => setEbookInspectorChapterId(chapter.chapterId)}><span>第 {chapter.chapterIndex + 1} 章</span><strong title={chapter.chapterTitle}>{chapter.chapterTitle}</strong><em>{chapter.segments.filter((segment) => segment.exists).length}/{chapter.segments.length || chapter.totalSegments || 0}</em></button>)}
+                        </div>
+                        {selectedEbookChapter ? <div className="ebookInspectorChapterDetail"><header><div><strong>{selectedEbookChapter.chapterTitle}</strong><span>{selectedEbookChapter.status} · {selectedEbookChapter.segments.length} 段</span></div><button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onOpenEbookDirectory(selectedEbookChapter?.directoryPath, "本章")}><FolderOpen size={14} strokeWidth={1.9} />本章目录</button></header>{selectedEbookChapter.segments.length ? <div className="ebookInspectorSegments">{selectedEbookChapter.segments.map((segment, index) => <article key={segment.segmentId || index}><div><span>段落 {index + 1}</span><p>{segment.text || "（无文本）"}</p></div>{segment.exists && segment.audioUrl ? <audio controls preload="none" src={resolveTaskResultUrl(segment.audioUrl)} /> : <small>{segment.error || "音频尚未生成"}</small>}</article>)}</div> : <div className="assetInspectorPreviewEmpty"><FileText size={21} /><span>这个章节还没有可预览的分段成果。</span></div>}</div> : null}
+                      </> : null}
+                    </div>
+                  ) : selectedIsAudio && selected.url && selected.exists ? <audio controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : selectedIsVideo && selected.url && selected.exists ? <video controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : <div className="assetInspectorPreviewEmpty">{taskResultIcon(selected.kind)}<span>{selected.exists ? selected.text || "此成果可通过下方操作打开或导出。" : "原始文件已不存在，可从任务记录中确认来源。"}</span></div>}
                 </div>
                 {selected.text && !selectedIsAudio && !selectedIsVideo && <p className="assetInspectorText">{selected.text}</p>}
                 <dl className="assetInspectorMeta">
                   <div><dt>来源</dt><dd>{taskSourceLabel(selected.source)}</dd></div>
-                  <div><dt>文件状态</dt><dd className={selected.relation === "orphan" || !selected.exists ? "assetMetaAttention" : ""}>{!selected.exists ? "文件缺失" : taskResultRelationLabel(selected.relation)}</dd></div>
+                  <div><dt>文件状态</dt><dd className={selected.summary_only ? "" : selected.relation === "orphan" || !selected.exists ? "assetMetaAttention" : ""}>{selected.summary_only ? (ebookInspectorSummary ? `已读取 ${ebookInspectorSummary.chapters.length} 个章节` : "按章节任务管理") : !selected.exists ? "文件缺失" : taskResultRelationLabel(selected.relation)}</dd></div>
                   <div><dt>关联任务</dt><dd title={selected.task_title}>{selected.relation === "orphan" ? "未关联任务" : selected.task_title}</dd></div>
                   <div><dt>模型</dt><dd>{selected.model ?? "未关联模型"}</dd></div>
-                  <div><dt>文件信息</dt><dd>{selected.duration_seconds ? formatDuration(selected.duration_seconds) : selected.size_bytes !== null && selected.size_bytes !== undefined ? formatAssetSize(selected.size_bytes) : "可导出结果"}</dd></div>
+                  <div><dt>文件信息</dt><dd>{selected.summary_only ? `${ebookInspectorSummary?.chapters.length ?? "-"} 个章节音频集合` : selected.duration_seconds ? formatDuration(selected.duration_seconds) : selected.size_bytes !== null && selected.size_bytes !== undefined ? formatAssetSize(selected.size_bytes) : "可导出结果"}</dd></div>
                   <div><dt>创建时间</dt><dd>{formatHistoryTime(selected.created_at)}</dd></div>
                 </dl>
                 <div className="assetInspectorActions">
-                  <button className="primaryAction" disabled={taskCenterAction !== null || !selected.exists} onClick={() => void onOpenTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "进入媒体采样" : selected.file_path ? "打开文件" : "导出文件"}</span></button>
+                  {selected.summary_only ? <>
+                    <button className="primaryAction" disabled={taskCenterAction !== null || !ebookInspectorSummary?.bookDirectoryPath} onClick={() => void onOpenEbookDirectory(ebookInspectorSummary?.bookDirectoryPath, "整本电子书")}><FolderOpen size={16} strokeWidth={1.9} /><span>打开整本目录</span></button>
+                    <button className="secondaryAction" disabled={taskCenterAction !== null || !selectedEbookChapter?.directoryPath} onClick={() => void onOpenEbookDirectory(selectedEbookChapter?.directoryPath, "本章")}><FolderOpen size={16} strokeWidth={1.9} /><span>打开本章目录</span></button>
+                    <button className="secondaryAction" disabled={taskCenterAction !== null} onClick={() => setTaskCenterOpen(true)}><BookOpen size={16} strokeWidth={1.9} /><span>前往任务中心</span></button>
+                  </> : <button className="primaryAction" disabled={taskCenterAction !== null || !selected.exists || !Boolean(selected.file_path || selected.url || selected.bilibili_history_id)} onClick={() => void onOpenTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "进入媒体采样" : selected.file_path ? "打开文件" : "导出文件"}</span></button>}
                   {selected.file_path && <button className="secondaryAction" disabled={taskCenterAction !== null || !selected.exists} onClick={() => void onRevealTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>所在目录</span></button>}
                   {selected.asset && <button className="secondaryAction" disabled={taskCenterAction !== null} onClick={() => onAddAudioAssetToVoiceLibrary(selected.asset!)}><Save size={16} strokeWidth={1.9} /><span>加入音色库</span></button>}
-                  {(selected.asset || selected.bilibili_history_id) && <button className="secondaryAction assetInspectorDelete" disabled={taskCenterAction !== null || (!selected.exists && Boolean(selected.asset))} onClick={() => void onDeleteTaskResult(selected)}><Trash2 size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "移除记录" : "删除文件"}</span></button>}
+                  {(!selected.summary_only && (selected.asset || selected.bilibili_history_id || (!selected.exists && ["speech", "realtime", "batch_project"].includes(selected.source)))) && <button className="secondaryAction assetInspectorDelete" disabled={taskCenterAction !== null || (!selected.exists && Boolean(selected.asset))} onClick={() => void onDeleteTaskResult(selected)}><Trash2 size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "移除记录" : !selected.exists ? "移除记录" : "删除文件"}</span></button>}
                 </div>
               </>
             ) : <div className="assetInspectorEmpty"><Library size={28} strokeWidth={1.7} /><strong>选择一项成果</strong><span>在左侧列表中选择文件，即可查看预览、来源和管理操作。</span></div>}
@@ -8158,18 +8686,17 @@ export function App() {
       )}
 
       {voiceManagerOpen && (
-        <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="角色音色库">
+        <div className="settingsOverlay voiceManagerOverlay" role="dialog" aria-modal="true" aria-label="角色音色库">
           <section className="settingsDialog voiceManagerDialog">
-            <header className="settingsHeader">
+            <header className="settingsHeader voiceManagerHeader">
               <div>
                 <strong>角色音色库</strong>
-                <span>一个角色可保存多条可裁切的参考片段；生成时只使用标记为“当前参考”的一条，保证稳定性。</span>
+                <span>管理角色、头像和参考片段</span>
               </div>
-              <button className="modalClose" title="关闭" onClick={() => setVoiceManagerOpen(false)}>
+              <button className="modalClose" title="关闭角色音色库" aria-label="关闭角色音色库" onClick={closeVoiceManager}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
-
             <div className="settingsBody voiceManagerBody">
               {visibleManagedVoices.length === 0 ? (
                 <div className="voiceManagerEmpty">
@@ -8180,35 +8707,64 @@ export function App() {
               ) : (
                 <div className="voiceManagerLayout">
                   <aside className="voiceManagerList" aria-label="角色列表">
-                    {visibleManagedVoices.map((voice) => (
-                      <button
-                        key={voice.id}
-                        type="button"
-                        className={voice.id === managedVoice?.id ? "voiceManagerListItem active" : "voiceManagerListItem"}
-                        onClick={() => selectManagedVoice(voice)}
-                      >
-                        <span className="voiceAvatar hasImage" style={{ "--avatar-bg": voice.background, ...voiceAvatarStyle(voice, voiceAvatars) } as CSSProperties} aria-hidden="true" />
-                        <span>
-                          <strong>{voice.name}</strong>
-                          <small>{voice.modelBinding ? "GPT-SoVITS 专属权重" : `${voice.references.length} 条参考片段`}</small>
-                        </span>
-                      </button>
-                    ))}
+                    <div className="voiceManagerListHeader">
+                      <div>
+                        <strong>角色档案</strong>
+                        <small>选择一个角色开始管理</small>
+                      </div>
+                      <span>{visibleManagedVoices.length}</span>
+                    </div>
+                    <label className="voiceManagerSearch">
+                      <Search size={15} strokeWidth={1.9} />
+                      <input value={voiceManagerQuery} onChange={(event) => setVoiceManagerQuery(event.target.value)} placeholder="搜索角色或片段" aria-label="搜索角色或片段" />
+                    </label>
+                    <div className="voiceManagerListItems">
+                      {filteredManagedVoices.map((voice) => (
+                        <button
+                          key={voice.id}
+                          type="button"
+                          className={voice.id === managedVoice?.id ? "voiceManagerListItem active" : "voiceManagerListItem"}
+                          aria-current={voice.id === managedVoice?.id ? "true" : undefined}
+                          onClick={() => selectManagedVoice(voice)}
+                        >
+                          <span className="voiceAvatar hasImage" style={{ "--avatar-bg": voice.background, ...voiceAvatarStyle(voice, voiceAvatars) } as CSSProperties} aria-hidden="true" />
+                          <span className="voiceManagerListCopy">
+                            <strong>{voice.name}</strong>
+                            <small>{voice.modelBinding ? "GPT-SoVITS 专属权重" : `${voice.references.length} 个参考片段`}</small>
+                          </span>
+                          {voice.id === managedVoice?.id && <CheckCircle2 className="voiceManagerListCheck" size={15} strokeWidth={2.1} />}
+                        </button>
+                      ))}
+                      {filteredManagedVoices.length === 0 && <div className="voiceManagerListNoResults"><Search size={18} strokeWidth={1.7} /><span>没有匹配的角色</span></div>}
+                    </div>
+                    <div className="voiceManagerListFooter">
+                      <span>头像与角色卡片会同步更新</span>
+                    </div>
                   </aside>
 
                   {managedVoice && (
                     <section className="voiceManagerDetail">
                       <div className="voiceManagerRoleHeading">
-                        <div>
-                          <strong>{managedVoice.name}</strong>
-                          <span>{managedVoice.modelBinding ? "模型专属权重角色" : `${managedVoice.references.length} 条参考片段 · 可随时选择一条用于生成`}</span>
+                        <div className="voiceManagerRoleIdentity">
+                          <span className="voiceAvatar voiceAvatarRole hasImage" style={{ "--avatar-bg": managedVoice.background, ...voiceAvatarStyle(managedVoice, voiceAvatars) } as CSSProperties} aria-hidden="true" />
+                          <div className="voiceManagerRoleIdentityLine">
+                            <span className="voiceManagerOverline">当前角色</span>
+                            <strong>{managedVoice.name}</strong>
+                            <span className="voiceManagerRoleMeta">· {managedVoice.modelBinding ? "模型专属权重" : `${managedVoice.references.length} 个参考片段`}</span>
+                          </div>
                         </div>
-                        {!managedVoice.modelBinding && (
-                          <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null} onClick={() => void onAddVoiceReference()}>
-                            {voiceManagerAction === "add-reference" ? <Loader2 className="spin" size={15} /> : <Plus size={15} strokeWidth={1.9} />}
-                            <span>添加参考片段</span>
-                          </button>
-                        )}
+                        <div className="voiceManagerRoleActions">
+                          <span className={managedVoice.activeReferenceId ? "voiceManagerActiveState" : "voiceManagerActiveState muted"}>
+                            <span className="voiceManagerActiveDot" />
+                            {managedVoice.activeReferenceId ? "已连接生成" : "等待参考片段"}
+                          </span>
+                          {!managedVoice.modelBinding && (
+                            <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null} onClick={() => void onAddVoiceReference()}>
+                              {voiceManagerAction === "add-reference" ? <Loader2 className="spin" size={15} /> : <Plus size={15} strokeWidth={1.9} />}
+                              <span>添加参考片段</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <section className="voiceAvatarEditor" aria-label="角色头像">
@@ -8264,152 +8820,201 @@ export function App() {
                         )}
                       </section>
 
-                      {managedVoice.references.length > 0 ? (
-                        <section className="voiceReferenceSection" aria-label="参考片段">
-                          <div className="voiceReferenceHeading">
-                            <div>
-                              <strong>参考片段</strong>
-                              <span>点击卡片编辑；“当前参考”会同步给现有单参考模型与外部 API。</span>
+                      <div className="voiceManagerWorkspaceGrid">
+                        {managedVoice.references.length > 0 ? (
+                          <section className="voiceReferenceSection" aria-label="参考片段">
+                            <div className="voiceReferenceHeading">
+                              <div>
+                                <strong>参考片段</strong>
+                                <span>先试听，再把最稳定的一条设为当前生成参考。</span>
+                              </div>
+                              <small>{managedVoice.references.length} / 24</small>
                             </div>
-                            <small>{managedVoice.references.length} / 24</small>
-                          </div>
-                          <div className="voiceReferenceGrid">
-                            {managedVoice.references.map((reference) => {
-                              const isSelected = reference.id === managedReference?.id;
-                              const isActive = reference.id === managedVoice.activeReferenceId;
-                              return (
-                                <article
-                                  key={reference.id}
-                                  className={isSelected ? "voiceReferenceCard selected" : "voiceReferenceCard"}
-                                  role="button"
-                                  tabIndex={0}
-                                  aria-pressed={isSelected}
-                                  onClick={() => selectManagedReference(reference.id)}
-                                  onKeyDown={(event) => {
-                                    if (event.key === "Enter" || event.key === " ") {
-                                      event.preventDefault();
-                                      selectManagedReference(reference.id);
-                                    }
-                                  }}
-                                >
-                                  <div className="voiceReferenceCardTopline">
-                                    <strong>{reference.name}</strong>
-                                    {isActive && <span className="voiceReferenceBadge">当前参考</span>}
-                                  </div>
-                                  <span className="voiceReferenceFile" title={reference.referenceAudio}>{getFileBaseName(reference.referenceAudio ?? "未指定音频")}</span>
-                                  <span className="voiceReferenceState">{reference.referenceAudioManaged ? "音频已托管" : "外部参考路径"}</span>
-                                  <div className="voiceReferenceCardActions">
-                                    {!isActive && (
-                                      <button
-                                        className="secondaryAction voiceReferenceCardAction"
-                                        type="button"
-                                        disabled={voiceManagerAction !== null}
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          void onActivateManagedReference(reference.id);
-                                        }}
-                                      >
-                                        <span>设为当前参考</span>
-                                      </button>
-                                    )}
-                                    {managedVoice.references.length > 1 && (
-                                      <button
-                                        className="voiceReferenceDelete"
-                                        type="button"
-                                        title={`删除参考片段 ${reference.name}`}
-                                        disabled={voiceManagerAction !== null}
-                                        onClick={(event) => {
-                                          event.stopPropagation();
-                                          void onDeleteManagedReference(reference.id);
-                                        }}
-                                      >
-                                        <Trash2 size={14} strokeWidth={1.9} />
-                                      </button>
-                                    )}
-                                  </div>
-                                </article>
-                              );
-                            })}
-                          </div>
-                        </section>
-                      ) : (
-                        <p className="voiceManagerHint">此角色只关联 GPT-SoVITS 的训练权重，不会混入普通参考片段。</p>
-                      )}
+                            <div className="voiceReferenceList">
+                              {managedVoice.references.map((reference) => {
+                                const isSelected = reference.id === managedReference?.id;
+                                const isActive = reference.id === managedVoice.activeReferenceId;
+                                const isPreviewing = reference.id === voiceManagerPreviewId;
+                                return (
+                                  <article
+                                    key={reference.id}
+                                    className={isSelected ? "voiceReferenceCard selected" : "voiceReferenceCard"}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={isSelected}
+                                    onClick={() => selectManagedReference(reference.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        selectManagedReference(reference.id);
+                                      }
+                                    }}
+                                  >
+                                    <div className="voiceReferenceCardTopline">
+                                      <div className="voiceReferenceCardIdentity">
+                                        <button
+                                          className={isPreviewing && voiceManagerPreviewPlaying ? "voiceReferencePlay isPlaying" : "voiceReferencePlay"}
+                                          type="button"
+                                          disabled={voiceManagerAction !== null || voiceManagerPreviewLoading}
+                                          title={isPreviewing && voiceManagerPreviewPlaying ? "暂停试听" : "试听片段"}
+                                          aria-label={isPreviewing && voiceManagerPreviewPlaying ? `暂停试听 ${reference.name}` : `试听 ${reference.name}`}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void toggleVoiceManagerPreview(reference);
+                                          }}
+                                        >
+                                          {isPreviewing && voiceManagerPreviewPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+                                        </button>
+                                        <div>
+                                          <strong>{reference.name}</strong>
+                                          <span className="voiceReferenceFile" title={reference.referenceAudio}>{getFileBaseName(reference.referenceAudio ?? "未指定音频")}</span>
+                                        </div>
+                                      </div>
+                                      {isActive && <span className="voiceReferenceBadge">当前生成参考</span>}
+                                    </div>
+                                    <div className="voiceReferenceCardMeta">
+                                      <span>{reference.referenceAudioManaged ? "音频已托管" : "外部参考路径"}</span>
+                                      <span>{isSelected ? "已选中编辑" : "点击查看详情"}</span>
+                                    </div>
+                                    <div className="voiceReferenceWaveformWrap">
+                                      {isSelected ? (
+                                        <AudioWaveform
+                                          className="voiceReferenceWaveform"
+                                          peaks={voiceManagerPreviewPeaks}
+                                          status={voiceManagerPreviewWaveformStatus}
+                                          theme={theme}
+                                          progressRatio={voiceManagerPreviewDuration > 0 ? voiceManagerPreviewTime / voiceManagerPreviewDuration : 0}
+                                          ariaLabel="试听参考片段波形"
+                                        />
+                                      ) : (
+                                        <div className="voiceReferenceWaveformPlaceholder"><Waves size={14} strokeWidth={1.8} /><span>选中后载入真实波形</span></div>
+                                      )}
+                                    </div>
+                                    <div className="voiceReferenceCardActions">
+                                      {!isActive && (
+                                        <button
+                                          className="secondaryAction voiceReferenceCardAction"
+                                          type="button"
+                                          disabled={voiceManagerAction !== null}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void onActivateManagedReference(reference.id);
+                                          }}
+                                        >
+                                          <span>设为当前</span>
+                                        </button>
+                                      )}
+                                      {managedVoice.references.length > 1 && (
+                                        <button
+                                          className="voiceReferenceDelete"
+                                          type="button"
+                                          title={`删除参考片段 ${reference.name}`}
+                                          disabled={voiceManagerAction !== null}
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            void onDeleteManagedReference(reference.id);
+                                          }}
+                                        >
+                                          <Trash2 size={14} strokeWidth={1.9} />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          </section>
+                        ) : (
+                          <section className="voiceReferenceSection voiceReferenceEmptySection">
+                            <div className="voiceReferenceEmptyIcon"><Waves size={20} strokeWidth={1.7} /></div>
+                            <strong>这个角色还没有参考片段</strong>
+                            <span>导入一条清晰、时长合适的语音后，就能在这里试听和管理。</span>
+                          </section>
+                        )}
 
-                      {managedReference && (
-                        <>
-                          <div className="voiceManagerSummary">
+                        <aside className="voiceManagerInspector" aria-label="片段详情">
+                          <div className="voiceInspectorHeading">
                             <div>
-                              <strong>{managedReference.referenceAudioManaged ? "当前片段 · 文件已托管" : "当前片段 · 外部路径"}</strong>
-                              <span>{getFileBaseName(managedReference.referenceAudio ?? "本地音色")}</span>
+                              <span className="voiceManagerOverline">片段详情</span>
+                              <strong>{managedReference?.name ?? "角色设置"}</strong>
+                              <span>{managedReference ? getFileBaseName(managedReference.referenceAudio ?? "本地音色") : "此角色由模型权重驱动"}</span>
                             </div>
-                            <div className="voiceReferenceEditorActions">
-                              <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null || recognizingVoiceIds.includes(managedReferenceRecognitionKey)} onClick={() => void onReplaceVoiceReference()}>
-                                {voiceManagerAction === "replace-audio" ? <Loader2 className="spin" size={15} /> : <Upload size={15} strokeWidth={1.9} />}
-                                <span>替换此片段</span>
-                              </button>
-                              <button
-                                className="secondaryAction voiceReferenceTrimButton"
-                                type="button"
-                                title={managedReference.referenceAudioManaged ? "在应用内试听并重新裁切此片段" : "外部路径请先替换或重新导入后再裁切"}
-                                disabled={voiceManagerAction !== null || !managedReference.referenceAudioManaged || recognizingVoiceIds.includes(managedReferenceRecognitionKey)}
-                                onClick={() => void onTrimManagedVoiceReference()}
-                              >
-                                {voiceManagerAction === "trim-reference" ? <Loader2 className="spin" size={15} /> : <Waves size={15} strokeWidth={1.9} />}
-                                <span>裁切此片段</span>
-                              </button>
-                            </div>
+                            {managedReference && managedVoice.activeReferenceId === managedReference.id && <span className="voiceInspectorActiveBadge"><CheckCircle2 size={13} strokeWidth={2} />当前生成</span>}
                           </div>
-                          <p className="voiceManagerHint">
-                            替换时可先试听和裁切；每条片段分别保存原文。极致克隆和 GPT-SoVITS 使用前仍建议核对当前片段的文本。
-                          </p>
-                          <button
-                            className="pathPickButton voiceRepairButton"
-                            type="button"
-                            title={managedVoice.activeReferenceId === managedReference.id ? "将当前托管参考音频转换为单声道 PCM 16-bit WAV，不会改动原始生成文件" : "请先设为当前参考，再修复音频格式"}
-                            disabled={voiceManagerAction !== null || !managedReference.referenceAudioManaged || !managedReference.referenceAudio || managedVoice.activeReferenceId !== managedReference.id}
-                            onClick={() => void onRepairManagedVoiceAudio()}
-                          >
-                            {voiceManagerAction === "repair-audio" ? <Loader2 className="spin" size={15} /> : <Gauge size={15} strokeWidth={1.9} />}
-                            <span>{voiceManagerAction === "repair-audio" ? "正在修复" : "修复音频格式"}</span>
-                          </button>
-                        </>
-                      )}
-                      <label className="settingsField">
-                        <span>角色名称（可重命名）</span>
-                        <input disabled={voiceManagerAction !== null} value={voiceManagerDraft.name} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, name: event.target.value }))} />
-                      </label>
-                      {managedReference && (
-                        <>
-                          <label className="settingsField">
-                            <span>参考片段名称</span>
-                            <input disabled={voiceManagerAction !== null} value={voiceManagerDraft.referenceName} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceName: event.target.value }))} />
-                          </label>
-                          <label className="settingsField voiceManagerPromptField">
-                            <span>参考音频原文</span>
-                            <textarea
-                              value={voiceManagerDraft.referenceText}
-                              placeholder="填写这条参考音频实际说的内容"
-                              disabled={voiceManagerAction !== null || recognizingVoiceIds.includes(managedReferenceRecognitionKey)}
-                              onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceText: event.target.value }))}
-                            />
-                          </label>
-                          <button
-                            className="pathPickButton"
-                            type="button"
-                            disabled={voiceManagerAction !== null || !managedReference.referenceAudio || recognizingVoiceIds.includes(managedReferenceRecognitionKey)}
-                            onClick={() => void onRecognizeManagedVoiceReference()}
-                          >
-                            {voiceManagerAction === "recognize" || recognizingVoiceIds.includes(managedReferenceRecognitionKey) ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} strokeWidth={1.9} />}
-                            <span>{recognizingVoiceIds.includes(managedReferenceRecognitionKey) ? "正在自动识别" : "识别此片段文本"}</span>
-                          </button>
-                        </>
-                      )}
-                      <div className="voiceManagerMetadata">
-                        <span>角色来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
-                        {managedReference && <span>片段来源：{voiceSourceLabel(managedReference.sourceType)}</span>}
-                        {managedVoice.modelBinding && <span>限定模型：GPT-SoVITS</span>}
-                        <span>授权：{managedVoice.authorizationStatus ?? "未标注"}</span>
+
+                          {managedReference ? (
+                            <>
+                              <div className="voiceInspectorPlayer">
+                                <button className="voiceInspectorPlay" type="button" disabled={voiceManagerAction !== null || voiceManagerPreviewLoading} onClick={() => void toggleVoiceManagerPreview(managedReference)} title={voiceManagerPreviewPlaying ? "暂停试听" : "播放试听"}>
+                                  {voiceManagerPreviewLoading ? <Loader2 className="spin" size={17} /> : voiceManagerPreviewPlaying ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}
+                                </button>
+                                <div>
+                                  <strong>{voiceManagerPreviewPlaying ? "正在试听" : "点击试听这条片段"}</strong>
+                                  <span>{voiceManagerPreviewDuration > 0 ? `${formatDuration(voiceManagerPreviewTime)} / ${formatDuration(voiceManagerPreviewDuration)}` : "读取音频后显示时长"}</span>
+                                </div>
+                              </div>
+                              <div className="voiceInspectorActionRow">
+                                <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null || recognizingVoiceIds.includes(managedReferenceRecognitionKey)} onClick={() => void onReplaceVoiceReference()}>
+                                  {voiceManagerAction === "replace-audio" ? <Loader2 className="spin" size={15} /> : <Upload size={15} strokeWidth={1.9} />}
+                                  <span>替换片段</span>
+                                </button>
+                                <button
+                                  className="secondaryAction voiceReferenceTrimButton"
+                                  type="button"
+                                  title={managedReference.referenceAudioManaged ? "在应用内试听并重新裁切此片段" : "外部路径请先替换或重新导入后再裁切"}
+                                  disabled={voiceManagerAction !== null || !managedReference.referenceAudioManaged || recognizingVoiceIds.includes(managedReferenceRecognitionKey)}
+                                  onClick={() => void onTrimManagedVoiceReference()}
+                                >
+                                  {voiceManagerAction === "trim-reference" ? <Loader2 className="spin" size={15} /> : <Waves size={15} strokeWidth={1.9} />}
+                                  <span>裁切片段</span>
+                                </button>
+                              </div>
+                              <button
+                                className="voiceRepairButton"
+                                type="button"
+                                title={managedVoice.activeReferenceId === managedReference.id ? "将当前托管参考音频转换为单声道 PCM 16-bit WAV，不会改动原始生成文件" : "请先设为当前参考，再修复音频格式"}
+                                disabled={voiceManagerAction !== null || !managedReference.referenceAudioManaged || !managedReference.referenceAudio || managedVoice.activeReferenceId !== managedReference.id}
+                                onClick={() => void onRepairManagedVoiceAudio()}
+                              >
+                                {voiceManagerAction === "repair-audio" ? <Loader2 className="spin" size={15} /> : <Gauge size={15} strokeWidth={1.9} />}
+                                <span>{voiceManagerAction === "repair-audio" ? "正在修复" : "修复音频格式"}</span>
+                              </button>
+                              <div className="voiceInspectorDivider" />
+                              <label className="settingsField">
+                                <span>片段名称</span>
+                                <input disabled={voiceManagerAction !== null} value={voiceManagerDraft.referenceName} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceName: event.target.value }))} />
+                              </label>
+                              <label className="settingsField voiceManagerPromptField">
+                                <span>参考音频原文</span>
+                                <textarea
+                                  value={voiceManagerDraft.referenceText}
+                                  placeholder="填写这条参考音频实际说的内容"
+                                  disabled={voiceManagerAction !== null || recognizingVoiceIds.includes(managedReferenceRecognitionKey)}
+                                  onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, referenceText: event.target.value }))}
+                                />
+                              </label>
+                              <button className="pathPickButton" type="button" disabled={voiceManagerAction !== null || !managedReference.referenceAudio || recognizingVoiceIds.includes(managedReferenceRecognitionKey)} onClick={() => void onRecognizeManagedVoiceReference()}>
+                                {voiceManagerAction === "recognize" || recognizingVoiceIds.includes(managedReferenceRecognitionKey) ? <Loader2 className="spin" size={15} /> : <Wand2 size={15} strokeWidth={1.9} />}
+                                <span>{recognizingVoiceIds.includes(managedReferenceRecognitionKey) ? "正在自动识别" : "识别片段文本"}</span>
+                              </button>
+                            </>
+                          ) : (
+                            <div className="voiceInspectorModelCard"><Cpu size={18} strokeWidth={1.7} /><div><strong>模型专属权重</strong><span>此角色不使用普通参考片段。</span></div></div>
+                          )}
+
+                          <div className="voiceInspectorRoleField">
+                            <label className="settingsField">
+                              <span>角色名称</span>
+                              <input disabled={voiceManagerAction !== null} value={voiceManagerDraft.name} onChange={(event) => setVoiceManagerDraft((draft) => ({ ...draft, name: event.target.value }))} />
+                            </label>
+                          </div>
+                          <div className="voiceManagerMetadata">
+                            <span>角色来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
+                            {managedReference && <span>片段来源：{voiceSourceLabel(managedReference.sourceType)}</span>}
+                            {managedVoice.modelBinding && <span>限定模型：GPT-SoVITS</span>}
+                            <span>授权：{managedVoice.authorizationStatus ?? "未标注"}</span>
+                          </div>
+                        </aside>
                       </div>
                     </section>
                   )}
@@ -8431,6 +9036,10 @@ export function App() {
                   <span>删除档案</span>
                 </button>
               )}
+              <div className={voiceManagerDirty ? "voiceManagerSaveState dirty" : "voiceManagerSaveState"}>
+                <span className="voiceManagerSaveDot" />
+                <span>{voiceManagerDirty ? "有未保存修改" : "已保存"}</span>
+              </div>
               <span className="settingsFooterSpacer" />
               <button className="secondaryAction settingsAction" type="button" disabled={voiceManagerAction !== null} onClick={() => void onImportVoicePackage()}>
                 {voiceManagerAction === "import" ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
@@ -8442,9 +9051,9 @@ export function App() {
                   <span>导出音色包</span>
                 </button>
               )}
-              <button className="primaryAction settingsAction" type="button" disabled={!managedVoice || voiceManagerAction !== null} onClick={() => void onSaveVoiceManagerDetails()}>
+              <button className="primaryAction settingsAction" type="button" disabled={!managedVoice || voiceManagerAction !== null || !voiceManagerDirty} onClick={() => void onSaveVoiceManagerDetails()}>
                 {voiceManagerAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
-                <span>保存角色和片段</span>
+                <span>{voiceManagerAction === "save" ? "正在保存" : voiceManagerDirty ? "保存修改" : "已保存"}</span>
               </button>
             </footer>
           </section>
@@ -8833,6 +9442,7 @@ export function App() {
               </select>
               <select value={taskCenterTaskSourceFilter} onChange={(event) => setTaskCenterTaskSourceFilter(event.target.value)} aria-label="任务类型">
                 <option value="all">全部功能</option>
+                <option value="batch">批量任务（旁白 / 电子书）</option>
                 {taskCenterSources.map(({ source, count }) => <option key={source} value={source}>{taskSourceLabel(source)}（{count}）</option>)}
               </select>
               <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => { void loadTaskSummaries(); void loadAudioAssets(); void loadBilibiliHistory(); }}><RefreshCw size={15} strokeWidth={1.9} /><span>刷新</span></button>
@@ -8854,12 +9464,15 @@ export function App() {
                   const latestEvent = task.events[task.events.length - 1];
                   const isCancelling = taskCenterAction === `cancel-${task.id}`;
                   const isRetrying = taskCenterAction === `retry-${task.id}`;
+                  const missingResultCount = (task.results ?? []).filter((result) => !result.exists).length;
+                  const canClearMissing = missingResultCount > 0 && (["speech", "realtime"].includes(task.source) || (task.source === "batch_project" && task.id.startsWith("project:") && (task.results ?? []).some((result) => !result.exists && result.id.includes(":segment:"))));
+                  const isClearingMissing = taskCenterAction === `clear-missing-${task.id}`;
                   const retryLabel = task.source === "batch_project" && task.status === "cancelled" ? "继续" : "重试";
                   const taskIsActive = ["queued", "running", "cancelling"].includes(task.status);
                   return (
-                    <article key={task.id} className={`taskQueueItem ${task.status}`}>
+                    <article key={task.id} className={`taskQueueItem source-${task.source} ${task.status}`}>
                       <header><div><span className={`taskSourceTag source-${task.source}`}>{taskSourceLabel(task.source)}</span><strong title={task.title}>{task.title}</strong></div><em className={task.status}>{taskStatusLabel(task.status)}</em></header>
-                      {taskIsActive ? <div className="taskQueueProgress"><span style={{ width: `${task.progress_percent}%` }} /></div> : <div className={`taskQueueStateLine ${task.status}`}><span>{task.status === "failed" ? "任务没有完成" : task.status === "cancelled" ? "任务已停止，可按需继续" : "结果已写入成果中心"}</span><strong>{task.status === "succeeded" || task.status === "completed" ? "100%" : task.status === "failed" ? "失败" : "已取消"}</strong></div>}
+                      {taskIsActive ? <div className="taskQueueProgress"><span style={{ width: `${task.progress_percent}%` }} /></div> : <div className={`taskQueueStateLine ${task.status}`}><span>{task.status === "failed" || task.status === "partial" ? "任务没有全部完成" : task.status === "cancelled" ? "任务已停止，可按需继续" : task.status === "paused" ? "任务已暂停，可继续预制" : "结果已写入成果中心"}</span><strong>{task.status === "succeeded" || task.status === "completed" ? "100%" : task.status === "failed" || task.status === "partial" ? "待处理" : task.status === "paused" ? "暂停" : "已取消"}</strong></div>}
                       <div className="taskQueueMeta"><span>{task.error ?? latestEvent?.message ?? "等待任务事件"}</span><strong>{taskIsActive ? `${task.progress_percent}%` : formatHistoryTime(task.updated_at)}</strong></div>
                       {task.error && <div className="taskQueueError"><AlertCircle size={14} strokeWidth={1.9} /><span>{task.error}</span></div>}
                       {task.events.length > 0 && <div className="taskQueueEvents">{task.events.slice(-3).reverse().map((event, index) => <div key={`${event.occurred_at}-${index}`} className={event.level === "error" ? "error" : ""}><time>{formatHistoryTime(event.occurred_at)}</time><strong>{taskEventStageLabel(event.stage)}</strong><span>{event.message}</span></div>)}</div>}
@@ -8869,6 +9482,7 @@ export function App() {
                         {task.log_file && <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void openTaskLog(task)}><FileText size={15} strokeWidth={1.9} /><span>打开日志</span></button>}
                         {task.cancelable && <button className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onCancelTask(task)}>{isCancelling ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}<span>{isCancelling ? "取消中" : "取消"}</span></button>}
                         {task.retryable && <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onRetryTask(task)}>{isRetrying ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{isRetrying ? `${retryLabel}中` : retryLabel}</span></button>}
+                        {canClearMissing && <button className="pathPickButton taskQueueMissingAction" title={`清理 ${missingResultCount} 条缺失记录`} disabled={taskCenterAction !== null} onClick={() => void onClearMissingTaskRecords(task)}>{isClearingMissing ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>{isClearingMissing ? "清理中" : "清理缺失"}</span></button>}
                       </div>
                     </article>
                   );
@@ -9292,32 +9906,16 @@ export function App() {
       {settingsOpen && (
         <div className="settingsOverlay" role="dialog" aria-modal="true" aria-label="设置中心">
           <section className="settingsDialog settingsCenterDialog">
-            <header className="settingsHeader">
-              <div className="settingsHeaderIdentity">
-                <span className="settingsHeaderIcon" aria-hidden="true"><Settings size={18} strokeWidth={1.9} /></span>
-                <div className="settingsHeaderCopy">
-                  <span className="settingsHeaderEyebrow">WORKBENCH / SETTINGS</span>
-                  <strong>设置中心</strong>
-                  <small title={appSettings?.settings_file ?? "本地用户配置"}>配置、模型与系统状态</small>
-                </div>
+            <header className="settingsHeader settingsCenterHeader">
+              <div>
+                <strong>设置中心</strong>
               </div>
-              <div className="settingsHeaderActions">
-                <span className={online ? "settingsLocalStatus online" : "settingsLocalStatus"}>
-                  <span className="settingsLocalStatusDot" aria-hidden="true" />
-                  {online ? "本地服务正常" : "等待本地服务"}
-                </span>
-                <button className="modalClose" title="关闭设置中心" aria-label="关闭设置中心" onClick={closeSettings}>
-                  <X size={18} strokeWidth={2} />
-                </button>
-              </div>
+              <button className="modalClose" title="关闭设置中心" aria-label="关闭设置中心" onClick={closeSettings}>
+                <X size={18} strokeWidth={2} />
+              </button>
             </header>
 
             <section className="settingsOverview" aria-label="设置概览">
-              <div className="settingsOverviewIntro">
-                <span>运行总览</span>
-                <strong>先看状态，再改设置</strong>
-                <small>常用入口放在这里，低频维护项默认收起。</small>
-              </div>
               <div className="settingsOverviewItems">
                 <button type="button" className={settingsLlmConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} onClick={() => setSettingsSection("common")}>
                   <span className="settingsOverviewItemIcon"><Sparkles size={16} strokeWidth={1.9} /></span>
@@ -9344,10 +9942,10 @@ export function App() {
 
             <nav className="settingsSections" aria-label="设置分组">
               {([
-                ["common", "常用", "LLM 与处理偏好"],
-                ["assets", "模型", "资源库与运行时"],
-                ["system", "系统", "外观、服务与备份"]
-              ] as const).map(([id, label, description]) => (
+                ["common", "常用"],
+                ["assets", "模型"],
+                ["system", "系统"]
+              ] as const).map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
@@ -9356,7 +9954,6 @@ export function App() {
                   onClick={() => setSettingsSection(id)}
                 >
                   <strong>{label}</strong>
-                  <span>{description}</span>
                 </button>
               ))}
             </nav>
@@ -9953,10 +10550,6 @@ export function App() {
                   <span>全局 LLM</span>
                   <em>实时语音、配音稿与转写处理共用</em>
                 </div>
-                <div className="llmSettingsIntro">
-                  <strong>一次配置，多个功能复用</strong>
-                  <span>支持 Ollama、LM Studio、OpenAI、DeepSeek 以及其他 OpenAI 兼容服务。API Key 只会加密保存在本机。</span>
-                </div>
                 <div className="settingsInline">
                   <label className="settingsField">
                     <span>OpenAI 兼容地址</span>
@@ -9971,13 +10564,6 @@ export function App() {
                   <span>API Key（可选，本机加密保存）</span>
                   <input type="password" autoComplete="off" value={globalLlmSettings.apiKey} onChange={(event) => setGlobalLlmSettings((current) => ({ ...current, apiKey: event.target.value }))} placeholder="本地 Ollama 可留空" />
                 </label>
-                <div className="llmPromptPolicy" role="note">
-                  <Sparkles size={16} strokeWidth={1.9} aria-hidden="true" />
-                  <div>
-                    <strong>功能提示词已内置</strong>
-                    <small>AI 润色、配音稿改写、转写校对、摘要、翻译与实时对话都会自动使用各自的专用规则，无需手动编写提示词。</small>
-                  </div>
-                </div>
                 <div className="llmSettingsActions">
                   <button type="button" className="secondaryAction settingsAction" onClick={() => void onTestGlobalLlm()} disabled={globalLlmTesting || globalLlmLoading}>
                     {globalLlmTesting ? <Loader2 className="spin" size={16} /> : <Wifi size={16} strokeWidth={1.9} />}

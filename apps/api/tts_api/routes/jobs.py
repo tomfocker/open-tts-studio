@@ -26,6 +26,16 @@ def clear_job_history() -> dict[str, int]:
     return get_job_store().clear_terminal()
 
 
+@router.delete("/v1/tts/jobs/{job_id}/history")
+def delete_job_history_record(job_id: str) -> dict[str, int | str]:
+    try:
+        return get_job_store().delete_terminal(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unknown job: {job_id}")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @router.get("/v1/tts/jobs/{job_id}", response_model=JobInfo)
 def get_job(job_id: str) -> JobInfo:
     job = get_job_store().get(job_id)
