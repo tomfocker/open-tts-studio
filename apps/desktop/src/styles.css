@@ -2180,6 +2180,79 @@ summary:focus-visible {
   }
 }
 
+/* The idle canvas should teach the next action without competing with the
+   editor. Keep the three status slots compact and data-driven. */
+.emptyCanvas {
+  width: min(560px, calc(100% - 32px));
+  max-width: 560px;
+}
+
+.emptyCanvasSteps {
+  width: min(100%, 520px);
+  margin: 18px auto 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.emptyCanvasSteps span {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 5px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  border-radius: 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-strong) 64%, transparent);
+  text-align: left;
+}
+
+.emptyCanvasSteps span > svg {
+  grid-row: span 2;
+  color: color-mix(in srgb, var(--muted) 64%, transparent);
+}
+
+.emptyCanvasSteps span.ready {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-strong));
+}
+
+.emptyCanvasSteps span.ready > svg {
+  color: var(--accent);
+}
+
+.emptyCanvasSteps b,
+.emptyCanvasSteps em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emptyCanvasSteps b {
+  font-size: 10px;
+  font-weight: 760;
+}
+
+.emptyCanvasSteps em {
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
+:root[data-theme="dark"] .emptyCanvasSteps span {
+  background: color-mix(in srgb, var(--panel-strong) 76%, transparent);
+}
+
+@media (max-width: 760px) {
+  .emptyCanvasSteps {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Keep the settings center stable while switching its three sections. The
    section body owns the scroll; the dialog frame and close action never move. */
 .settingsDialog.settingsCenterDialog {

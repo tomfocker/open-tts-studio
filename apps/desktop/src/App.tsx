@@ -127,6 +127,7 @@ import type {
   AppUpdateState,
   AppSettings,
   BatchProject,
+  BatchProjectCreate,
   BilibiliAudioOptionsResult,
   BilibiliDownloadVideoRequest,
   BilibiliDownloadVideoResult,
@@ -1174,7 +1175,7 @@ function createImportedVoicePreset(voice: VoiceInfo): VoicePreset | null {
       : voiceSourceLabel(voice.source_type),
     initials: voice.name.trim().slice(0, 1) || "音",
     background: voiceColorFromId(voice.id),
-    referenceAudio: voice.reference_audio,
+    referenceAudio: voice.reference_audio ?? undefined,
     referenceText: voice.reference_text ?? undefined,
     authorizationStatus: voice.authorization_status,
     sourceType: voice.source_type,
@@ -1380,7 +1381,7 @@ function hasFeature(model: ModelInfo | undefined, feature: string) {
 }
 
 function supportsRequestCapability(model: ModelInfo | undefined, capability: string) {
-  return Boolean(model?.request_capabilities.includes(capability));
+  return Boolean(model?.request_capabilities?.includes(capability));
 }
 
 function featureLabel(feature: string) {
@@ -2218,6 +2219,8 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<"common" | "assets" | "system">("common");
   const settingsBodyRef = useRef<HTMLDivElement | null>(null);
+  const modalRestoreFocusRef = useRef<HTMLElement | null>(null);
+  const previousModalKeyRef = useRef<string | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMigrationAction, setSettingsMigrationAction] = useState<"export" | "import" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateState | null>(null);
@@ -2335,6 +2338,31 @@ export function App() {
   const pendingModelWarmupRef = useRef<string | null>(null);
   const modelWarmupEpochRef = useRef(0);
   const drawSessionRef = useRef<DrawSession | null>(null);
+
+  // Dialogs render in a single document so keyboard dismissal and focus
+  // restoration need one shared topmost-layer rule. Keep this order aligned
+  // with the overlay order at the bottom of the component.
+  const topmostModalKey = settingsOpen
+    ? "settings"
+    : samplerOpen
+      ? "sampler"
+      : pendingModelSwitch
+        ? "model-switch"
+        : realtimeEntryConfirmOpen
+          ? "realtime-entry"
+          : taskCenterOpen
+            ? (taskHistoryClearConfirmOpen ? "task-history-confirm" : "task-center")
+            : audioLibraryOpen
+              ? "audio-library"
+              : referenceAudioEditor
+                ? "reference-editor"
+                : voiceManagerOpen
+                  ? "voice-manager"
+                  : resultVoiceSaveOpen
+                    ? "voice-save"
+                    : monitorPanelOpen
+                      ? "monitor"
+                      : null;
 
   const localModels = useMemo(
     () => models.filter(isLocalSynthesisModel),
@@ -4199,7 +4227,7 @@ export function App() {
     setBatchProjectAction(shouldRun ? "run" : "save");
     setBatchProjectError(null);
     try {
-      const payload = {
+      const payload: BatchProjectCreate = {
         title: batchProjectTitle.trim(),
         model: batchProjectModel,
         segments: segments.map((text) => ({ text })),
@@ -6684,6 +6712,120 @@ export function App() {
   }, [settingsOpen, settingsSection]);
 
   useEffect(() => {
+    const wasOpen = previousModalKeyRef.current !== null;
+    if (!topmostModalKey) {
+      if (wasOpen) {
+        modalRestoreFocusRef.current?.focus({ preventScroll: true });
+        modalRestoreFocusRef.current = null;
+      }
+      previousModalKeyRef.current = null;
+      return undefined;
+    }
+
+    if (!wasOpen) {
+      const activeElement = document.activeElement;
+      modalRestoreFocusRef.current = activeElement instanceof HTMLElement ? activeElement : null;
+    }
+    previousModalKeyRef.current = topmostModalKey;
+
+    const focusTimer = window.requestAnimationFrame(() => {
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]'));
+      const dialog = dialogs[dialogs.length - 1];
+      const firstFocusable = dialog?.querySelector<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+      );
+      firstFocusable?.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(focusTimer);
+  }, [topmostModalKey]);
+
+  useEffect(() => {
+    if (!topmostModalKey && !drawMenuOpen && !voiceImportMenuOpen && !avatarPickerOpen) {
+      return undefined;
+    }
+
+    const onGlobalKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (drawMenuOpen) {
+          setDrawMenuOpen(false);
+        } else if (voiceImportMenuOpen) {
+          setVoiceImportMenuOpen(false);
+        } else if (avatarPickerOpen) {
+          setAvatarPickerOpen(false);
+        } else {
+          switch (topmostModalKey) {
+            case "settings":
+              closeSettings();
+              break;
+            case "sampler":
+              void onSamplerCancel();
+              break;
+            case "model-switch":
+              setPendingModelSwitch(null);
+              break;
+            case "realtime-entry":
+              setRealtimeEntryConfirmOpen(false);
+              break;
+            case "task-history-confirm":
+              setTaskHistoryClearConfirmOpen(false);
+              break;
+            case "task-center":
+              setTaskCenterOpen(false);
+              break;
+            case "audio-library":
+              setAudioLibraryOpen(false);
+              break;
+            case "reference-editor":
+              closeReferenceAudioEditor();
+              break;
+            case "voice-manager":
+              closeVoiceManager();
+              break;
+            case "voice-save":
+              closeVoiceLibrarySaveDialog();
+              break;
+            case "monitor":
+              setMonitorPanelOpen(false);
+              break;
+            default:
+              break;
+          }
+        }
+        return;
+      }
+
+      if (event.key !== "Tab" || !topmostModalKey) {
+        return;
+      }
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]'));
+      const dialog = dialogs[dialogs.length - 1];
+      if (!dialog) {
+        return;
+      }
+      const focusableElements = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+      )).filter((element) => element.offsetParent !== null);
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const currentIndex = focusableElements.indexOf(document.activeElement as HTMLElement);
+      const nextIndex = event.shiftKey
+        ? (currentIndex <= 0 ? focusableElements.length - 1 : currentIndex - 1)
+        : (currentIndex === focusableElements.length - 1 ? 0 : currentIndex + 1);
+      if (currentIndex === -1 || nextIndex !== currentIndex + (event.shiftKey ? -1 : 1)) {
+        event.preventDefault();
+        focusableElements[nextIndex]?.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onGlobalKeyDown);
+    return () => document.removeEventListener("keydown", onGlobalKeyDown);
+  }, [avatarPickerOpen, closeReferenceAudioEditor, closeSettings, closeVoiceLibrarySaveDialog, closeVoiceManager, drawMenuOpen, onSamplerCancel, topmostModalKey, voiceImportMenuOpen]);
+
+  useEffect(() => {
     selectedModelRef.current = selectedModel;
   }, [selectedModel]);
 
@@ -7660,7 +7802,7 @@ export function App() {
               <Waves size={16} strokeWidth={1.9} />
               <span>音频分轨</span>
             </button>
-            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "assets"} onClick={openAudioLibrary}>
+            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-pressed={activeWorkspace === "assets"} onClick={() => openAudioLibrary()}>
               <Library size={16} strokeWidth={1.9} />
               <span>成果中心</span>
             </button>
@@ -8350,6 +8492,23 @@ export function App() {
                   </div>
                   <h2>准备生成</h2>
                   <p>音色和文本就绪后即可生成。</p>
+                  <div className="emptyCanvasSteps" aria-label="生成准备状态">
+                    <span className={selectedVoiceInfo ? "ready" : ""}>
+                      <CheckCircle2 size={14} strokeWidth={1.9} />
+                      <b>音色</b>
+                      <em>{selectedVoiceInfo?.name ?? "未选择"}</em>
+                    </span>
+                    <span className={input.trim() ? "ready" : ""}>
+                      <CheckCircle2 size={14} strokeWidth={1.9} />
+                      <b>文本</b>
+                      <em>{input.trim() ? `${input.trim().length} 字` : "待输入"}</em>
+                    </span>
+                    <span className={canGenerate ? "ready" : ""}>
+                      <CheckCircle2 size={14} strokeWidth={1.9} />
+                      <b>模型</b>
+                      <em>{selectedModelInfo?.display_name ?? selectedModel}</em>
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
