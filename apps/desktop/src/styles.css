@@ -11568,6 +11568,7 @@ summary:focus-visible {
 .taskCenterFilterBar .pathPickButton { height: 34px; justify-content: center; }
 .taskCenterFilterMeta { min-width: 0; padding: 8px 14px 0; color: var(--muted); display: flex; justify-content: space-between; gap: 12px; font-size: 11px; }
 .taskCenterFilterMeta span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taskCenterFilterMeta .taskCenterClearFilters { margin: 0; flex: 0 0 auto; }
 .taskQueueBody { min-height: 0; overflow: auto; padding: 12px 14px; display: grid; align-content: start; gap: 9px; }
 .taskQueueEmpty { min-height: 220px; color: var(--muted); display: grid; place-items: center; align-content: center; gap: 8px; text-align: center; }
 .taskQueueEmpty svg { color: var(--accent-dark); }

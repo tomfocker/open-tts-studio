@@ -9971,7 +9971,7 @@ export function App() {
               </select>
                <button type="button" className="pathPickButton" disabled={taskCenterAction !== null || taskCenterRefreshing} onClick={() => void refreshTaskCenter()}><RefreshCw className={taskCenterRefreshing ? "spin" : undefined} size={15} strokeWidth={1.9} /><span>{taskCenterRefreshing ? "刷新中" : "刷新"}</span></button>
             </div>
-            <div className="taskCenterFilterMeta"><span>显示 {visibleTaskCenterTasks.length} / {taskCenterTasks.length} 项任务</span><span>失败任务会保留最近事件和日志入口，方便定位问题。</span></div>
+            <div className="taskCenterFilterMeta"><span>显示 {visibleTaskCenterTasks.length} / {taskCenterTasks.length} 项任务</span>{taskCenterFiltersActive ? <button className="taskQueueLink taskCenterClearFilters" type="button" onClick={() => { setTaskCenterTaskSearch(""); setTaskCenterStatusFilter("all"); setTaskCenterTaskSourceFilter("all"); }}>清除筛选</button> : <span>失败任务会保留最近事件和日志入口，方便定位问题。</span>}</div>
             <div className="taskQueueBody">
               {taskHistoryClearConfirmOpen && (
                 <div className="taskHistoryClearConfirm taskCenterInlineConfirm" role="alertdialog" aria-label="确认清理生成历史">
