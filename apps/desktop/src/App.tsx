@@ -48,8 +48,10 @@ import {
   X
 } from "lucide-react";
 import QRCode from "qrcode";
-import { CSSProperties, ChangeEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ChangeEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+
+import { ConfirmationDialog, type ConfirmationRequest } from "./ConfirmationDialog";
 
 import {
   activateVoiceReference,
@@ -2245,6 +2247,8 @@ export function App() {
   const [settingsNavigationRequest, setSettingsNavigationRequest] = useState(0);
   const modalRestoreFocusRef = useRef<HTMLElement | null>(null);
   const previousModalKeyRef = useRef<string | null>(null);
+  const [appConfirmation, setAppConfirmation] = useState<ConfirmationRequest | null>(null);
+  const appConfirmationResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMigrationAction, setSettingsMigrationAction] = useState<"export" | "import" | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateState | null>(null);
@@ -2364,10 +2368,30 @@ export function App() {
   const modelWarmupEpochRef = useRef(0);
   const drawSessionRef = useRef<DrawSession | null>(null);
 
+  const requestConfirmation = useCallback((request: ConfirmationRequest) => new Promise<boolean>((resolve) => {
+    appConfirmationResolverRef.current?.(false);
+    appConfirmationResolverRef.current = resolve;
+    setAppConfirmation(request);
+  }), []);
+
+  const settleConfirmation = useCallback((confirmed: boolean) => {
+    const resolver = appConfirmationResolverRef.current;
+    appConfirmationResolverRef.current = null;
+    setAppConfirmation(null);
+    resolver?.(confirmed);
+  }, []);
+
+  useEffect(() => () => {
+    appConfirmationResolverRef.current?.(false);
+    appConfirmationResolverRef.current = null;
+  }, []);
+
   // Dialogs render in a single document so keyboard dismissal and focus
   // restoration need one shared topmost-layer rule. Keep this order aligned
   // with the overlay order at the bottom of the component.
-  const topmostModalKey = settingsOpen
+  const topmostModalKey = appConfirmation
+    ? "app-confirmation"
+    : settingsOpen
     ? "settings"
     : samplerOpen
       ? "sampler"
@@ -3798,7 +3822,15 @@ export function App() {
       return;
     }
     const reference = managedVoice.references.find((item) => item.id === referenceId);
-    if (!reference || !window.confirm(`删除参考片段「${reference.name}」？其托管音频也会从角色目录移除。`)) {
+    if (!reference) {
+      return;
+    }
+    if (!await requestConfirmation({
+      title: "删除参考片段？",
+      message: `将删除参考片段「${reference.name}」，其托管音频也会从角色目录移除。`,
+      confirmLabel: "删除",
+      tone: "danger"
+    })) {
       return;
     }
     setVoiceManagerAction("delete-reference");
@@ -3926,7 +3958,15 @@ export function App() {
   }
 
   async function onDeleteManagedVoice() {
-    if (!managedVoice || !window.confirm(`删除音色「${managedVoice.name}」？已托管的音频文件会保留，避免误删。`)) {
+    if (!managedVoice) {
+      return;
+    }
+    if (!await requestConfirmation({
+      title: "删除角色音色？",
+      message: `将删除音色「${managedVoice.name}」。已托管的音频文件会保留，避免误删。`,
+      confirmLabel: "删除",
+      tone: "danger"
+    })) {
       return;
     }
     setVoiceManagerAction("delete");
@@ -4631,9 +4671,12 @@ export function App() {
   }
 
   async function onDeleteAudioAsset(asset: AudioAsset) {
-    const confirmed = window.confirm(
-      `删除“${asset.file_name}”？\n\n这会同时删除受监控输出目录中的本地实体文件，无法撤销。`
-    );
+    const confirmed = await requestConfirmation({
+      title: "删除本地音频？",
+      message: `将删除“${asset.file_name}”及其位于受监控输出目录中的本地实体文件。此操作无法撤销。`,
+      confirmLabel: "删除",
+      tone: "danger"
+    });
     if (!confirmed) {
       return;
     }
@@ -6105,7 +6148,12 @@ export function App() {
       : isCloudJob
         ? "将终止当前豆包生成请求，未保存的本次结果会丢失，是否继续？"
         : "将终止当前生成并关闭该模型进程以释放显存。未保存的本次结果会丢失，是否继续？";
-    if (!window.confirm(drawMessage)) {
+    if (!await requestConfirmation({
+      title: "停止当前生成？",
+      message: drawMessage,
+      confirmLabel: "停止生成",
+      tone: "danger"
+    })) {
       return;
     }
     setError(null);
@@ -6223,7 +6271,11 @@ export function App() {
       setTaskCenterMessage("当前没有可批量重试的单句生成或批量旁白任务。");
       return;
     }
-    if (!window.confirm(`将把 ${candidates.length} 项失败或已取消任务重新加入本地串行队列，是否继续？`)) {
+    if (!await requestConfirmation({
+      title: "重新排队任务？",
+      message: `将把 ${candidates.length} 项失败或已取消任务重新加入本地串行队列。`,
+      confirmLabel: "重新排队"
+    })) {
       return;
     }
     setTaskCenterAction("retry-all");
@@ -6302,11 +6354,14 @@ export function App() {
       setTaskCenterError("这类任务暂不支持批量清理缺失记录，请在成果详情中逐项处理。");
       return;
     }
-    const confirmed = window.confirm(
-      isSpeechTask
-        ? `移除“${task.title}”的缺失任务记录？\n\n只删除任务记录和诊断日志，不会删除其他成果文件。`
-        : `移除“${task.title}”中的 ${removableBatchResults.length} 条缺失成果记录？\n\n只清理任务记录，不会删除其他成果文件。`
-    );
+    const confirmed = await requestConfirmation({
+      title: "移除缺失记录？",
+      message: isSpeechTask
+        ? `将移除“${task.title}”的缺失任务记录，只删除任务记录和诊断日志，不会删除其他成果文件。`
+        : `将移除“${task.title}”中的 ${removableBatchResults.length} 条缺失成果记录，只清理任务记录，不会删除其他成果文件。`,
+      confirmLabel: "移除记录",
+      tone: "danger"
+    });
     if (!confirmed) return;
     setTaskCenterAction(`clear-missing-${task.id}`);
     setTaskCenterError(null);
@@ -6469,7 +6524,12 @@ export function App() {
         setTaskCenterError("请在桌面软件中管理 B 站下载历史。");
         return;
       }
-      const confirmed = window.confirm(`移除“${result.file_name}”的 B 站下载记录？\n\n本地 MP4 文件会保留，不会被删除。`);
+      const confirmed = await requestConfirmation({
+        title: "移除下载记录？",
+        message: `将移除“${result.file_name}”的 B 站下载记录。本地 MP4 文件会保留，不会被删除。`,
+        confirmLabel: "移除记录",
+        tone: "danger"
+      });
       if (!confirmed) {
         return;
       }
@@ -6491,7 +6551,12 @@ export function App() {
       return;
     }
     if (!result.exists && ["speech", "realtime"].includes(result.source) && result.task_id) {
-      const confirmed = window.confirm(`移除“${result.file_name}”的缺失任务记录？\n\n只删除任务记录和诊断日志，不会删除其他成果文件。`);
+      const confirmed = await requestConfirmation({
+        title: "移除缺失记录？",
+        message: `将移除“${result.file_name}”的缺失任务记录，只删除任务记录和诊断日志，不会删除其他成果文件。`,
+        confirmLabel: "移除记录",
+        tone: "danger"
+      });
       if (!confirmed) return;
       setTaskCenterAction(`delete-result-${result.id}`);
       setTaskCenterError(null);
@@ -6518,7 +6583,12 @@ export function App() {
         setTaskCenterError("无法定位这条批量成果记录。");
         return;
       }
-      const confirmed = window.confirm(`移除“${result.file_name}”的批量成果记录？\n\n只清理任务中的成果记录，不会删除其他文件。`);
+      const confirmed = await requestConfirmation({
+        title: "移除批量成果记录？",
+        message: `将移除“${result.file_name}”的批量成果记录，只清理任务中的成果记录，不会删除其他文件。`,
+        confirmLabel: "移除记录",
+        tone: "danger"
+      });
       if (!confirmed) return;
       setTaskCenterAction(`delete-result-${result.id}`);
       setTaskCenterError(null);
@@ -6542,7 +6612,12 @@ export function App() {
       setTaskCenterError("该结果不是受监控输出目录中的音频文件，暂不能从这里删除实体文件。");
       return;
     }
-    const confirmed = window.confirm(`删除“${result.file_name}”？\n\n这会同时删除本地实体文件，无法撤销。`);
+    const confirmed = await requestConfirmation({
+      title: "删除本地文件？",
+      message: `将删除“${result.file_name}”对应的本地实体文件。此操作无法撤销。`,
+      confirmLabel: "删除",
+      tone: "danger"
+    });
     if (!confirmed) {
       return;
     }
@@ -6613,7 +6688,12 @@ export function App() {
       audioResults.length ? `删除 ${audioResults.length} 个本地音频文件` : "",
       historyResults.length ? `移除 ${historyResults.length} 条 B 站下载记录（MP4 文件保留）` : ""
     ].filter(Boolean).join("；");
-    if (!window.confirm(`${warning}？\n\n此操作不可撤销，请确认。`)) {
+    if (!await requestConfirmation({
+      title: "确认批量清理？",
+      message: `${warning}。此操作不可撤销。`,
+      confirmLabel: "开始清理",
+      tone: "danger"
+    })) {
       return;
     }
     setTaskCenterAction("batch-delete");
@@ -6846,7 +6926,7 @@ export function App() {
     previousModalKeyRef.current = topmostModalKey;
 
     const focusTimer = window.requestAnimationFrame(() => {
-      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]'));
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]'));
       const dialog = dialogs[dialogs.length - 1];
       const firstFocusable = dialog?.querySelector<HTMLElement>(
         'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
@@ -6873,6 +6953,9 @@ export function App() {
           setAvatarPickerOpen(false);
         } else {
           switch (topmostModalKey) {
+            case "app-confirmation":
+              settleConfirmation(false);
+              break;
             case "settings":
               closeSettings();
               break;
@@ -6919,7 +7002,7 @@ export function App() {
       if (event.key !== "Tab" || !topmostModalKey) {
         return;
       }
-      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]'));
+      const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]'));
       const dialog = dialogs[dialogs.length - 1];
       if (!dialog) {
         return;
@@ -6943,7 +7026,7 @@ export function App() {
 
     document.addEventListener("keydown", onGlobalKeyDown);
     return () => document.removeEventListener("keydown", onGlobalKeyDown);
-  }, [activeWorkspace, avatarPickerOpen, closeReferenceAudioEditor, closeSettings, closeVoiceLibrarySaveDialog, closeVoiceManager, drawMenuOpen, onSamplerCancel, selectWorkspace, topmostModalKey, voiceImportMenuOpen]);
+  }, [activeWorkspace, avatarPickerOpen, closeReferenceAudioEditor, closeSettings, closeVoiceLibrarySaveDialog, closeVoiceManager, drawMenuOpen, onSamplerCancel, selectWorkspace, settleConfirmation, topmostModalKey, voiceImportMenuOpen]);
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
@@ -8816,7 +8899,7 @@ export function App() {
                 <DoubaoWorkspace initialTab="synthesis" onClose={() => {
                   selectWorkspace("creation");
                   void loadDoubaoState();
-                }} />
+                }} requestConfirmation={requestConfirmation} />
               ) : activeWorkspace === "transcription" ? (
                 <TranscriptionWorkspace onClose={() => selectWorkspace("creation")} />
               ) : activeWorkspace === "sampler" ? (
@@ -11042,6 +11125,13 @@ export function App() {
             </footer>
           </section>
         </div>
+      )}
+      {appConfirmation && (
+        <ConfirmationDialog
+          request={appConfirmation}
+          onCancel={() => settleConfirmation(false)}
+          onConfirm={() => settleConfirmation(true)}
+        />
       )}
       {voiceMessage && (
         <div className="voiceToast" role="status" aria-live="polite">

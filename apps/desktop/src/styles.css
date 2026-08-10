@@ -11981,6 +11981,124 @@ summary:focus-visible {
   opacity: 1;
 }
 
+/* Shared in-app confirmation surface. Keep destructive choices calm but
+   unmistakable, and reuse the same title/close/footer rhythm as the other
+   desktop dialogs. */
+.confirmationOverlay {
+  background: rgba(31, 43, 55, 0.28);
+}
+
+.confirmationDialog {
+  width: min(480px, 100%);
+  max-height: min(360px, calc(100dvh - 40px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.confirmationHeader {
+  padding-bottom: 13px;
+}
+
+.confirmationIcon {
+  color: #b27635;
+  background: color-mix(in srgb, #e1a35f 18%, var(--panel-strong));
+}
+
+.confirmationDialog.danger .confirmationIcon {
+  color: #b64e51;
+  background: color-mix(in srgb, #e27a78 18%, var(--panel-strong));
+}
+
+.confirmationBody {
+  min-height: 0;
+  padding: 18px 20px 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.confirmationBody p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.confirmationFooter {
+  align-items: center;
+  padding: 12px 20px 16px;
+}
+
+.confirmationFooter .settingsAction {
+  min-width: 104px;
+}
+
+.confirmationDangerAction {
+  min-width: 0;
+  height: 44px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(145deg, #d46c6a, #ad3e46);
+  box-shadow: 0 12px 24px rgba(151, 63, 66, 0.2), var(--inner);
+  font-weight: 760;
+}
+
+.confirmationDangerAction:hover {
+  background: linear-gradient(145deg, #df7b76, #b9474d);
+}
+
+.confirmationDangerAction:focus-visible,
+.confirmationFooter .settingsAction:focus-visible,
+.confirmationHeader .modalClose:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 78%, #fff);
+  outline-offset: 2px;
+}
+
+:root[data-theme="dark"] .confirmationOverlay {
+  background: rgba(4, 9, 15, 0.54);
+}
+
+:root[data-theme="dark"] .confirmationIcon {
+  color: #e6b271;
+}
+
+:root[data-theme="dark"] .confirmationDialog.danger .confirmationIcon {
+  color: #ef9693;
+}
+
+@media (max-width: 560px) {
+  .confirmationOverlay {
+    padding: 14px;
+  }
+
+  .confirmationDialog {
+    width: 100%;
+    max-height: calc(100dvh - 28px);
+  }
+
+  .confirmationBody {
+    padding-inline: 15px;
+  }
+
+  .confirmationFooter {
+    padding-inline: 15px;
+  }
+
+  .confirmationFooter .settingsAction {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirmationOverlay,
+  .confirmationDialog {
+    animation-duration: 1ms;
+  }
+}
+
 :root[data-accent] .doubaoWorkspace .doubaoPrimaryButton:disabled,
 :root[data-accent] .doubaoWorkspace .doubaoSecondaryButton:disabled,
 :root[data-accent] .doubaoWorkspace .doubaoGhostButton:disabled {

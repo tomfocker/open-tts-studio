@@ -111,6 +111,7 @@ import type {
   LegadoChapter,
   SpeechResult
 } from "./types";
+import type { ConfirmationRequest } from "./ConfirmationDialog";
 import { DoubaoRealtimeWorkspace } from "./DoubaoRealtimeWorkspace";
 
 import "./doubao-workspace.css";
@@ -118,6 +119,7 @@ import "./doubao-workspace.css";
 type DoubaoWorkspaceProps = {
   onClose: () => void;
   initialTab?: WorkspaceTab;
+  requestConfirmation: (request: ConfirmationRequest) => Promise<boolean>;
 };
 
 type WorkspaceTab = "synthesis" | "realtime" | "accounts" | "reader" | "maintenance";
@@ -303,7 +305,7 @@ function taskStatusLabel(status: string): string {
   }[status] || status;
 }
 
-export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWorkspaceProps) {
+export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConfirmation }: DoubaoWorkspaceProps) {
   const [tab, setTab] = useState<WorkspaceTab>(initialTab);
   const [modeView, setModeView] = useState<"landing" | "detail">(
     initialTab === "accounts" || initialTab === "maintenance" ? "detail" : "landing"
@@ -1106,6 +1108,10 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
     setModeView("detail");
   }
 
+  function confirmDestructive(title: string, message: string, confirmLabel = "删除") {
+    return requestConfirmation({ title, message, confirmLabel, tone: "danger" });
+  }
+
   function renderModeCards(variant: "landing" | "compact") {
     const cards = [
       {
@@ -1314,7 +1320,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               <section className="doubaoSpeechHistory">
                 <div className="doubaoSpeechHistoryHeading">
                   <span><strong>合成历史</strong><small>保留最近 50 条</small></span>
-                  {speechHistory.length > 0 && <button type="button" onClick={() => { if (window.confirm("确定清空豆包合成历史和对应音频文件吗？")) void onClearSpeechHistory(); }}><Trash2 size={13} />清空</button>}
+                  {speechHistory.length > 0 && <button type="button" onClick={() => { void confirmDestructive("清空合成历史？", "将清空豆包合成历史和对应音频文件。此操作无法撤销。", "清空").then((confirmed) => { if (confirmed) void onClearSpeechHistory(); }); }}><Trash2 size={13} />清空</button>}
                 </div>
                 <div className="doubaoSpeechHistoryList">
                   {speechHistory.map((item) => (
@@ -1335,7 +1341,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                         <span><strong>{item.voiceName}</strong><small>{item.text}</small></span>
                       </button>
                       <span>{item.format.toUpperCase()} · {formatDate(item.createdAt)}</span>
-                      <button type="button" className="doubaoSpeechHistoryDelete" title="删除历史与音频" aria-label="删除历史与音频" onClick={() => { if (window.confirm("确定删除这条历史和音频文件吗？")) void onDeleteSpeechHistory(item); }}><Trash2 size={13} /></button>
+                      <button type="button" className="doubaoSpeechHistoryDelete" title="删除历史与音频" aria-label="删除历史与音频" onClick={() => { void confirmDestructive("删除合成历史？", "将删除这条合成历史和对应音频文件。此操作无法撤销。").then((confirmed) => { if (confirmed) void onDeleteSpeechHistory(item); }); }}><Trash2 size={13} /></button>
                     </article>
                   ))}
                   {!speechHistory.length && <div className="doubaoEmptyState small"><Volume2 size={20} /><span>生成后的音频会出现在这里</span></div>}
@@ -1458,7 +1464,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 <div className="doubaoCookieBatchBar">
                   <span>已选择 {selectedCookieIds.size} 个账号</span>
                   <button type="button" disabled={pendingAction === "cookies-batch-test"} onClick={() => void onBatchTestCookies(selectedCookieIds)}><Activity size={14} />批量验证</button>
-                  <button type="button" className="danger" disabled={pendingAction === "cookies-batch-delete"} onClick={() => { if (window.confirm(`确定删除选中的 ${selectedCookieIds.size} 个账号吗？`)) void onBatchDeleteCookies(); }}><Trash2 size={14} />批量删除</button>
+                  <button type="button" className="danger" disabled={pendingAction === "cookies-batch-delete"} onClick={() => { void confirmDestructive("批量删除账号？", `将删除选中的 ${selectedCookieIds.size} 个账号及其本机 Cookie 数据。此操作无法撤销。`, "批量删除").then((confirmed) => { if (confirmed) void onBatchDeleteCookies(); }); }}><Trash2 size={14} />批量删除</button>
                 </div>
               )}
               <div className={`doubaoCookieList ${cookieViewMode}`}>
@@ -1496,14 +1502,14 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                       <button type="button" aria-expanded={expandedCookieId === cookie.id} onClick={() => setExpandedCookieId((current) => current === cookie.id ? "" : cookie.id)}>{expandedCookieId === cookie.id ? "收起详情" : "详情"}</button>
                       <button type="button" onClick={() => void onCookieAction(`toggle-${cookie.id}`, () => toggleDoubaoCookie(cookie.id), cookie.status.isDisabled ? "账号已启用" : "账号已停用")}>{cookie.status.isDisabled ? "启用" : "停用"}</button>
                       <label className="doubaoLimitInput"><span>总限制</span><input type="number" min={0} max={10000} value={usageLimits[cookie.id] ?? 0} onChange={(event) => setUsageLimits((values) => ({ ...values, [cookie.id]: Number(event.target.value) }))} /><button type="button" onClick={() => void onCookieAction(`limit-${cookie.id}`, () => setDoubaoCookieUsageLimit(cookie.id, usageLimits[cookie.id] ?? 0), "账号总限制已保存")}>保存</button></label>
-                      <button type="button" className="danger" onClick={() => { if (window.confirm(`确定删除“${cookie.name}”吗？`)) void onCookieAction(`delete-${cookie.id}`, () => deleteDoubaoCookie(cookie.id), "账号已删除"); }}><Trash2 size={14} />删除</button>
+                      <button type="button" className="danger" onClick={() => { void confirmDestructive("删除账号？", `将删除“${cookie.name}”及其本机 Cookie 数据。此操作无法撤销。`).then((confirmed) => { if (confirmed) void onCookieAction(`delete-${cookie.id}`, () => deleteDoubaoCookie(cookie.id), "账号已删除"); }); }}><Trash2 size={14} />删除</button>
                     </div>
                   </article>
                 )) : (
                   <div className="doubaoEmptyState"><CookieIcon size={26} /><strong>{cookies.length ? "没有匹配账号" : "还没有账号"}</strong><span>{cookies.length ? "换一个搜索词试试" : "扫码登录或在上方手工添加 Cookie"}</span></div>
                 )}
               </div>
-              {cookies.length > 0 && <button type="button" className="doubaoDangerLink" onClick={() => { if (window.confirm("确定清空全部豆包 Cookie 吗？")) void onCookieAction("cookies-clear", clearDoubaoCookies, "全部 Cookie 已清空"); }}><Trash2 size={14} />清空全部 Cookie</button>}
+              {cookies.length > 0 && <button type="button" className="doubaoDangerLink" onClick={() => { void confirmDestructive("清空全部 Cookie？", "将清空全部豆包账号和本机 Cookie 数据。此操作无法撤销。", "全部清空").then((confirmed) => { if (confirmed) void onCookieAction("cookies-clear", clearDoubaoCookies, "全部 Cookie 已清空"); }); }}><Trash2 size={14} />清空全部 Cookie</button>}
             </section>
           </div>
         )}
@@ -1670,8 +1676,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                         {(["paused", "cancelled", "partial", "failed"] as string[]).includes(task.status) && <button type="button" onClick={() => void onTaskAction(`resume-${task.taskId}`, () => resumeDoubaoPrefetch(task.taskId), "任务已恢复")}><Play size={14} />恢复</button>}
                         {(["processing", "paused"] as string[]).includes(task.status) && <button type="button" onClick={() => void onTaskAction(`cancel-${task.taskId}`, () => cancelDoubaoPrefetch(task.taskId), "任务已取消，已生成内容保留")}><X size={14} />取消</button>}
                         {(["partial", "failed", "paused"] as string[]).includes(task.status) && <button type="button" onClick={() => void onTaskAction(`retry-${task.taskId}`, () => retryDoubaoPrefetch(task.taskId), "失败章节已重新排队")}><RotateCw size={14} />重试</button>}
-                        <button type="button" onClick={() => void onTaskAction(`files-${task.taskId}`, () => deleteDoubaoPrefetchFiles(task.taskId), "任务音频文件已清理")}><HardDrive size={14} />清理文件</button>
-                        <button type="button" className="danger" onClick={() => { if (window.confirm("确定删除这条预制任务记录吗？")) void onTaskAction(`remove-${task.taskId}`, () => deleteDoubaoPrefetchTask(task.taskId), "任务记录已删除"); }}><Trash2 size={14} />删除</button>
+                        <button type="button" onClick={() => { void confirmDestructive("清理任务音频文件？", "将删除这条预制任务已经生成的音频文件，任务记录会保留。此操作无法撤销。", "清理文件").then((confirmed) => { if (confirmed) void onTaskAction(`files-${task.taskId}`, () => deleteDoubaoPrefetchFiles(task.taskId), "任务音频文件已清理"); }); }}><HardDrive size={14} />清理文件</button>
+                        <button type="button" className="danger" onClick={() => { void confirmDestructive("删除预制任务？", "将删除这条预制任务记录。已生成的音频文件不会被自动删除。", "删除任务").then((confirmed) => { if (confirmed) void onTaskAction(`remove-${task.taskId}`, () => deleteDoubaoPrefetchTask(task.taskId), "任务记录已删除"); }); }}><Trash2 size={14} />删除</button>
                       </div>
                       {expandedTaskId === task.taskId && (
                         <div className="doubaoTaskChapterDetails">
@@ -1686,7 +1692,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                               <div className="doubaoTaskChapterActions">
                                 <button type="button" onClick={() => void onInspectTaskChapter(task, chapter.chapterId, chapter.chapterTitle)}><FileText size={13} />查看索引</button>
                                 <button type="button" disabled={chapter.status === "completed" || chapter.status === "processing"} onClick={() => void onTaskAction(`retry-${task.taskId}-${chapter.chapterId}`, () => retryDoubaoPrefetch(task.taskId, chapter.chapterId), "本章已重新排队")}><RotateCw size={13} />重试本章</button>
-                                <button type="button" className="danger" onClick={() => { if (window.confirm(`确定删除“${chapter.chapterTitle}”的预制音频吗？`)) void onDeletePrefetchChapter(task.bookInfo.bookId, chapter.chapterId); }}><Trash2 size={13} />删除音频</button>
+                                <button type="button" className="danger" onClick={() => { void confirmDestructive("删除预制音频？", `将删除“${chapter.chapterTitle}”的预制音频。此操作无法撤销。`).then((confirmed) => { if (confirmed) void onDeletePrefetchChapter(task.bookInfo.bookId, chapter.chapterId); }); }}><Trash2 size={13} />删除音频</button>
                               </div>
                             </article>
                           ))}
@@ -1707,7 +1713,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             </section>
 
             <section className="doubaoPanel doubaoCacheBooksPanel">
-              <div className="doubaoSectionHeading"><div><Database size={18} /><span><strong>书籍缓存</strong><small>正文缓存和预制音频统一管理</small></span></div><div className="doubaoButtonRow"><button type="button" className="doubaoSecondaryButton" onClick={() => { if (window.confirm("确定清空全部正文和预制缓存吗？")) void onTaskAction("cache-clear-all", () => clearDoubaoBookCache("all"), "全部豆包缓存已清空"); }}><Trash2 size={15} /><span>清空全部</span></button></div></div>
+              <div className="doubaoSectionHeading"><div><Database size={18} /><span><strong>书籍缓存</strong><small>正文缓存和预制音频统一管理</small></span></div><div className="doubaoButtonRow"><button type="button" className="doubaoSecondaryButton" onClick={() => { void confirmDestructive("清空全部书籍缓存？", "将清空所有正文缓存和预制音频。此操作无法撤销。", "全部清空").then((confirmed) => { if (confirmed) void onTaskAction("cache-clear-all", () => clearDoubaoBookCache("all"), "全部豆包缓存已清空"); }); }}><Trash2 size={15} /><span>清空全部</span></button></div></div>
               <div className="doubaoCachedBookGrid">
                 {cachedBooks.map((book, index) => {
                   const identifier = cachedBookIdentifier(book);
@@ -1718,7 +1724,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                       <div><strong>{bookName(book)}</strong><small>{book.source === "prefetch" ? "预制音频" : "正文缓存"} · {book.cachedChapters ?? book.totalChapters ?? "?"} 章</small><span>{formatBytes(Number(book.totalSize || book.size || 0))} · {formatDate(book.updatedAt || book.cachedAt)}</span></div>
                       <div className="doubaoCachedBookActions">
                         <button type="button" className="doubaoIconButton" title="查看缓存章节" aria-label="查看缓存章节" disabled={!identifier} onClick={() => void onInspectCachedBook(book)}><FileText size={16} /></button>
-                        <button type="button" className="doubaoIconButton danger" title="删除书籍缓存" aria-label="删除书籍缓存" disabled={!identifier} onClick={() => { if (window.confirm(`确定删除《${bookName(book)}》的缓存吗？`)) void onTaskAction(`cache-delete-${identifier}`, () => deleteDoubaoCachedBook(identifier), "书籍缓存已删除").then(() => { if (isInspected) { setInspectedCachedBook(null); setInspectedCachedChapters([]); setCacheChapterPreview(null); } }); }}><Trash2 size={16} /></button>
+                        <button type="button" className="doubaoIconButton danger" title="删除书籍缓存" aria-label="删除书籍缓存" disabled={!identifier} onClick={() => { void confirmDestructive("删除书籍缓存？", `将删除《${bookName(book)}》的正文缓存和预制音频。此操作无法撤销。`).then((confirmed) => { if (confirmed) void onTaskAction(`cache-delete-${identifier}`, () => deleteDoubaoCachedBook(identifier), "书籍缓存已删除").then(() => { if (isInspected) { setInspectedCachedBook(null); setInspectedCachedChapters([]); setCacheChapterPreview(null); } }); }); }}><Trash2 size={16} /></button>
                       </div>
                     </article>
                   );
@@ -1741,7 +1747,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                             <div><strong>{chapter.title}</strong><small>{inspectedCachedBook.source === "prefetch" ? `章节 ID：${chapterId}` : "正文已缓存"}</small></div>
                             <div>
                               <button type="button" title={inspectedCachedBook.source === "prefetch" ? "查看预制索引" : "查看正文"} aria-label={inspectedCachedBook.source === "prefetch" ? "查看预制索引" : "查看正文"} onClick={() => void onInspectCachedChapter(inspectedCachedBook, chapter)}><FileText size={14} /></button>
-                              {inspectedCachedBook.source === "prefetch" && <button type="button" className="danger" title="删除本章预制音频" aria-label="删除本章预制音频" onClick={() => { if (window.confirm(`确定删除“${chapter.title}”的预制音频吗？`)) void onDeletePrefetchChapter(cachedBookIdentifier(inspectedCachedBook), chapterId); }}><Trash2 size={14} /></button>}
+                              {inspectedCachedBook.source === "prefetch" && <button type="button" className="danger" title="删除本章预制音频" aria-label="删除本章预制音频" onClick={() => { void confirmDestructive("删除预制音频？", `将删除“${chapter.title}”的预制音频。此操作无法撤销。`).then((confirmed) => { if (confirmed) void onDeletePrefetchChapter(cachedBookIdentifier(inspectedCachedBook), chapterId); }); }}><Trash2 size={14} /></button>}
                             </div>
                           </article>
                         );
@@ -1802,7 +1808,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             <section className="doubaoPanel doubaoSafetyCard">
               <div className="doubaoSectionHeading compact"><div><ShieldCheck size={18} /><span><strong>维护版安全边界</strong><small>已替换上游高风险自更新链路</small></span></div></div>
               <ul><li>Cookie 使用 Windows DPAPI 加密，不写明文配置。</li><li>远程公告与远程文档已改为本地只读内容。</li><li>不支持上传 ZIP 覆盖正在运行的程序，更新由 Electron 安全流程负责。</li><li>豆包网页接口未提供稳定性承诺，协议变更集中在独立适配层维护。</li></ul>
-              <button type="button" className="doubaoSecondaryButton" onClick={() => void runAction("clean-logs", cleanDoubaoLogCache, "任务日志缓存已清理")}><Trash2 size={15} /><span>清理任务日志缓存</span></button>
+              <button type="button" className="doubaoSecondaryButton" onClick={() => { void confirmDestructive("清理任务日志缓存？", "将删除本机保存的豆包任务日志缓存，不影响任务记录和已生成音频。此操作无法撤销。", "清理缓存").then((confirmed) => { if (confirmed) void runAction("clean-logs", cleanDoubaoLogCache, "任务日志缓存已清理"); }); }}><Trash2 size={15} /><span>清理任务日志缓存</span></button>
             </section>
           </div>
         )}
