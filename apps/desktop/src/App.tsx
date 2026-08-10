@@ -2201,6 +2201,7 @@ export function App() {
   const [taskCenterTaskSourceFilter, setTaskCenterTaskSourceFilter] = useState("all");
   const [taskCenterResultFilter, setTaskCenterResultFilter] = useState("all");
   const [taskCenterSourceFilter, setTaskCenterSourceFilter] = useState("all");
+  const [assetFiltersOpen, setAssetFiltersOpen] = useState(false);
   const [selectedTaskResultIds, setSelectedTaskResultIds] = useState<string[]>([]);
   const [selectedTaskResultId, setSelectedTaskResultId] = useState<string | null>(null);
   const [collapsedResultDateGroups, setCollapsedResultDateGroups] = useState<Set<string>>(new Set());
@@ -2324,6 +2325,7 @@ export function App() {
   const [realtimeRuntimeState, setRealtimeRuntimeState] = useState<"idle" | "reserving" | "ready" | "error">("idle");
   const [realtimeRuntimeMessage, setRealtimeRuntimeMessage] = useState("");
   const workbenchNavRef = useRef<HTMLDivElement>(null);
+  const workspaceFocusTargetRef = useRef<PrimaryWorkspace | null>(null);
   const [activeWorkspace, setActiveWorkspace] = useState<PrimaryWorkspace>("creation");
   const [workspaceTransition, setWorkspaceTransition] = useState<"idle" | "entering">("idle");
   const workspaceTransitionTimersRef = useRef<number[]>([]);
@@ -4299,34 +4301,24 @@ export function App() {
       });
       return;
     }
-    const shouldRestoreCreationFocus = workbench === "creation" && activeWorkspace !== "creation";
     if (workbench !== "creation") {
       releaseRealtimeRuntimeReservation();
     } else if (generationWorkspace === "realtime") {
       reserveRealtimeRuntimeReservation();
     }
     if (workbench === activeWorkspace) return;
+    workspaceFocusTargetRef.current = workbench;
     workspaceTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduceMotion) {
       setActiveWorkspace(workbench);
       setWorkspaceTransition("idle");
-      if (shouldRestoreCreationFocus) {
-        window.requestAnimationFrame(() => {
-          workbenchNavRef.current?.querySelector<HTMLButtonElement>('[data-workbench-id="creation"]')?.focus({ preventScroll: true });
-        });
-      }
       return;
     }
     // Swap at the beginning of the fade so grid changes never occur while the old view is translated.
     // The prior two-stage slide made the main canvas appear to jump when its width changed.
     setActiveWorkspace(workbench);
     setWorkspaceTransition("entering");
-    if (shouldRestoreCreationFocus) {
-      window.requestAnimationFrame(() => {
-        workbenchNavRef.current?.querySelector<HTMLButtonElement>('[data-workbench-id="creation"]')?.focus({ preventScroll: true });
-      });
-    }
     const settleTimer = window.setTimeout(() => setWorkspaceTransition("idle"), 180);
     workspaceTransitionTimersRef.current = [settleTimer];
   }
@@ -4417,6 +4409,16 @@ export function App() {
       scrollStateObserver.disconnect();
       navigation.removeEventListener("scroll", updateScrollState);
     };
+  }, [activeWorkspace]);
+
+  useEffect(() => {
+    if (workspaceFocusTargetRef.current !== activeWorkspace) return undefined;
+    const focusTimer = window.setTimeout(() => {
+      if (workspaceFocusTargetRef.current !== activeWorkspace) return;
+      workbenchNavRef.current?.querySelector<HTMLButtonElement>(`[data-workbench-id="${activeWorkspace}"]`)?.focus({ preventScroll: true });
+      workspaceFocusTargetRef.current = null;
+    }, 0);
+    return () => window.clearTimeout(focusTimer);
   }, [activeWorkspace]);
 
   function editBatchProject(project: BatchProject) {
@@ -7954,6 +7956,7 @@ export function App() {
     const selected = selectedTaskResult;
     const selectedIsAudio = selected ? ["audio", "enhancement", "separation"].includes(selected.kind) : false;
     const selectedIsVideo = selected?.kind === "video";
+    const assetFiltersActive = Boolean(taskCenterSearch || taskCenterResultFilter !== "all" || taskCenterSourceFilter !== "all");
     const typeFilters = [
       { id: "all", label: "全部成果", count: taskCenterResults.length, icon: <Library size={16} strokeWidth={1.9} /> },
       { id: "audio_family", label: "音频", count: taskCenterResults.filter((result) => ["audio", "enhancement", "separation"].includes(result.kind)).length, icon: <Volume2 size={16} strokeWidth={1.9} /> },
@@ -8011,16 +8014,23 @@ export function App() {
         </div>
 
         <div className="assetCenterLayout">
-          <aside className="assetCenterFilters" aria-label="成果筛选">
+          <aside className={assetFiltersOpen ? "assetCenterFilters isOpen" : "assetCenterFilters"} aria-label="成果筛选">
             <div className="assetFilterHeading">
               <strong>筛选成果</strong>
-              {(taskCenterSearch || taskCenterResultFilter !== "all" || taskCenterSourceFilter !== "all") && (
-                <button type="button" onClick={() => {
-                  setTaskCenterSearch("");
-                  setTaskCenterResultFilter("all");
-                  setTaskCenterSourceFilter("all");
-                }}>重置</button>
-              )}
+              <div className="assetFilterHeadingActions">
+                {assetFiltersActive && <span className="assetFilterActiveHint">已启用</span>}
+                <button className="assetFilterToggle" type="button" aria-expanded={assetFiltersOpen} onClick={() => setAssetFiltersOpen((open) => !open)}>
+                  <SlidersHorizontal size={14} strokeWidth={1.9} />
+                  <span>{assetFiltersOpen ? "收起筛选" : "展开筛选"}</span>
+                </button>
+                {assetFiltersActive && (
+                  <button type="button" onClick={() => {
+                    setTaskCenterSearch("");
+                    setTaskCenterResultFilter("all");
+                    setTaskCenterSourceFilter("all");
+                  }}>重置</button>
+                )}
+              </div>
             </div>
             <label className="assetCenterSearch">
               <Search size={16} strokeWidth={1.9} />

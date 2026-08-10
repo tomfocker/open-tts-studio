@@ -11116,6 +11116,21 @@ summary:focus-visible {
   padding: 0 4px 10px;
 }
 
+.assetFilterHeadingActions {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.assetFilterActiveHint {
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
 .assetFilterHeading strong {
   color: var(--text);
   font-size: 13px;
@@ -11130,6 +11145,12 @@ summary:focus-visible {
   cursor: pointer;
   font-size: 11px;
   font-weight: 720;
+}
+
+.assetFilterToggle {
+  display: none;
+  align-items: center;
+  gap: 4px;
 }
 
 .assetCenterSearch {
@@ -11691,6 +11712,11 @@ summary:focus-visible {
   .assetCenterSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .assetCenterLayout { grid-template-columns: 1fr; overflow: visible; }
   .assetCenterFilters, .assetCenterListPanel, .assetCenterInspector { min-height: 0; }
+  .assetCenterFilters { overflow: visible; }
+  .assetFilterHeading { padding-bottom: 8px; }
+  .assetFilterToggle { display: inline-flex; }
+  .assetCenterFilters:not(.isOpen) .assetFilterGroup { display: none; }
+  .assetCenterFilters:not(.isOpen) .assetFilterHeading { padding-bottom: 7px; }
   .assetCenterRow { grid-template-columns: 22px minmax(0, 1fr) 34px; }
   .assetCenterRowTags { display: none; }
   .assetCenterInspector { grid-column: auto; }
