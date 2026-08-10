@@ -2259,6 +2259,7 @@ export function App() {
   const appConfirmationResolverRef = useRef<((confirmed: boolean) => void) | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMigrationAction, setSettingsMigrationAction] = useState<"export" | "import" | null>(null);
+  const [globalRefreshing, setGlobalRefreshing] = useState(false);
   const [appUpdate, setAppUpdate] = useState<AppUpdateState | null>(null);
   const defaultModelAppliedRef = useRef(false);
   const startupPrewarmAttemptedRef = useRef(false);
@@ -3456,6 +3457,27 @@ export function App() {
       setVoiceManagerError(err instanceof Error ? err.message : "无法读取这条参考音频。");
     } finally {
       setVoiceManagerPreviewLoading(false);
+    }
+  }
+
+  async function refreshWorkspaceState() {
+    if (globalRefreshing) {
+      return;
+    }
+    setGlobalRefreshing(true);
+    try {
+      await Promise.all([
+        loadModels(),
+        loadVoices(),
+        loadSystemStatus(),
+        loadAppSettings(),
+        loadModelInstances(),
+        loadModelPackages(),
+        loadTaskSummaries(),
+        loadDoubaoState()
+      ]);
+    } finally {
+      setGlobalRefreshing(false);
     }
   }
 
@@ -8227,15 +8249,8 @@ export function App() {
 
         <div className="windowTools">
           <div className="toolGroup globalToolGroup" role="group" aria-label="全局工具">
-            <button className="toolButton" type="button" title="刷新状态" aria-label="刷新状态" onClick={() => {
-              void loadModels();
-              void loadSystemStatus();
-              void loadModelInstances();
-              void loadModelPackages();
-              void loadTaskSummaries();
-              void loadDoubaoState();
-            }}>
-              <RefreshCw size={17} strokeWidth={1.9} />
+            <button className="toolButton" type="button" title="刷新状态" aria-label="刷新状态" disabled={globalRefreshing} onClick={() => void refreshWorkspaceState()}>
+              <RefreshCw className={globalRefreshing ? "spin" : undefined} size={17} strokeWidth={1.9} />
             </button>
             <button className="toolButton taskQueueToolButton" type="button" title="任务队列" aria-label="任务队列" onClick={() => {
               setTaskCenterError(null);

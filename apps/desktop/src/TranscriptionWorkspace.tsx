@@ -447,7 +447,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
           <aside className="transcriptionHistory" aria-label="最近转写任务">
             <div className="transcriptionSectionHeading"><div><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div></div>
             <div className="transcriptionHistoryList">
-              {jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} onClick={() => setSelectedJobId(job.id)}><span className={`transcriptionHistoryDot ${job.status}`} /><span><strong>{job.source_file_name}</strong><small>{job.output_format.toUpperCase()} · {statusLabel(job.status)}</small></span></button>)}
+              {jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} onClick={() => setSelectedJobId(job.id)}><span className={`transcriptionHistoryDot ${job.status}`} /><span><strong title={job.source_file_name}>{job.source_file_name}</strong><small>{job.output_format.toUpperCase()} · {statusLabel(job.status)}</small></span></button>)}
               {!jobs.length && <div className="transcriptionHistoryEmpty">最近完成、失败和取消的任务会保留在本机。</div>}
             </div>
           </aside>
