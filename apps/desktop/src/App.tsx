@@ -2256,6 +2256,8 @@ export function App() {
   const startupPrewarmAttemptedRef = useRef(false);
   const startupModelHealthCheckedRef = useRef(false);
   const systemStatusRequestRef = useRef(false);
+  const taskSummariesRequestRef = useRef<Promise<void> | null>(null);
+  const batchProjectsRequestRef = useRef<Promise<void> | null>(null);
   const backendRecoveryRequestRef = useRef(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -4005,11 +4007,24 @@ export function App() {
   }
 
   async function loadBatchProjects() {
+    if (batchProjectsRequestRef.current) {
+      return batchProjectsRequestRef.current;
+    }
+    const request = (async () => {
+      try {
+        const projects = await fetchBatchProjects();
+        setBatchProjects(projects);
+      } catch (err) {
+        setBatchProjectError(err instanceof Error ? err.message : "无法读取批量项目");
+      }
+    })();
+    batchProjectsRequestRef.current = request;
     try {
-      const projects = await fetchBatchProjects();
-      setBatchProjects(projects);
-    } catch (err) {
-      setBatchProjectError(err instanceof Error ? err.message : "无法读取批量项目");
+      await request;
+    } finally {
+      if (batchProjectsRequestRef.current === request) {
+        batchProjectsRequestRef.current = null;
+      }
     }
   }
 
@@ -4547,16 +4562,29 @@ export function App() {
   }
 
   async function loadTaskSummaries() {
+    if (taskSummariesRequestRef.current) {
+      return taskSummariesRequestRef.current;
+    }
+    const request = (async () => {
+      try {
+        const [tasks, ebookTasks] = await Promise.all([
+          fetchTaskSummaries(),
+          fetchDoubaoPrefetchTasks().catch(() => [] as DoubaoPrefetchTask[])
+        ]);
+        setRemoteTasks(tasks);
+        setEbookPrefetchTasks(ebookTasks);
+      } catch {
+        setRemoteTasks([]);
+        setEbookPrefetchTasks([]);
+      }
+    })();
+    taskSummariesRequestRef.current = request;
     try {
-      const [tasks, ebookTasks] = await Promise.all([
-        fetchTaskSummaries(),
-        fetchDoubaoPrefetchTasks().catch(() => [] as DoubaoPrefetchTask[])
-      ]);
-      setRemoteTasks(tasks);
-      setEbookPrefetchTasks(ebookTasks);
-    } catch {
-      setRemoteTasks([]);
-      setEbookPrefetchTasks([]);
+      await request;
+    } finally {
+      if (taskSummariesRequestRef.current === request) {
+        taskSummariesRequestRef.current = null;
+      }
     }
   }
 

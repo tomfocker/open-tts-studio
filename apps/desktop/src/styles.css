@@ -12196,3 +12196,48 @@ summary:focus-visible {
 :root:not([data-theme="dark"]) .generationWorkspaceTabs {
   background: linear-gradient(145deg, rgba(221, 231, 238, 0.94), rgba(246, 249, 252, 0.9));
 }
+
+/* Short desktop windows still need to expose the complete preflight state.
+   The canvas can become a scroll container for unusually long progress or
+   candidate content, while the common 1280x700 case stays visually compact. */
+.taskCanvas {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 38%, transparent) transparent;
+}
+
+@media (min-width: 900px) and (max-height: 780px) {
+  .emptyCanvas {
+    padding-block: 10px;
+  }
+
+  .emptyIcon,
+  .resultIcon {
+    width: 44px;
+    height: 44px;
+    margin-bottom: 8px;
+  }
+
+  .emptyCanvas h2,
+  .resultCard h2 {
+    font-size: 20px;
+  }
+
+  .emptyCanvas p,
+  .resultCard p {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .emptyCanvasSteps {
+    margin-top: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .taskCanvas {
+    scroll-behavior: auto;
+  }
+}
