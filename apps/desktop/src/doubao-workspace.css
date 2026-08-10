@@ -3653,6 +3653,30 @@
   }
 }
 
+/* A short desktop window should keep the whole compose decision together:
+   text, two tonal controls, then the generate action. Preview/history can
+   remain below the fold, but never the primary action itself. */
+@media (min-width: 981px) and (max-width: 1399px) and (max-height: 760px) {
+  .doubaoModeDetail .doubaoComposer {
+    grid-template-rows: auto minmax(148px, 1fr) auto auto auto;
+    gap: 10px;
+  }
+
+  .doubaoModeDetail .doubaoTextField textarea {
+    min-height: 148px;
+    line-height: 1.65;
+  }
+
+  .doubaoModeDetail .doubaoParameterGrid {
+    gap: 14px;
+    padding: 9px 11px;
+  }
+
+  .doubaoModeDetail .doubaoComposerFooter {
+    padding-block: 6px;
+  }
+}
+
 .doubaoModeCards.landing .doubaoModeCardIcon {
   width: 48px;
   height: 48px;

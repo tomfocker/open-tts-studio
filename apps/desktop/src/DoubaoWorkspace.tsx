@@ -1228,12 +1228,12 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               <div className="doubaoParameterGrid">
                 <label className="doubaoField">
                   <span>语速 <output>{speechRate > 0 ? `+${speechRate}` : speechRate}</output></span>
-                  <input type="range" min={-50} max={100} value={speechRate} onChange={(event) => setSpeechRate(Number(event.target.value))} />
+                  <input type="range" min={-50} max={100} value={speechRate} aria-label="云端语音合成语速" aria-valuetext={speechRate === 0 ? "自然语速" : speechRate > 0 ? `加快 ${speechRate}` : `放慢 ${Math.abs(speechRate)}`} onChange={(event) => setSpeechRate(Number(event.target.value))} />
                   <small>-50 慢速 · 0 自然 · 100 快速</small>
                 </label>
                 <label className="doubaoField">
                   <span>音调 <output>{pitch > 0 ? `+${pitch}` : pitch}</output></span>
-                  <input type="range" min={-12} max={12} value={pitch} onChange={(event) => setPitch(Number(event.target.value))} />
+                  <input type="range" min={-12} max={12} value={pitch} aria-label="云端语音合成音调" aria-valuetext={pitch === 0 ? "原声音调" : pitch > 0 ? `提高 ${pitch}` : `降低 ${Math.abs(pitch)}`} onChange={(event) => setPitch(Number(event.target.value))} />
                   <small>-12 低沉 · 0 原声 · 12 高亮</small>
                 </label>
               </div>
@@ -1348,7 +1348,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 <div><Library size={18} /><span><strong>豆包音色</strong><small>{filteredVoices.length} / {voices.length} 个</small></span></div>
               </div>
               <div className="doubaoVoiceFilters">
-                <label><Search size={15} /><input value={voiceQuery} placeholder="搜索名称或标签" onChange={(event) => setVoiceQuery(event.target.value)} /></label>
+                <label><Search size={15} /><input value={voiceQuery} aria-label="搜索豆包音色" placeholder="搜索名称或标签" onChange={(event) => setVoiceQuery(event.target.value)} /></label>
                 <select value={voiceGender} aria-label="音色性别筛选" onChange={(event) => setVoiceGender(event.target.value)}>
                   <option value="">全部性别</option><option value="女">女声</option><option value="男">男声</option>
                 </select>
