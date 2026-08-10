@@ -508,6 +508,32 @@
   color: color-mix(in srgb, var(--muted) 75%, transparent);
 }
 
+.voiceManagerSearchClear {
+  flex: 0 0 auto;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.voiceManagerSearchClear:hover,
+.voiceManagerSearchClear:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.voiceManagerSearchClear:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 1px;
+}
+
 .voiceManagerQuickFilters {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -11220,6 +11246,36 @@ summary:focus-visible {
   color: var(--text);
   background: transparent;
   font-size: 12px;
+}
+
+.assetCenterSearchClear,
+.taskCenterSearchClear {
+  flex: 0 0 auto;
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease;
+}
+
+.assetCenterSearchClear:hover,
+.assetCenterSearchClear:focus-visible,
+.taskCenterSearchClear:hover,
+.taskCenterSearchClear:focus-visible {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.assetCenterSearchClear:focus-visible,
+.taskCenterSearchClear:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 1px;
 }
 
 .assetFilterGroup {

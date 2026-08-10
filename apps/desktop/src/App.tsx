@@ -4166,7 +4166,10 @@ export function App() {
     setVoiceManagerError(null);
     try {
       await deleteVoice(managedVoice.id);
-      setCustomVoices((voices) => voices.filter((voice) => voice.id !== managedVoice.id));
+      const remainingVoices = customVoices.filter((voice) => voice.id !== managedVoice.id);
+      const nextVoice = visibleManagedVoices.find((voice) => voice.id !== managedVoice.id) ?? null;
+      const nextReferenceId = nextVoice?.activeReferenceId ?? nextVoice?.references[0]?.id ?? null;
+      setCustomVoices(remainingVoices);
       setVoiceAvatars((avatars) => {
         const { [managedVoice.id]: _removed, ...remaining } = avatars;
         return remaining;
@@ -4174,8 +4177,10 @@ export function App() {
       if (selectedVoice === managedVoice.id) {
         setSelectedVoice("custom");
       }
-      setManagedVoiceId(null);
-      setVoiceManagerDraft(createVoiceManagerDraft(null));
+      managedVoiceIdRef.current = nextVoice?.id ?? null;
+      setManagedVoiceId(nextVoice?.id ?? null);
+      setManagedReferenceId(nextReferenceId);
+      setVoiceManagerDraft(createVoiceManagerDraft(nextVoice, nextReferenceId));
       setVoiceManagerMessage("音色档案已删除，托管音频仍保留在本地。");
     } catch (err) {
       setVoiceManagerError(err instanceof Error ? err.message : "删除音色失败");
@@ -8132,10 +8137,15 @@ export function App() {
                 )}
               </div>
             </div>
-            <label className="assetCenterSearch">
+            <div className="assetCenterSearch">
               <Search size={16} strokeWidth={1.9} />
               <input value={taskCenterSearch} placeholder="搜索文件、原文或模型" aria-label="搜索成果" onChange={(event) => setTaskCenterSearch(event.target.value)} />
-            </label>
+              {taskCenterSearch && (
+                <button type="button" className="assetCenterSearchClear" aria-label="清除成果搜索" title="清除搜索" onClick={() => setTaskCenterSearch("")}>
+                  <X size={14} strokeWidth={2} />
+                </button>
+              )}
+            </div>
             <div className="assetFilterGroup" role="group" aria-label="成果类型">
               <span>内容类型</span>
               {typeFilters.map((filter) => (
@@ -9479,10 +9489,21 @@ export function App() {
                       </div>
                       <span>{visibleManagedVoices.length}</span>
                     </div>
-                    <label className="voiceManagerSearch">
+                    <div className="voiceManagerSearch">
                       <Search size={15} strokeWidth={1.9} />
                       <input value={voiceManagerQuery} onChange={(event) => setVoiceManagerQuery(event.target.value)} placeholder="搜索角色或片段" aria-label="搜索角色或片段" />
-                    </label>
+                      {voiceManagerQuery && (
+                        <button
+                          type="button"
+                          className="voiceManagerSearchClear"
+                          aria-label="清除角色搜索"
+                          title="清除搜索"
+                          onClick={() => setVoiceManagerQuery("")}
+                        >
+                          <X size={14} strokeWidth={2} />
+                        </button>
+                      )}
+                    </div>
                     <div className="voiceManagerQuickFilters" role="group" aria-label="角色筛选">
                       <button type="button" className={voiceManagerFilter === "all" ? "active" : ""} aria-pressed={voiceManagerFilter === "all"} onClick={() => setVoiceManagerFilter("all")}>
                         <Library size={14} strokeWidth={1.9} />
@@ -9620,11 +9641,14 @@ export function App() {
                                   <article
                                     key={reference.id}
                                     className={isSelected ? "voiceReferenceCard selected" : "voiceReferenceCard"}
-                                    role="button"
+                                    role="group"
                                     tabIndex={0}
-                                    aria-pressed={isSelected}
+                                    aria-label={`参考片段：${reference.name}${isSelected ? "，当前选中" : ""}`}
                                     onClick={() => selectManagedReference(reference.id)}
                                     onKeyDown={(event) => {
+                                      if (event.target !== event.currentTarget) {
+                                        return;
+                                      }
                                       if (event.key === "Enter" || event.key === " ") {
                                         event.preventDefault();
                                         selectManagedReference(reference.id);
@@ -10215,7 +10239,7 @@ export function App() {
               <button type="button" className="taskCenterSummaryLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}>查看成果中心<ChevronRight size={15} strokeWidth={1.9} /></button>
             </div>
             <div className="taskCenterFilterBar" aria-label="任务筛选">
-              <label className="taskCenterTaskSearch"><Search size={15} strokeWidth={1.9} /><input value={taskCenterTaskSearch} aria-label="搜索任务、错误或最近事件" placeholder="搜索任务、错误或最近事件" onChange={(event) => setTaskCenterTaskSearch(event.target.value)} /></label>
+              <div className="taskCenterTaskSearch"><Search size={15} strokeWidth={1.9} /><input value={taskCenterTaskSearch} aria-label="搜索任务、错误或最近事件" placeholder="搜索任务、错误或最近事件" onChange={(event) => setTaskCenterTaskSearch(event.target.value)} />{taskCenterTaskSearch && <button type="button" className="taskCenterSearchClear" aria-label="清除任务搜索" title="清除搜索" onClick={() => setTaskCenterTaskSearch("")}><X size={14} strokeWidth={2} /></button>}</div>
               <select value={taskCenterStatusFilter} onChange={(event) => setTaskCenterStatusFilter(event.target.value)} aria-label="任务状态">
                 <option value="all">全部状态</option>
                 <option value="active">进行中</option>
