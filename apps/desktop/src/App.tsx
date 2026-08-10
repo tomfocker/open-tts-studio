@@ -7355,11 +7355,11 @@ export function App() {
             </small>
           </div>
           <div className="batchWorkspaceHeaderActions">
-            <button className="pathPickButton" onClick={createBatchProjectWorkspace} disabled={Boolean(batchProjectAction)}>
+            <button type="button" className="pathPickButton" onClick={createBatchProjectWorkspace} disabled={Boolean(batchProjectAction)}>
               <Plus size={15} strokeWidth={1.9} />
               <span>新建项目</span>
             </button>
-            <button className="pathPickButton" onClick={() => void openBatchOutputDirectory()}>
+            <button type="button" className="pathPickButton" onClick={() => void openBatchOutputDirectory()}>
               <FolderOpen size={15} strokeWidth={1.9} />
               <span>打开输出</span>
             </button>
@@ -7422,11 +7422,11 @@ export function App() {
                 <small>每段单独生成，可安全停止并从断点继续</small>
               </div>
               <div className="batchProjectImportRow">
-                <button className="pathPickButton" disabled={projectLocked} onClick={() => batchFileInputRef.current?.click()}>
+                <button type="button" className="pathPickButton" disabled={projectLocked} onClick={() => batchFileInputRef.current?.click()}>
                   <Upload size={15} strokeWidth={1.9} />
                   <span>导入 TXT / SRT</span>
                 </button>
-                <button className="pathPickButton" disabled={projectLocked} onClick={() => setBatchProjectSegments((segments) => [...segments, ""])}>
+                <button type="button" className="pathPickButton" disabled={projectLocked} onClick={() => setBatchProjectSegments((segments) => [...segments, ""])}>
                   <Plus size={15} strokeWidth={1.9} />
                   <span>新增片段</span>
                 </button>
@@ -7454,7 +7454,7 @@ export function App() {
                           onChange={(event) => updateBatchSegment(index, event.target.value)}
                         />
                         {segmentState && <em className={`batchSegmentState ${segmentState.status}`}>{batchSegmentStatusLabel(segmentState.status)}</em>}
-                        <button className="pathPickButton batchSegmentRemove" disabled={projectLocked || batchProjectSegments.length === 1} onClick={() => removeBatchSegment(index)} title="移除片段">
+                        <button type="button" className="pathPickButton batchSegmentRemove" disabled={projectLocked || batchProjectSegments.length === 1} onClick={() => removeBatchSegment(index)} title="移除片段">
                           <Trash2 size={15} strokeWidth={1.9} />
                         </button>
                       </div>
@@ -7469,7 +7469,7 @@ export function App() {
             <div className="batchWorkspaceSectionTitle">
               <Library size={16} strokeWidth={1.9} />
               <span>项目队列</span>
-              <button className="iconTextButton" title="刷新项目队列" onClick={() => void loadBatchProjects()}><RefreshCw size={15} strokeWidth={1.9} /></button>
+              <button type="button" className="iconTextButton" title="刷新项目队列" onClick={() => void loadBatchProjects()}><RefreshCw size={15} strokeWidth={1.9} /></button>
             </div>
             {batchProjects.length === 0 ? (
               <div className="batchProjectEmpty compact">
@@ -7483,7 +7483,7 @@ export function App() {
                   const progress = batchProjectProgress(project);
                   return (
                     <div key={project.id} className={project.id === editingBatchProjectId ? "batchProjectRow active" : "batchProjectRow"}>
-                      <button className="batchProjectSelect" onClick={() => editBatchProject(project)}>
+                      <button type="button" className="batchProjectSelect" onClick={() => editBatchProject(project)}>
                         <div>
                           <strong>{project.title}</strong>
                           <span>{models.find((model) => model.id === project.model)?.display_name ?? project.model} · {progress.completed}/{progress.total} 完成{progress.failed ? ` · ${progress.failed} 失败` : ""}</span>
@@ -7492,24 +7492,24 @@ export function App() {
                       </button>
                       <div className="batchProjectRowActions">
                         {project.status === "failed" ? (
-                          <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project, true)}>
+                          <button type="button" className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project, true)}>
                             {batchProjectAction === "retry" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
                             <span>重试</span>
                           </button>
                         ) : project.status === "cancelled" ? (
-                          <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(project)}>
+                          <button type="button" className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(project)}>
                             {batchProjectAction === "resume" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
                             <span>继续</span>
                           </button>
                         ) : project.status === "cancelling" ? (
-                          <button className="pathPickButton runtimeStopButton" disabled><Loader2 className="spin" size={15} /><span>停止中</span></button>
+                          <button type="button" className="pathPickButton runtimeStopButton" disabled><Loader2 className="spin" size={15} /><span>停止中</span></button>
                         ) : project.status === "queued" || project.status === "running" ? (
-                          <button className="pathPickButton runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(project)}>
+                          <button type="button" className="pathPickButton runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(project)}>
                             {batchProjectAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}
                             <span>{project.status === "running" ? "安全停止" : "取消队列"}</span>
                           </button>
                         ) : (
-                          <button className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project)}>
+                          <button type="button" className="pathPickButton" disabled={Boolean(batchProjectAction)} onClick={() => void onRunExistingBatchProject(project)}>
                             {batchProjectAction === "run" ? <Loader2 className="spin" size={15} /> : <Play size={15} strokeWidth={1.9} />}
                             <span>运行</span>
                           </button>
@@ -7524,7 +7524,7 @@ export function App() {
         </div>
 
         {(batchProjectError || batchProjectMessage) && (
-          <div className={batchProjectError ? "settingsFeedback error" : "settingsFeedback"}>
+          <div role={batchProjectError ? "alert" : "status"} aria-live={batchProjectError ? "assertive" : "polite"} className={batchProjectError ? "settingsFeedback error" : "settingsFeedback"}>
             {batchProjectError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
             <span>{batchProjectError ?? batchProjectMessage}</span>
           </div>
@@ -7532,23 +7532,23 @@ export function App() {
 
         <footer className="batchWorkspaceFooter">
           {batchProjectCanStop && editingBatchProject && (
-            <button className="secondaryAction settingsAction runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(editingBatchProject)}>
+            <button type="button" className="secondaryAction settingsAction runtimeStopButton" disabled={Boolean(batchProjectAction)} onClick={() => void onCancelBatchProject(editingBatchProject)}>
               {batchProjectAction === "cancel" ? <Loader2 className="spin" size={16} /> : <Pause size={16} strokeWidth={1.9} />}
               <span>{editingBatchProject.status === "running" ? "当前段后停止" : "取消队列"}</span>
             </button>
           )}
           {batchProjectCanResume && editingBatchProject && (
-            <button className="secondaryAction settingsAction" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(editingBatchProject)}>
+            <button type="button" className="secondaryAction settingsAction" disabled={Boolean(batchProjectAction)} onClick={() => void onResumeBatchProject(editingBatchProject)}>
               {batchProjectAction === "resume" ? <Loader2 className="spin" size={16} /> : <Play size={16} strokeWidth={1.9} />}
               <span>继续生成</span>
             </button>
           )}
           <span className="batchWorkspaceFooterSpacer" />
-          <button className="secondaryAction settingsAction" disabled={projectLocked} onClick={() => void saveBatchProject(false)}>
+            <button type="button" className="secondaryAction settingsAction" disabled={projectLocked} onClick={() => void saveBatchProject(false)}>
             {batchProjectAction === "save" ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
             <span>保存草稿</span>
           </button>
-          <button className="primaryAction settingsAction" disabled={projectLocked} onClick={() => void saveBatchProject(true)}>
+            <button type="button" className="primaryAction settingsAction" disabled={projectLocked} onClick={() => void saveBatchProject(true)}>
             {batchProjectAction === "run" ? <Loader2 className="spin" size={16} /> : <Play size={16} strokeWidth={1.9} />}
             <span>保存并生成</span>
           </button>
@@ -7580,7 +7580,7 @@ export function App() {
             </div>
           </div>
           <div className="assetCenterHeaderActions">
-            <button className="pathPickButton" disabled={taskCenterAction !== null || audioLibraryLoading} onClick={() => {
+            <button type="button" className="pathPickButton" disabled={taskCenterAction !== null || audioLibraryLoading} onClick={() => {
               void loadTaskSummaries();
               void loadAudioAssets();
               void loadBilibiliHistory();
@@ -7588,7 +7588,7 @@ export function App() {
               <RefreshCw size={16} strokeWidth={1.9} />
               <span>刷新</span>
             </button>
-            <button className={retryableTaskCount > 0 || missingTaskResultCount > 0 ? "assetCenterQueueButton attention" : "assetCenterQueueButton"} title={activeTaskCount + retryableTaskCount + missingTaskResultCount > 0 ? `${activeTaskCount + retryableTaskCount + missingTaskResultCount} 项任务待处理` : "任务队列"} onClick={() => {
+            <button type="button" className={retryableTaskCount > 0 || missingTaskResultCount > 0 ? "assetCenterQueueButton attention" : "assetCenterQueueButton"} title={activeTaskCount + retryableTaskCount + missingTaskResultCount > 0 ? `${activeTaskCount + retryableTaskCount + missingTaskResultCount} 项任务待处理` : "任务队列"} onClick={() => {
               setTaskCenterError(null);
               setTaskCenterMessage(null);
               setTaskHistoryClearConfirmOpen(false);
@@ -7599,7 +7599,7 @@ export function App() {
               <span>任务队列</span>
               {activeTaskCount + retryableTaskCount + missingTaskResultCount > 0 && <em>{activeTaskCount + retryableTaskCount + missingTaskResultCount}</em>}
             </button>
-            <button className="assetCenterReturnButton" onClick={() => selectWorkspace("creation")}>
+            <button type="button" className="assetCenterReturnButton" onClick={() => selectWorkspace("creation")}>
               <ChevronLeft size={16} strokeWidth={1.9} />
               <span>返回合成</span>
             </button>
@@ -7607,16 +7607,16 @@ export function App() {
         </header>
 
         <div className="assetCenterSummary" aria-label="成果概览">
-          <button className={taskCenterResultFilter === "all" ? "active" : ""} onClick={() => setTaskCenterResultFilter("all")}>
+          <button type="button" className={taskCenterResultFilter === "all" ? "active" : ""} aria-pressed={taskCenterResultFilter === "all"} onClick={() => setTaskCenterResultFilter("all")}>
             <span>全部成果</span><strong>{taskCenterResults.length}</strong>
           </button>
-          <button className={taskCenterResultFilter === "audio_family" ? "active" : ""} onClick={() => setTaskCenterResultFilter("audio_family")}>
+          <button type="button" className={taskCenterResultFilter === "audio_family" ? "active" : ""} aria-pressed={taskCenterResultFilter === "audio_family"} onClick={() => setTaskCenterResultFilter("audio_family")}>
             <span>音频</span><strong>{taskCenterResults.filter((result) => ["audio", "enhancement", "separation"].includes(result.kind)).length}</strong>
           </button>
-          <button className={taskCenterResultFilter === "documents" ? "active" : ""} onClick={() => setTaskCenterResultFilter("documents")}>
+          <button type="button" className={taskCenterResultFilter === "documents" ? "active" : ""} aria-pressed={taskCenterResultFilter === "documents"} onClick={() => setTaskCenterResultFilter("documents")}>
             <span>文字与时间轴</span><strong>{taskCenterResults.filter((result) => ["transcript", "subtitle", "alignment"].includes(result.kind)).length}</strong>
           </button>
-          <button className={orphanTaskResultCount > 0 ? "attention" : ""} onClick={() => setTaskCenterResultFilter("orphan")}>
+          <button type="button" className={taskCenterResultFilter === "orphan" ? "attention active" : orphanTaskResultCount > 0 ? "attention" : ""} aria-pressed={taskCenterResultFilter === "orphan"} onClick={() => setTaskCenterResultFilter("orphan")}>
             <span>待整理文件</span><strong>{orphanTaskResultCount}</strong>
           </button>
         </div>
@@ -7635,23 +7635,23 @@ export function App() {
             </div>
             <label className="assetCenterSearch">
               <Search size={16} strokeWidth={1.9} />
-              <input value={taskCenterSearch} placeholder="搜索文件、原文或模型" onChange={(event) => setTaskCenterSearch(event.target.value)} />
+              <input value={taskCenterSearch} placeholder="搜索文件、原文或模型" aria-label="搜索成果" onChange={(event) => setTaskCenterSearch(event.target.value)} />
             </label>
             <div className="assetFilterGroup" role="group" aria-label="成果类型">
               <span>内容类型</span>
               {typeFilters.map((filter) => (
-                <button key={filter.id} type="button" className={taskCenterResultFilter === filter.id ? "active" : ""} onClick={() => setTaskCenterResultFilter(filter.id)}>
+                <button key={filter.id} type="button" className={taskCenterResultFilter === filter.id ? "active" : ""} aria-pressed={taskCenterResultFilter === filter.id} onClick={() => setTaskCenterResultFilter(filter.id)}>
                   {filter.icon}<strong>{filter.label}</strong><em>{filter.count}</em>
                 </button>
               ))}
             </div>
             <div className="assetFilterGroup" role="group" aria-label="成果来源">
               <span>来源</span>
-              <button type="button" className={taskCenterSourceFilter === "all" ? "active" : ""} onClick={() => setTaskCenterSourceFilter("all")}>
+              <button type="button" className={taskCenterSourceFilter === "all" ? "active" : ""} aria-pressed={taskCenterSourceFilter === "all"} onClick={() => setTaskCenterSourceFilter("all")}>
                 <Library size={16} strokeWidth={1.9} /><strong>全部来源</strong><em>{taskCenterResults.length}</em>
               </button>
               {taskResultSources.map(({ source, count }) => (
-                <button key={source} type="button" className={taskCenterSourceFilter === source ? "active" : ""} onClick={() => setTaskCenterSourceFilter(source)}>
+                <button key={source} type="button" className={taskCenterSourceFilter === source ? "active" : ""} aria-pressed={taskCenterSourceFilter === source} onClick={() => setTaskCenterSourceFilter(source)}>
                   <span className={`assetSourceDot source-${source}`} aria-hidden="true" /><strong>{taskSourceLabel(source)}</strong><em>{count}</em>
                 </button>
               ))}
@@ -7661,14 +7661,14 @@ export function App() {
           <section className="assetCenterListPanel" aria-label="成果列表">
             <header className="assetCenterListHeader">
               <div><strong>{taskCenterSearch || taskCenterResultFilter !== "all" || taskCenterSourceFilter !== "all" ? "筛选结果" : "最近成果"}</strong><span>{visibleTaskCenterResults.length} 项文件</span></div>
-              <label className="assetListSelectAll"><input type="checkbox" checked={allVisibleTaskResultsSelected} onChange={toggleAllVisibleTaskResults} /><span>全选</span></label>
+              <label className="assetListSelectAll"><input type="checkbox" aria-label="全选当前成果" checked={allVisibleTaskResultsSelected} onChange={toggleAllVisibleTaskResults} /><span>全选</span></label>
             </header>
             {selectedTaskResults.length > 0 && (
               <div className="assetCenterBatchBar">
                 <span>已选择 {selectedTaskResults.length} 项</span>
-                <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onBatchDownloadTaskResults()}><Download size={15} strokeWidth={1.9} /><span>导出</span></button>
-                <button className="pathPickButton audioAssetDeleteButton" disabled={taskCenterAction !== null} onClick={() => void onBatchDeleteTaskResults()}><Trash2 size={15} strokeWidth={1.9} /><span>清理</span></button>
-                <button className="assetCenterTextButton" disabled={taskCenterAction !== null} onClick={() => setSelectedTaskResultIds([])}>取消</button>
+                <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onBatchDownloadTaskResults()}><Download size={15} strokeWidth={1.9} /><span>导出</span></button>
+                <button type="button" className="pathPickButton audioAssetDeleteButton" disabled={taskCenterAction !== null} onClick={() => void onBatchDeleteTaskResults()}><Trash2 size={15} strokeWidth={1.9} /><span>清理</span></button>
+                <button type="button" className="assetCenterTextButton" disabled={taskCenterAction !== null} onClick={() => setSelectedTaskResultIds([])}>取消</button>
               </div>
             )}
             <div className="assetCenterRows">
@@ -7704,7 +7704,7 @@ export function App() {
                           </button>
                           <div className="assetCenterRowTags"><span className={`taskSourceTag source-${result.source}`}>{taskSourceLabel(result.source)}</span><span className={`taskResultKindTag kind-${result.kind}`}>{taskResultKindLabel(result.kind)}</span>{result.relation !== "task" && <span className={`taskResultRelationTag relation-${result.relation}`}>{taskResultRelationLabel(result.relation)}</span>}</div>
                           <div className="assetCenterRowMeta"><span>{result.model ?? "未关联模型"}</span><time>{formatHistoryTime(result.created_at)}</time></div>
-                          <button className="assetRowOpenButton" title={result.summary_only ? "查看章节成果" : result.bilibili_history_id ? "打开媒体采样" : result.file_path ? "打开文件" : "导出文件"} disabled={taskCenterAction !== null || !result.exists || !canOpen} onClick={() => void onOpenTaskResult(result)}>
+                          <button type="button" className="assetRowOpenButton" title={result.summary_only ? "查看章节成果" : result.bilibili_history_id ? "打开媒体采样" : result.file_path ? "打开文件" : "导出文件"} aria-label={result.summary_only ? "查看章节成果" : result.bilibili_history_id ? "打开媒体采样" : result.file_path ? "打开文件" : "导出文件"} disabled={taskCenterAction !== null || !result.exists || !canOpen} onClick={() => void onOpenTaskResult(result)}>
                             {opening || downloading ? <Loader2 className="spin" size={16} /> : result.file_path || result.bilibili_history_id ? <FolderOpen size={16} strokeWidth={1.9} /> : <Download size={16} strokeWidth={1.9} />}<span className="srOnly">打开成果</span>
                           </button>
                         </article>
@@ -7744,13 +7744,13 @@ export function App() {
                 </dl>
                 <div className="assetInspectorActions">
                   {selected.summary_only ? <>
-                    <button className="primaryAction" disabled={taskCenterAction !== null || !ebookInspectorSummary?.bookDirectoryPath} onClick={() => void onOpenEbookDirectory(ebookInspectorSummary?.bookDirectoryPath, "整本电子书")}><FolderOpen size={16} strokeWidth={1.9} /><span>打开整本目录</span></button>
-                    <button className="secondaryAction" disabled={taskCenterAction !== null || !selectedEbookChapter?.directoryPath} onClick={() => void onOpenEbookDirectory(selectedEbookChapter?.directoryPath, "本章")}><FolderOpen size={16} strokeWidth={1.9} /><span>打开本章目录</span></button>
-                    <button className="secondaryAction" disabled={taskCenterAction !== null} onClick={() => setTaskCenterOpen(true)}><BookOpen size={16} strokeWidth={1.9} /><span>前往任务中心</span></button>
-                  </> : <button className="primaryAction" disabled={taskCenterAction !== null || !selected.exists || !Boolean(selected.file_path || selected.url || selected.bilibili_history_id)} onClick={() => void onOpenTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "进入媒体采样" : selected.file_path ? "打开文件" : "导出文件"}</span></button>}
-                  {selected.file_path && <button className="secondaryAction" disabled={taskCenterAction !== null || !selected.exists} onClick={() => void onRevealTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>所在目录</span></button>}
-                  {selected.asset && <button className="secondaryAction" disabled={taskCenterAction !== null} onClick={() => onAddAudioAssetToVoiceLibrary(selected.asset!)}><Save size={16} strokeWidth={1.9} /><span>加入音色库</span></button>}
-                  {(!selected.summary_only && (selected.asset || selected.bilibili_history_id || (!selected.exists && ["speech", "realtime", "batch_project"].includes(selected.source)))) && <button className="secondaryAction assetInspectorDelete" disabled={taskCenterAction !== null || (!selected.exists && Boolean(selected.asset))} onClick={() => void onDeleteTaskResult(selected)}><Trash2 size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "移除记录" : !selected.exists ? "移除记录" : "删除文件"}</span></button>}
+                    <button type="button" className="primaryAction" disabled={taskCenterAction !== null || !ebookInspectorSummary?.bookDirectoryPath} onClick={() => void onOpenEbookDirectory(ebookInspectorSummary?.bookDirectoryPath, "整本电子书")}><FolderOpen size={16} strokeWidth={1.9} /><span>打开整本目录</span></button>
+                    <button type="button" className="secondaryAction" disabled={taskCenterAction !== null || !selectedEbookChapter?.directoryPath} onClick={() => void onOpenEbookDirectory(selectedEbookChapter?.directoryPath, "本章")}><FolderOpen size={16} strokeWidth={1.9} /><span>打开本章目录</span></button>
+                    <button type="button" className="secondaryAction" disabled={taskCenterAction !== null} onClick={() => setTaskCenterOpen(true)}><BookOpen size={16} strokeWidth={1.9} /><span>前往任务中心</span></button>
+                  </> : <button type="button" className="primaryAction" disabled={taskCenterAction !== null || !selected.exists || !Boolean(selected.file_path || selected.url || selected.bilibili_history_id)} onClick={() => void onOpenTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "进入媒体采样" : selected.file_path ? "打开文件" : "导出文件"}</span></button>}
+                  {selected.file_path && <button type="button" className="secondaryAction" disabled={taskCenterAction !== null || !selected.exists} onClick={() => void onRevealTaskResult(selected)}><FolderOpen size={16} strokeWidth={1.9} /><span>所在目录</span></button>}
+                  {selected.asset && <button type="button" className="secondaryAction" disabled={taskCenterAction !== null} onClick={() => onAddAudioAssetToVoiceLibrary(selected.asset!)}><Save size={16} strokeWidth={1.9} /><span>加入音色库</span></button>}
+                  {(!selected.summary_only && (selected.asset || selected.bilibili_history_id || (!selected.exists && ["speech", "realtime", "batch_project"].includes(selected.source)))) && <button type="button" className="secondaryAction assetInspectorDelete" disabled={taskCenterAction !== null || (!selected.exists && Boolean(selected.asset))} onClick={() => void onDeleteTaskResult(selected)}><Trash2 size={16} strokeWidth={1.9} /><span>{selected.bilibili_history_id ? "移除记录" : !selected.exists ? "移除记录" : "删除文件"}</span></button>}
                 </div>
               </>
             ) : <div className="assetInspectorEmpty"><Library size={28} strokeWidth={1.7} /><strong>选择一项成果</strong><span>在左侧列表中选择文件，即可查看预览、来源和管理操作。</span></div>}
@@ -7912,6 +7912,7 @@ export function App() {
               {(activeTaskCount > 0 || retryableTaskCount > 0) && <span className={retryableTaskCount > 0 ? "taskQueueToolBadge attention" : "taskQueueToolBadge"}>{activeTaskCount + retryableTaskCount}</span>}
             </button>
             <button
+              type="button"
               className={`toolButton themeToggleButton ${theme === "dark" ? "isDark" : "isLight"}${themeTransitioning ? " isTransitioning" : ""}`}
               title={theme === "dark" ? "切换为日间模式" : "切换为夜晚模式"}
               aria-label={theme === "dark" ? "切换为日间模式" : "切换为夜晚模式"}
@@ -7966,6 +7967,7 @@ export function App() {
                   <>
                     <div className="voiceImportMenu">
                       <button
+                        type="button"
                         className="voiceImportButton"
                         aria-expanded={voiceImportMenuOpen}
                         aria-haspopup="menu"
@@ -8004,7 +8006,7 @@ export function App() {
                         </div>
                       )}
                     </div>
-                    <button className="voiceImportButton voiceManageButton" onClick={() => {
+                    <button type="button" className="voiceImportButton voiceManageButton" onClick={() => {
                       setVoiceImportMenuOpen(false);
                       openVoiceManager();
                     }}>
@@ -8201,6 +8203,7 @@ export function App() {
                 value={referenceText}
                 onChange={(event) => setReferenceText(event.target.value)}
                 placeholder="参考音频对应原文"
+                aria-label="参考音频对应原文"
               />
             )}
             {selectedModel === "voxcpm2" && cloneMode === "可控克隆" && (
@@ -8366,7 +8369,7 @@ export function App() {
             )}
 
             <div className="leftActions singleAction">
-              <button className="secondaryAction" disabled={!result} onClick={() => void openOutputDirectory()}>
+              <button type="button" className="secondaryAction" disabled={!result} onClick={() => void openOutputDirectory()}>
                 <FolderOpen size={17} strokeWidth={1.9} />
                 <span>查看成品</span>
               </button>
@@ -8416,6 +8419,7 @@ export function App() {
                   <div className="modelScroller">
                     {localModels.map((model) => (
                       <button
+                        type="button"
                         key={model.id}
                         className={model.id === selectedModel ? "modelPill active" : "modelPill"}
                         aria-pressed={model.id === selectedModel}
@@ -8473,7 +8477,7 @@ export function App() {
             <div className="taskCanvas">
               {loading ? (
                 <div className="generatingState">
-                  <div className="pulseBadge">
+                  <div className="pulseBadge" role="status" aria-live="polite">
                     <Loader2 className="spin" size={18} />
                     <span>{drawSession ? `抽卡第 ${drawSession.currentIndex}/${drawSession.total} 条生成中` : `${selectedModelInfo?.display_name ?? selectedModel} 正在生成`}</span>
                   </div>
@@ -8494,7 +8498,7 @@ export function App() {
                         <b>{formatDuration(elapsedSeconds)}</b>
                       </div>
                     </div>
-                    <div className="generationProgressBar" aria-label="生成进度">
+                    <div className="generationProgressBar" role="progressbar" aria-label="生成进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={generationProgress.percent} aria-valuetext={`${generationProgress.phaseTitle} · ${generationProgress.percent}%`}>
                       <span style={{ width: `${generationProgress.percent}%` }} />
                     </div>
                     <div className="phaseTimeline">
@@ -8515,7 +8519,7 @@ export function App() {
                     </div>
                     <div className="progressHint">{generationProgress.estimate}</div>
                   </div>
-                  <button className="secondaryAction forceStopGeneration" onClick={() => void onForceStopActiveGeneration()}>
+                  <button type="button" className="secondaryAction forceStopGeneration" onClick={() => void onForceStopActiveGeneration()}>
                     <X size={16} strokeWidth={2} />
                     <span>{isDoubao ? "终止云端请求" : "终止生成并释放模型"}</span>
                   </button>
@@ -8667,6 +8671,7 @@ export function App() {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="目标文本"
+                aria-label="目标文本"
               />
               {scriptRewriteError && <div className="scriptRewriteFeedback error"><AlertCircle size={14} /><span>{scriptRewriteError}</span></div>}
               {scriptRewriteResult && (
@@ -8732,6 +8737,7 @@ export function App() {
               )}
             </div>
             <button
+              type="button"
               className={resultSavedToVoiceLibrary ? "voiceSaveButton saved" : "voiceSaveButton"}
               disabled={!result || voiceSaving || resultSavedToVoiceLibrary}
               onClick={openResultVoiceSaveDialog}
@@ -8793,7 +8799,7 @@ export function App() {
                 <strong>运行与系统监控</strong>
                 <span>模型、硬件资源和当前任务状态</span>
               </div>
-              <button className="modalClose" title="关闭系统监控" onClick={() => setMonitorPanelOpen(false)}>
+          <button type="button" className="modalClose" title="关闭系统监控" aria-label="关闭系统监控" onClick={() => setMonitorPanelOpen(false)}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -8822,7 +8828,7 @@ export function App() {
                 <strong>保存到角色音色库</strong>
                 <span>选择新建角色，或作为参考片段加入已有角色</span>
               </div>
-              <button className="modalClose" title="取消保存" disabled={voiceSaving} onClick={closeVoiceLibrarySaveDialog}>
+          <button type="button" className="modalClose" title="取消保存" aria-label="取消保存" disabled={voiceSaving} onClick={closeVoiceLibrarySaveDialog}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -8906,7 +8912,7 @@ export function App() {
               )}
 
               {resultVoiceSaveError && (
-                <div className="settingsFeedback error">
+                <div role="alert" className="settingsFeedback error">
                   <AlertCircle size={16} strokeWidth={1.9} />
                   <span>{resultVoiceSaveError}</span>
                 </div>
@@ -8940,7 +8946,7 @@ export function App() {
                 <strong>角色音色库</strong>
                 <span>管理角色、头像和参考片段</span>
               </div>
-              <button className="modalClose" title="关闭角色音色库" aria-label="关闭角色音色库" onClick={closeVoiceManager}>
+              <button type="button" className="modalClose" title="关闭角色音色库" aria-label="关闭角色音色库" onClick={closeVoiceManager}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -9285,7 +9291,7 @@ export function App() {
               )}
 
               {(voiceManagerError || voiceManagerMessage) && (
-                <div className={voiceManagerError ? "settingsFeedback error" : "settingsFeedback"}>
+                <div role={voiceManagerError ? "alert" : "status"} aria-live={voiceManagerError ? "assertive" : "polite"} className={voiceManagerError ? "settingsFeedback error" : "settingsFeedback"}>
                   {voiceManagerError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
                   <span>{voiceManagerError ?? voiceManagerMessage}</span>
                 </div>
@@ -9341,7 +9347,7 @@ export function App() {
                 <strong>参考音频裁切</strong>
                 <span>先试听并保留有效片段，再写入本软件的音色库</span>
               </div>
-              <button className="modalClose" title="取消导入" disabled={referenceAudioEditorSaving} onClick={closeReferenceAudioEditor}>
+              <button type="button" className="modalClose" title="取消导入" aria-label="取消导入" disabled={referenceAudioEditorSaving} onClick={closeReferenceAudioEditor}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -9498,7 +9504,7 @@ export function App() {
               </label>
 
               {referenceAudioEditorError && (
-                <div className="settingsFeedback error">
+                <div role="alert" className="settingsFeedback error">
                   <AlertCircle size={16} strokeWidth={1.9} />
                   <span>{referenceAudioEditorError}</span>
                 </div>
@@ -9532,7 +9538,7 @@ export function App() {
                 <strong>音频资产库</strong>
                 <span>本地与云端成品 · 受监控输出目录 · 任务可追溯</span>
               </div>
-              <button className="modalClose" title="关闭" onClick={() => setAudioLibraryOpen(false)}>
+              <button type="button" className="modalClose" title="关闭" aria-label="关闭音频资产库" onClick={() => setAudioLibraryOpen(false)}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -9541,22 +9547,23 @@ export function App() {
               <div className="audioLibraryControls">
                 <label className="audioLibraryField audioLibrarySearchField">
                   <span>搜索音频</span>
-                  <input
-                    value={audioLibrarySearch}
+                    <input
+                      aria-label="搜索音频资产"
+                      value={audioLibrarySearch}
                     placeholder="文件名、模型、文本或项目名称"
                     onChange={(event) => setAudioLibrarySearch(event.target.value)}
                   />
                 </label>
                 <label className="audioLibraryField">
                   <span>来源</span>
-                  <select value={audioLibrarySource} onChange={(event) => setAudioLibrarySource(event.target.value)}>
+                    <select aria-label="按来源筛选音频资产" value={audioLibrarySource} onChange={(event) => setAudioLibrarySource(event.target.value)}>
                     <option value="all">全部来源</option>
                     <option value="local">本地语音合成</option>
                     <option value="cloud">云端语音合成</option>
                     <option value="monitored">监控目录文件</option>
                   </select>
                 </label>
-                <button className="pathPickButton audioLibraryRefresh" disabled={audioLibraryLoading || audioLibraryAction !== null} onClick={() => void loadAudioAssets()}>
+                <button type="button" className="pathPickButton audioLibraryRefresh" disabled={audioLibraryLoading || audioLibraryAction !== null} onClick={() => void loadAudioAssets()}>
                   {audioLibraryLoading ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
                   <span>刷新</span>
                 </button>
@@ -9585,7 +9592,9 @@ export function App() {
                     {visibleAudioAssets.map((asset) => (
                       <button
                         key={asset.file_path}
+                        type="button"
                         className={asset.file_path === selectedAudioAsset?.file_path ? "audioAssetRow active" : "audioAssetRow"}
+                        aria-pressed={asset.file_path === selectedAudioAsset?.file_path}
                         onClick={() => setSelectedAudioAssetPath(asset.file_path)}
                       >
                         <div>
@@ -9630,19 +9639,19 @@ export function App() {
                       </div>
                       <p className="audioAssetText">{selectedAudioAsset.text || "该文件不带任务文本记录。"}</p>
                       <div className="audioAssetActions">
-                        <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onOpenAudioAsset(selectedAudioAsset)}>
+                        <button type="button" className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onOpenAudioAsset(selectedAudioAsset)}>
                           {audioLibraryAction === `open-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <FolderOpen size={15} strokeWidth={1.9} />}
                           <span>打开音频</span>
                         </button>
-                        <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onRevealAudioAsset(selectedAudioAsset)}>
+                        <button type="button" className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onRevealAudioAsset(selectedAudioAsset)}>
                           {audioLibraryAction === `reveal-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <FolderOpen size={15} strokeWidth={1.9} />}
                           <span>所在目录</span>
                         </button>
-                        <button className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onAddAudioAssetToVoiceLibrary(selectedAudioAsset)}>
+                        <button type="button" className="pathPickButton" disabled={audioLibraryAction !== null} onClick={() => void onAddAudioAssetToVoiceLibrary(selectedAudioAsset)}>
                           {audioLibraryAction === `voice-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <Save size={15} strokeWidth={1.9} />}
                           <span>加入音色库</span>
                         </button>
-                        <button className="pathPickButton audioAssetDeleteButton" disabled={audioLibraryAction !== null} onClick={() => void onDeleteAudioAsset(selectedAudioAsset)}>
+                        <button type="button" className="pathPickButton audioAssetDeleteButton" disabled={audioLibraryAction !== null} onClick={() => void onDeleteAudioAsset(selectedAudioAsset)}>
                           {audioLibraryAction === `delete-${selectedAudioAsset.file_path}` ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
                           <span>删除文件</span>
                         </button>
@@ -9654,14 +9663,14 @@ export function App() {
             </div>
 
             {(audioLibraryError || audioLibraryMessage) && (
-              <div className={audioLibraryError ? "settingsFeedback error" : "settingsFeedback"}>
+              <div role={audioLibraryError ? "alert" : "status"} aria-live={audioLibraryError ? "assertive" : "polite"} className={audioLibraryError ? "settingsFeedback error" : "settingsFeedback"}>
                 {audioLibraryError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
                 <span>{audioLibraryError ?? audioLibraryMessage}</span>
               </div>
             )}
 
             <footer className="settingsFooter">
-              <button className="secondaryAction settingsAction" onClick={() => setAudioLibraryOpen(false)}>
+              <button type="button" className="secondaryAction settingsAction" onClick={() => setAudioLibraryOpen(false)}>
                 <X size={16} strokeWidth={1.9} />
                 <span>关闭</span>
               </button>
@@ -9682,18 +9691,18 @@ export function App() {
                 <strong>任务中心</strong>
                 <span>{taskCenterTasks.length > 0 ? `共 ${taskCenterTasks.length} 项任务，状态和结果统一在这里管理` : "任务状态、失败原因和产出文件会集中显示在这里"}</span>
               </div>
-              <button className="modalClose" title="关闭任务中心" onClick={() => setTaskCenterOpen(false)}><X size={18} strokeWidth={2} /></button>
+              <button type="button" className="modalClose" title="关闭任务中心" aria-label="关闭任务中心" onClick={() => setTaskCenterOpen(false)}><X size={18} strokeWidth={2} /></button>
             </header>
             <div className="taskCenterDashboardSummary" aria-label="任务统计">
-              <button className={taskCenterStatusFilter === "active" ? "active" : ""} onClick={() => setTaskCenterStatusFilter("active")}><span>进行中</span><strong>{activeTaskCount}</strong></button>
-              <button className={taskCenterStatusFilter === "completed" ? "active" : ""} onClick={() => setTaskCenterStatusFilter("completed")}><span>已完成</span><strong>{completedTaskCount}</strong></button>
-              <button className={taskCenterStatusFilter === "failed" ? "attention active" : failedTaskCount > 0 ? "attention" : ""} onClick={() => setTaskCenterStatusFilter("failed")}><span>失败</span><strong>{failedTaskCount}</strong></button>
-              <button className={cancelledTaskCount > 0 && taskCenterStatusFilter === "cancelled" ? "active" : ""} onClick={() => setTaskCenterStatusFilter("cancelled")}><span>已取消</span><strong>{cancelledTaskCount}</strong></button>
-              <button className={taskCenterStatusFilter === "missing" ? "attention active" : missingTaskResultCount > 0 ? "attention" : ""} onClick={() => setTaskCenterStatusFilter("missing")}><span>文件缺失</span><strong>{missingTaskResultCount}</strong></button>
-              <button className="taskCenterSummaryLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}>查看成果中心<ChevronRight size={15} strokeWidth={1.9} /></button>
+              <button type="button" className={taskCenterStatusFilter === "active" ? "active" : ""} aria-pressed={taskCenterStatusFilter === "active"} onClick={() => setTaskCenterStatusFilter("active")}><span>进行中</span><strong>{activeTaskCount}</strong></button>
+              <button type="button" className={taskCenterStatusFilter === "completed" ? "active" : ""} aria-pressed={taskCenterStatusFilter === "completed"} onClick={() => setTaskCenterStatusFilter("completed")}><span>已完成</span><strong>{completedTaskCount}</strong></button>
+              <button type="button" className={taskCenterStatusFilter === "failed" ? "attention active" : failedTaskCount > 0 ? "attention" : ""} aria-pressed={taskCenterStatusFilter === "failed"} onClick={() => setTaskCenterStatusFilter("failed")}><span>失败</span><strong>{failedTaskCount}</strong></button>
+              <button type="button" className={cancelledTaskCount > 0 && taskCenterStatusFilter === "cancelled" ? "active" : ""} aria-pressed={taskCenterStatusFilter === "cancelled"} onClick={() => setTaskCenterStatusFilter("cancelled")}><span>已取消</span><strong>{cancelledTaskCount}</strong></button>
+              <button type="button" className={taskCenterStatusFilter === "missing" ? "attention active" : missingTaskResultCount > 0 ? "attention" : ""} aria-pressed={taskCenterStatusFilter === "missing"} onClick={() => setTaskCenterStatusFilter("missing")}><span>文件缺失</span><strong>{missingTaskResultCount}</strong></button>
+              <button type="button" className="taskCenterSummaryLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}>查看成果中心<ChevronRight size={15} strokeWidth={1.9} /></button>
             </div>
             <div className="taskCenterFilterBar" aria-label="任务筛选">
-              <label className="taskCenterTaskSearch"><Search size={15} strokeWidth={1.9} /><input value={taskCenterTaskSearch} placeholder="搜索任务、错误或最近事件" onChange={(event) => setTaskCenterTaskSearch(event.target.value)} /></label>
+              <label className="taskCenterTaskSearch"><Search size={15} strokeWidth={1.9} /><input value={taskCenterTaskSearch} aria-label="搜索任务、错误或最近事件" placeholder="搜索任务、错误或最近事件" onChange={(event) => setTaskCenterTaskSearch(event.target.value)} /></label>
               <select value={taskCenterStatusFilter} onChange={(event) => setTaskCenterStatusFilter(event.target.value)} aria-label="任务状态">
                 <option value="all">全部状态</option>
                 <option value="active">进行中</option>
@@ -9708,7 +9717,7 @@ export function App() {
                 <option value="batch">批量任务（旁白 / 电子书）</option>
                 {taskCenterSources.map(({ source, count }) => <option key={source} value={source}>{taskSourceLabel(source)}（{count}）</option>)}
               </select>
-              <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => { void loadTaskSummaries(); void loadAudioAssets(); void loadBilibiliHistory(); }}><RefreshCw size={15} strokeWidth={1.9} /><span>刷新</span></button>
+               <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => { void loadTaskSummaries(); void loadAudioAssets(); void loadBilibiliHistory(); }}><RefreshCw size={15} strokeWidth={1.9} /><span>刷新</span></button>
             </div>
             <div className="taskCenterFilterMeta"><span>显示 {visibleTaskCenterTasks.length} / {taskCenterTasks.length} 项任务</span><span>失败任务会保留最近事件和日志入口，方便定位问题。</span></div>
             <div className="taskQueueBody">
@@ -9716,10 +9725,10 @@ export function App() {
                 <div className="taskHistoryClearConfirm taskCenterInlineConfirm" role="alertdialog" aria-label="确认清理生成历史">
                   <Trash2 size={19} strokeWidth={1.8} />
                   <div><strong>清理 {clearableSpeechTaskCount} 条已结束的单句生成记录？</strong><span>只删除任务记录和诊断日志，输出目录里的音频文件会保留。</span></div>
-                  <span className="taskHistoryClearActions"><button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => setTaskHistoryClearConfirmOpen(false)}>取消</button><button className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onClearSpeechHistory()}>{taskCenterAction === "clear-history" ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>确认清理</span></button></span>
+                   <span className="taskHistoryClearActions"><button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => setTaskHistoryClearConfirmOpen(false)}>取消</button><button type="button" className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onClearSpeechHistory()}>{taskCenterAction === "clear-history" ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>确认清理</span></button></span>
                 </div>
               )}
-              {(taskCenterError || taskCenterMessage) && <div className={taskCenterError ? "settingsFeedback error" : "settingsFeedback"}>{taskCenterError ? <AlertCircle size={15} strokeWidth={1.9} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}<span>{taskCenterError ?? taskCenterMessage}</span></div>}
+              {(taskCenterError || taskCenterMessage) && <div role={taskCenterError ? "alert" : "status"} aria-live={taskCenterError ? "assertive" : "polite"} className={taskCenterError ? "settingsFeedback error" : "settingsFeedback"}>{taskCenterError ? <AlertCircle size={15} strokeWidth={1.9} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}<span>{taskCenterError ?? taskCenterMessage}</span></div>}
               {visibleTaskCenterTasks.length === 0 ? (
                 <div className="taskQueueEmpty"><CheckCircle2 size={25} strokeWidth={1.8} /><strong>{taskCenterTasks.length === 0 ? "还没有任务记录" : "没有符合条件的任务"}</strong><span>{taskCenterTasks.length === 0 ? "生成、转写、增强、分轨和媒体采样完成后，任务会自动出现在这里。" : "尝试切换状态、功能或搜索关键词。"}</span>{taskCenterFiltersActive && <button className="taskQueueLink" type="button" onClick={() => { setTaskCenterTaskSearch(""); setTaskCenterStatusFilter("all"); setTaskCenterTaskSourceFilter("all"); }}>清除筛选</button>}</div>
               ) : (
@@ -9745,12 +9754,12 @@ export function App() {
                         </details>
                       )}
                       <div className="taskQueueActions">
-                        {(task.results?.length ?? 0) > 0 && <button className="taskQueueLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(task.results?.[0]?.id ?? null); }}>查看成果 <ChevronRight size={14} strokeWidth={1.9} /></button>}
-                        <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void copyTaskDiagnostics(task)}><Copy size={15} strokeWidth={1.9} /><span>复制诊断</span></button>
-                        {task.log_file && <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void openTaskLog(task)}><FileText size={15} strokeWidth={1.9} /><span>打开日志</span></button>}
-                        {task.cancelable && <button className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onCancelTask(task)}>{isCancelling ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}<span>{isCancelling ? "取消中" : "取消"}</span></button>}
-                        {task.retryable && <button className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onRetryTask(task)}>{isRetrying ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{isRetrying ? `${retryLabel}中` : retryLabel}</span></button>}
-                        {canClearMissing && <button className="pathPickButton taskQueueMissingAction" title={`清理 ${missingResultCount} 条缺失记录`} disabled={taskCenterAction !== null} onClick={() => void onClearMissingTaskRecords(task)}>{isClearingMissing ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>{isClearingMissing ? "清理中" : "清理缺失"}</span></button>}
+                        {(task.results?.length ?? 0) > 0 && <button type="button" className="taskQueueLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(task.results?.[0]?.id ?? null); }}>查看成果 <ChevronRight size={14} strokeWidth={1.9} /></button>}
+                        <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void copyTaskDiagnostics(task)}><Copy size={15} strokeWidth={1.9} /><span>复制诊断</span></button>
+                        {task.log_file && <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void openTaskLog(task)}><FileText size={15} strokeWidth={1.9} /><span>打开日志</span></button>}
+                        {task.cancelable && <button type="button" className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onCancelTask(task)}>{isCancelling ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}<span>{isCancelling ? "取消中" : "取消"}</span></button>}
+                        {task.retryable && <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onRetryTask(task)}>{isRetrying ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{isRetrying ? `${retryLabel}中` : retryLabel}</span></button>}
+                        {canClearMissing && <button type="button" className="pathPickButton taskQueueMissingAction" title={`清理 ${missingResultCount} 条缺失记录`} disabled={taskCenterAction !== null} onClick={() => void onClearMissingTaskRecords(task)}>{isClearingMissing ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>{isClearingMissing ? "清理中" : "清理缺失"}</span></button>}
                       </div>
                     </article>
                   );
@@ -9760,7 +9769,7 @@ export function App() {
                 <i /><i /><i />
               </span>
             </div>
-            <footer className="taskCenterDrawerFooter"><button className="secondaryAction settingsAction" disabled={taskCenterAction !== null || clearableSpeechTaskCount === 0} onClick={() => { setTaskCenterError(null); setTaskCenterMessage(null); setTaskHistoryClearConfirmOpen(true); }}><Trash2 size={15} strokeWidth={1.9} /><span>清理已结束记录</span></button><button className="secondaryAction settingsAction" disabled={taskCenterAction !== null || retryableManageTaskCount === 0} onClick={() => void onRetryAllManageableTasks()}>{taskCenterAction === "retry-all" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{retryableManageTaskCount > 0 ? `批量重试 ${retryableManageTaskCount} 项` : "批量重试"}</span></button><span /><button className="secondaryAction settingsAction" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}><Library size={15} strokeWidth={1.9} /><span>成果中心</span></button><button className="primaryAction settingsAction" onClick={() => setTaskCenterOpen(false)}><X size={15} strokeWidth={1.9} /><span>关闭</span></button></footer>
+            <footer className="taskCenterDrawerFooter"><button type="button" className="secondaryAction settingsAction" disabled={taskCenterAction !== null || clearableSpeechTaskCount === 0} onClick={() => { setTaskCenterError(null); setTaskCenterMessage(null); setTaskHistoryClearConfirmOpen(true); }}><Trash2 size={15} strokeWidth={1.9} /><span>清理已结束记录</span></button><button type="button" className="secondaryAction settingsAction" disabled={taskCenterAction !== null || retryableManageTaskCount === 0} onClick={() => void onRetryAllManageableTasks()}>{taskCenterAction === "retry-all" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{retryableManageTaskCount > 0 ? `批量重试 ${retryableManageTaskCount} 项` : "批量重试"}</span></button><span /><button type="button" className="secondaryAction settingsAction" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}><Library size={15} strokeWidth={1.9} /><span>成果中心</span></button><button type="button" className="primaryAction settingsAction" onClick={() => setTaskCenterOpen(false)}><X size={15} strokeWidth={1.9} /><span>关闭</span></button></footer>
           </aside>
         </div>
       )}
@@ -9773,7 +9782,7 @@ export function App() {
                 <strong>进入实时语音模式</strong>
                 <span>需要接管本机 GPU 运行时</span>
               </div>
-              <button className="modalClose" title="暂不进入" onClick={() => setRealtimeEntryConfirmOpen(false)}>
+              <button type="button" className="modalClose" title="暂不进入" aria-label="暂不进入" onClick={() => setRealtimeEntryConfirmOpen(false)}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -9788,10 +9797,10 @@ export function App() {
               <p className="modelSwitchNote">预热期间不能使用普通本地生成；云端豆包不受影响。离开实时页面后，实时运行时会自动释放，不会在只是浏览页面时提前预热。</p>
             </div>
             <footer className="settingsFooter">
-              <button className="secondaryAction settingsAction" onClick={() => setRealtimeEntryConfirmOpen(false)}>
+              <button type="button" className="secondaryAction settingsAction" onClick={() => setRealtimeEntryConfirmOpen(false)}>
                 <span>暂不进入</span>
               </button>
-              <button className="primaryAction settingsAction" onClick={confirmRealtimeWorkspace}>
+              <button type="button" className="primaryAction settingsAction" onClick={confirmRealtimeWorkspace}>
                 <Radio size={16} strokeWidth={1.9} />
                 <span>确认并预热</span>
               </button>
@@ -9808,7 +9817,7 @@ export function App() {
                 <strong>确认切换模型</strong>
                 <span>显存与模型加载管理</span>
               </div>
-              <button className="modalClose" title="取消" onClick={() => setPendingModelSwitch(null)}>
+              <button type="button" className="modalClose" title="取消" aria-label="取消模型切换" onClick={() => setPendingModelSwitch(null)}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -9835,10 +9844,10 @@ export function App() {
               {!pendingSwitchIsCloud && <p className="modelSwitchNote">预热期间无法再次切换；完成后即可直接生成。之后切回其他本地模型时也会按相同规则确认。</p>}
             </div>
             <footer className="settingsFooter">
-              <button className="secondaryAction settingsAction" onClick={() => setPendingModelSwitch(null)}>
+              <button type="button" className="secondaryAction settingsAction" onClick={() => setPendingModelSwitch(null)}>
                 <span>保留当前模型</span>
               </button>
-              <button className="primaryAction settingsAction" onClick={confirmModelSwitch}>
+              <button type="button" className="primaryAction settingsAction" onClick={confirmModelSwitch}>
                 <Cpu size={16} strokeWidth={1.9} />
                 <span>确认切换</span>
               </button>
@@ -9856,8 +9865,10 @@ export function App() {
                 <span>{samplerBridgeAvailable ? samplerStageLabel(samplerState.taskStage) : "桌面桥接未接入"}</span>
               </div>
               <button
+                type="button"
                 className="modalClose"
                 title={samplerExtracting ? "取消取样" : "关闭"}
+                aria-label={samplerExtracting ? "取消取样" : "关闭"}
                 disabled={samplerBusy && !samplerExtracting}
                 onClick={() => void onSamplerCancel()}
               >
@@ -9891,12 +9902,12 @@ export function App() {
                   </div>
                   <div className="samplerLoginActions">
                     {samplerState.loginSession.isLoggedIn ? (
-                      <button className="pathPickButton" disabled={samplerBusy} onClick={() => void onSamplerLogout()}>
+                      <button type="button" className="pathPickButton" disabled={samplerBusy} onClick={() => void onSamplerLogout()}>
                         {samplerPendingAction === "logout" ? <Loader2 className="spin" size={15} /> : <LogOut size={15} strokeWidth={1.9} />}
                         <span>退出</span>
                       </button>
                     ) : (
-                      <button className="pathPickButton" disabled={samplerBusy} onClick={() => void onSamplerStartLogin()}>
+                      <button type="button" className="pathPickButton" disabled={samplerBusy} onClick={() => void onSamplerStartLogin()}>
                         {samplerPendingAction === "login" ? <Loader2 className="spin" size={15} /> : samplerQrPayload ? <RefreshCw size={15} strokeWidth={1.9} /> : <LogIn size={15} strokeWidth={1.9} />}
                         <span>{samplerQrPayload ? "刷新二维码" : "扫码登录"}</span>
                       </button>
@@ -9929,7 +9940,7 @@ export function App() {
                       }
                     }}
                   />
-                  <button className="pathPickButton" disabled={samplerBusy || !samplerLink.trim()} onClick={() => void onSamplerParseLink()}>
+                  <button type="button" className="pathPickButton" disabled={samplerBusy || !samplerLink.trim()} onClick={() => void onSamplerParseLink()}>
                     {samplerPendingAction === "parse" || samplerState.taskStage === "parsing" ? <Loader2 className="spin" size={15} /> : <Link2 size={15} strokeWidth={1.9} />}
                     <span>解析</span>
                   </button>
@@ -10143,7 +10154,7 @@ export function App() {
             </div>
 
             {samplerFeedback && (
-              <div className={samplerFeedbackIsError ? "settingsFeedback error" : "settingsFeedback"}>
+              <div role={samplerFeedbackIsError ? "alert" : "status"} aria-live={samplerFeedbackIsError ? "assertive" : "polite"} className={samplerFeedbackIsError ? "settingsFeedback error" : "settingsFeedback"}>
                 {samplerFeedbackIsError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
                 <span>{samplerFeedback}</span>
               </div>
@@ -10151,6 +10162,7 @@ export function App() {
 
             <footer className="settingsFooter">
               <button
+                type="button"
                 className="secondaryAction settingsAction"
                 disabled={samplerBusy && !samplerExtracting}
                 onClick={() => void onSamplerCancel()}
@@ -10158,11 +10170,11 @@ export function App() {
                 {samplerPendingAction === "cancel-extract" ? <Loader2 className="spin" size={16} /> : <X size={16} strokeWidth={1.9} />}
                 <span>{samplerExtracting ? "取消任务" : "关闭"}</span>
               </button>
-              <button className="secondaryAction settingsAction" disabled={!samplerCanDownloadVideo} onClick={() => void onSamplerDownloadVideo()}>
+              <button type="button" className="secondaryAction settingsAction" disabled={!samplerCanDownloadVideo} onClick={() => void onSamplerDownloadVideo()}>
                 {samplerPendingAction === "download-video" ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
                 <span>{samplerPendingAction === "download-video" ? "下载中" : "下载 MP4"}</span>
               </button>
-              <button className="primaryAction settingsAction" disabled={!samplerCanExtract} onClick={() => void onSamplerExtractAndSave()}>
+              <button type="button" className="primaryAction settingsAction" disabled={!samplerCanExtract} onClick={() => void onSamplerExtractAndSave()}>
                 {samplerPendingAction === "extract" ? <Loader2 className="spin" size={16} /> : <Download size={16} strokeWidth={1.9} />}
                 <span>{samplerPendingAction === "extract" ? "取样中" : "取样入库"}</span>
               </button>
@@ -10178,7 +10190,7 @@ export function App() {
               <div>
                 <strong>设置中心</strong>
               </div>
-              <button className="modalClose" title="关闭设置中心" aria-label="关闭设置中心" onClick={closeSettings}>
+              <button type="button" className="modalClose" title="关闭设置中心" aria-label="关闭设置中心" onClick={closeSettings}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -10661,12 +10673,13 @@ export function App() {
                           </div>
                         )}
                         <div className="modelCenterActions">
-                          <button className="pathPickButton" onClick={() => void onCheckModelInstance(instance)} disabled={checkingModelId === instance.model_id}>
+                          <button type="button" className="pathPickButton" onClick={() => void onCheckModelInstance(instance)} disabled={checkingModelId === instance.model_id}>
                             {checkingModelId === instance.model_id ? <Loader2 className="spin" size={15} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}
                             <span>检查</span>
                           </button>
                           {runtimeControllable && (
                             <button
+                              type="button"
                               className="pathPickButton"
                               title="仅在点击后启动本地模型或 API；为避免显存叠加，会先释放其他由本软件托管的模型。"
                               onClick={() => void onStartModelRuntime(instance)}
@@ -10678,6 +10691,7 @@ export function App() {
                           )}
                           {runtimeControllable && (
                             <button
+                              type="button"
                               className="pathPickButton runtimeStopButton"
                               title={runtimeWorker?.managed ? "停止本软件托管的运行时并释放显存。" : "外部服务不会被本软件停止。"}
                               onClick={() => void onStopModelRuntime(instance)}
@@ -10687,11 +10701,12 @@ export function App() {
                               <span>{instance.model_id === "indextts2" ? "释放显存" : "停止服务"}</span>
                             </button>
                           )}
-                          <button className="pathPickButton" onClick={() => void chooseModelInstanceDirectory(instance)}>
+                          <button type="button" className="pathPickButton" onClick={() => void chooseModelInstanceDirectory(instance)}>
                             <FolderOpen size={15} strokeWidth={1.9} />
                             <span>选择目录</span>
                           </button>
                           <button
+                            type="button"
                             className="pathPickButton"
                             onClick={() =>
                               void openModelDirectory({
@@ -10707,11 +10722,12 @@ export function App() {
                             <FolderOpen size={15} strokeWidth={1.9} />
                             <span>打开</span>
                           </button>
-                          <button className="pathPickButton" onClick={() => void onToggleModelInstance(instance)}>
+                          <button type="button" className="pathPickButton" onClick={() => void onToggleModelInstance(instance)}>
                             <ShieldCheck size={15} strokeWidth={1.9} />
                             <span>{instance.enabled ? "禁用" : "启用"}</span>
                           </button>
                           <button
+                            type="button"
                             className="pathPickButton"
                             onClick={() => void onSaveModelProfile(instance)}
                             disabled={!profileChanged || savingProfileModelId === instance.model_id}
@@ -10762,11 +10778,11 @@ export function App() {
                   </label>
                 </div>
                 <div className="modelPackageRegisterActions">
-                  <button className="secondaryAction settingsAction" disabled={modelPackageAction !== null || modelInstances.length === 0} onClick={() => void onRegisterModelPackage("directory")}>
+                  <button type="button" className="secondaryAction settingsAction" disabled={modelPackageAction !== null || modelInstances.length === 0} onClick={() => void onRegisterModelPackage("directory")}>
                     {modelPackageAction === "register-directory" ? <Loader2 className="spin" size={16} /> : <FolderOpen size={16} strokeWidth={1.9} />}
                     <span>{modelPackageAction === "register-directory" ? "登记中" : "登记目录包"}</span>
                   </button>
-                  <button className="secondaryAction settingsAction" disabled={modelPackageAction !== null || modelInstances.length === 0} onClick={() => void onRegisterModelPackage("archive")}>
+                  <button type="button" className="secondaryAction settingsAction" disabled={modelPackageAction !== null || modelInstances.length === 0} onClick={() => void onRegisterModelPackage("archive")}>
                     {modelPackageAction === "register-archive" ? <Loader2 className="spin" size={16} /> : <Upload size={16} strokeWidth={1.9} />}
                     <span>{modelPackageAction === "register-archive" ? "登记中" : "登记压缩包"}</span>
                   </button>
@@ -10787,19 +10803,19 @@ export function App() {
                           <p className="modelPackageSummary">{modelPackage.inspection.summary}</p>
                           {modelPackage.user_note && <p className="modelPackageNote">{modelPackage.user_note}</p>}
                           <div className="modelPackageActions">
-                            <button className="pathPickButton" disabled={modelPackageAction !== null} onClick={() => void onInspectModelPackage(modelPackage)}>
+                            <button type="button" className="pathPickButton" disabled={modelPackageAction !== null} onClick={() => void onInspectModelPackage(modelPackage)}>
                               {modelPackageAction === `inspect-${modelPackage.id}` ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}
                               <span>预检</span>
                             </button>
-                            <button className="pathPickButton" disabled={!modelPackage.inspection.exists || modelPackageAction !== null} onClick={() => void openModelDirectory({ id: modelPackage.id, display_name: modelPackage.package_label || packageModel?.display_name || modelPackage.model_id, path: modelPackage.path, exists: modelPackage.inspection.exists, kind: "model_package" })}>
+                            <button type="button" className="pathPickButton" disabled={!modelPackage.inspection.exists || modelPackageAction !== null} onClick={() => void openModelDirectory({ id: modelPackage.id, display_name: modelPackage.package_label || packageModel?.display_name || modelPackage.model_id, path: modelPackage.path, exists: modelPackage.inspection.exists, kind: "model_package" })}>
                               <FolderOpen size={15} strokeWidth={1.9} />
                               <span>打开</span>
                             </button>
-                            <button className="pathPickButton modelPackageActivateButton" disabled={!canActivate || modelPackageAction !== null} onClick={() => void onActivateModelPackage(modelPackage)}>
+                            <button type="button" className="pathPickButton modelPackageActivateButton" disabled={!canActivate || modelPackageAction !== null} onClick={() => void onActivateModelPackage(modelPackage)}>
                               {modelPackageAction === `activate-${modelPackage.id}` ? <Loader2 className="spin" size={15} /> : <ShieldCheck size={15} strokeWidth={1.9} />}
                               <span>启用稳定包</span>
                             </button>
-                            <button className="pathPickButton" disabled={modelPackage.state === "stable" || modelPackageAction !== null || actionPending} onClick={() => void onArchiveModelPackage(modelPackage)}>
+                            <button type="button" className="pathPickButton" disabled={modelPackage.state === "stable" || modelPackageAction !== null || actionPending} onClick={() => void onArchiveModelPackage(modelPackage)}>
                               {modelPackageAction === `archive-${modelPackage.id}` ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}
                               <span>归档</span>
                             </button>
@@ -10842,7 +10858,7 @@ export function App() {
                     <span>{globalLlmSaving ? "保存中" : "保存 LLM"}</span>
                   </button>
                 </div>
-                {(globalLlmError || globalLlmMessage) && <div className={globalLlmError ? "settingsFeedback error" : "settingsFeedback"}><span>{globalLlmError ?? globalLlmMessage}</span></div>}
+                {(globalLlmError || globalLlmMessage) && <div role={globalLlmError ? "alert" : "status"} aria-live={globalLlmError ? "assertive" : "polite"} className={globalLlmError ? "settingsFeedback error" : "settingsFeedback"}><span>{globalLlmError ?? globalLlmMessage}</span></div>}
               </div>
 
               <div className="settingsGroup managedStorageSettingsGroup" data-settings-section="assets">
@@ -10856,7 +10872,7 @@ export function App() {
                     <span>资源库根目录</span>
                     <div className="settingsPathInput">
                       <input value={appSettings?.storage_root ?? "正在读取…"} readOnly />
-                      <button className="pathPickButton" onClick={() => void openModelDirectory({ id: "storage-root", display_name: "统一资源库", path: appSettings?.storage_root ?? "", exists: Boolean(appSettings?.storage_root), kind: "storage_root" })} disabled={!appSettings?.storage_root}>
+                      <button type="button" className="pathPickButton" onClick={() => void openModelDirectory({ id: "storage-root", display_name: "统一资源库", path: appSettings?.storage_root ?? "", exists: Boolean(appSettings?.storage_root), kind: "storage_root" })} disabled={!appSettings?.storage_root}>
                         <FolderOpen size={15} strokeWidth={1.9} />
                         <span>打开</span>
                       </button>
@@ -10866,7 +10882,7 @@ export function App() {
                     <span>模型与专用运行时</span>
                     <div className="settingsPathInput">
                       <input value={appSettings?.model_store_root ?? "正在读取…"} readOnly />
-                      <button className="pathPickButton" onClick={() => void openModelDirectory({ id: "model-store", display_name: "模型与专用运行时", path: appSettings?.model_store_root ?? "", exists: Boolean(appSettings?.model_store_root), kind: "model_store" })} disabled={!appSettings?.model_store_root}>
+                      <button type="button" className="pathPickButton" onClick={() => void openModelDirectory({ id: "model-store", display_name: "模型与专用运行时", path: appSettings?.model_store_root ?? "", exists: Boolean(appSettings?.model_store_root), kind: "model_store" })} disabled={!appSettings?.model_store_root}>
                         <FolderOpen size={15} strokeWidth={1.9} />
                         <span>打开</span>
                       </button>
@@ -10876,7 +10892,7 @@ export function App() {
                     <span>成品输出目录</span>
                     <div className="settingsPathInput">
                       <input value={appSettings?.output_dir ?? "正在读取…"} readOnly />
-                      <button className="pathPickButton" onClick={() => void openModelDirectory({ id: "outputs", display_name: "成品输出", path: appSettings?.output_dir ?? "", exists: Boolean(appSettings?.output_dir), kind: "output" })} disabled={!appSettings?.output_dir}>
+                      <button type="button" className="pathPickButton" onClick={() => void openModelDirectory({ id: "outputs", display_name: "成品输出", path: appSettings?.output_dir ?? "", exists: Boolean(appSettings?.output_dir), kind: "output" })} disabled={!appSettings?.output_dir}>
                       <FolderOpen size={15} strokeWidth={1.9} />
                       <span>打开</span>
                       </button>
@@ -10925,6 +10941,7 @@ export function App() {
                 </p>
                 <div className="settingsMigrationActions">
                   <button
+                    type="button"
                     className="secondaryAction settingsAction"
                     disabled={settingsMigrationAction !== null}
                     onClick={() => void onExportSettingsBackup()}
@@ -10933,6 +10950,7 @@ export function App() {
                     <span>{settingsMigrationAction === "export" ? "导出中" : "导出备份"}</span>
                   </button>
                   <button
+                    type="button"
                     className="primaryAction settingsAction"
                     disabled={settingsMigrationAction !== null}
                     onClick={() => void onImportSettingsBackup()}
@@ -10950,18 +10968,18 @@ export function App() {
             </div>
 
             {(settingsError || settingsMessage) && (
-              <div className={settingsError ? "settingsFeedback error" : "settingsFeedback"}>
+              <div role={settingsError ? "alert" : "status"} aria-live={settingsError ? "assertive" : "polite"} className={settingsError ? "settingsFeedback error" : "settingsFeedback"}>
                 {settingsError ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
                 <span>{settingsError ?? settingsMessage}</span>
               </div>
             )}
 
             <footer className="settingsFooter">
-              <button className="secondaryAction settingsAction" onClick={() => setSettingsDraft(createSettingsDraft(appSettings))}>
+              <button type="button" className="secondaryAction settingsAction" onClick={() => setSettingsDraft(createSettingsDraft(appSettings))}>
                 <RefreshCw size={16} strokeWidth={1.9} />
                 <span>恢复</span>
               </button>
-              <button className="primaryAction settingsAction" onClick={onSaveSettings} disabled={settingsSaving}>
+              <button type="button" className="primaryAction settingsAction" onClick={onSaveSettings} disabled={settingsSaving}>
                 {settingsSaving ? <Loader2 className="spin" size={16} /> : <Save size={16} strokeWidth={1.9} />}
                 <span>{settingsSaving ? "保存中" : "保存设置"}</span>
               </button>

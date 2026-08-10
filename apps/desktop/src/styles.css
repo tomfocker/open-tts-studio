@@ -8992,6 +8992,31 @@ audio {
     padding: 10px;
   }
 
+  /* Keep the product name readable when the utility buttons and window
+     controls share the first row. The controls stay touchable; only the
+     decorative subtitle and excess brand spacing give way. */
+  .desktopTopbar {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .brandMark {
+    gap: 8px;
+  }
+
+  .brandGlyph {
+    width: 36px;
+    height: 36px;
+  }
+
+  .brandMark strong {
+    font-size: 17px;
+  }
+
+  .brandMark span {
+    display: none;
+  }
+
   .mainStage.workspaceMainStage .doubaoModeStage {
     min-height: 580px;
   }
