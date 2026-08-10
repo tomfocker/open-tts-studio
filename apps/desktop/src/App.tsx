@@ -1393,6 +1393,45 @@ function modelBadge(model: ModelInfo | undefined) {
   return "预留";
 }
 
+function modelIdentifierLabel(modelId: string | null | undefined) {
+  switch (String(modelId || "").trim().toLowerCase()) {
+    case "doubao-web":
+      return "豆包 Web TTS";
+    case "indextts2":
+      return "IndexTTS2";
+    case "voxcpm2":
+      return "VoxCPM2";
+    case "gptsovits":
+      return "GPT-SoVITS";
+    case "sensevoice-small":
+      return "SenseVoice Small";
+    case "qwen3-asr":
+    case "qwen3_asr":
+      return "Qwen3 ASR";
+    default:
+      return String(modelId || "未关联模型").trim() || "未关联模型";
+  }
+}
+
+function voiceAuthorizationLabel(status: string | null | undefined) {
+  switch (String(status || "").trim().toLowerCase()) {
+    case "authorized":
+      return "已授权";
+    case "source_bilibili_authorized":
+      return "B 站来源已授权";
+    case "generated_local":
+      return "本地生成";
+    case "generated_cloud":
+      return "云端生成";
+    case "user_managed_output":
+      return "用户管理";
+    case "pending":
+      return "待确认";
+    default:
+      return status ? "已标注" : "未标注";
+  }
+}
+
 function hasFeature(model: ModelInfo | undefined, feature: string) {
   return Boolean(model?.features.includes(feature));
 }
@@ -2228,6 +2267,8 @@ export function App() {
   const [selectedTaskResultId, setSelectedTaskResultId] = useState<string | null>(null);
   const [collapsedResultDateGroups, setCollapsedResultDateGroups] = useState<Set<string>>(new Set());
   const seenResultDateGroupsRef = useRef<Set<string>>(new Set());
+  const assetListPanelRef = useRef<HTMLElement | null>(null);
+  const assetInspectorRef = useRef<HTMLElement | null>(null);
   const [bilibiliHistoryItems, setBilibiliHistoryItems] = useState<BilibiliMediaHistoryItem[]>([]);
   const [remoteTasks, setRemoteTasks] = useState<TaskSummary[]>([]);
   const [ebookPrefetchTasks, setEbookPrefetchTasks] = useState<DoubaoPrefetchTask[]>([]);
@@ -7988,6 +8029,29 @@ export function App() {
       { id: "orphan", label: "待整理文件", count: orphanTaskResultCount, icon: <FolderOpen size={16} strokeWidth={1.9} /> }
     ];
 
+    function selectAssetResult(resultId: string) {
+      setSelectedTaskResultId(resultId);
+      if (window.matchMedia("(max-width: 640px)").matches) {
+        window.setTimeout(() => {
+          assetInspectorRef.current?.scrollIntoView({
+            // The inspector lives below a nested, auto-height workspace on
+            // narrow windows.  An immediate scroll is more reliable here
+            // than a smooth scroll that can be interrupted by the workspace
+            // transition or a second click.
+            behavior: "auto",
+            block: "start"
+          });
+        }, 0);
+      }
+    }
+
+    function returnToAssetList() {
+      assetListPanelRef.current?.scrollIntoView({
+        behavior: "auto",
+        block: "start"
+      });
+    }
+
     return (
       <section className="assetCenterWorkspace" aria-label="成果中心">
         <header className="assetCenterHeader">
@@ -8079,7 +8143,7 @@ export function App() {
             </div>
           </aside>
 
-          <section className="assetCenterListPanel" aria-label="成果列表">
+          <section ref={assetListPanelRef} className="assetCenterListPanel" aria-label="成果列表">
             <header className="assetCenterListHeader">
               <div><strong>{taskCenterSearch || taskCenterResultFilter !== "all" || taskCenterSourceFilter !== "all" ? "筛选结果" : "最近成果"}</strong><span>{visibleTaskCenterResults.length} 项文件</span></div>
               <label className="assetListSelectAll"><input type="checkbox" aria-label="全选当前成果" checked={allVisibleTaskResultsSelected} onChange={toggleAllVisibleTaskResults} /><span>全选</span></label>
@@ -8119,12 +8183,12 @@ export function App() {
                       return (
                         <article key={result.id} className={`assetCenterRow ${current ? "current" : ""} ${result.exists ? "" : "missing"} ${result.summary_only ? "summary" : ""}`}>
                           <label className="assetRowCheckbox" title={result.summary_only ? "电子书章节汇总不可批量处理" : `选择 ${result.file_name}`}><input type="checkbox" disabled={result.summary_only} checked={selectedForBatch} onChange={() => toggleTaskResultSelection(result.id)} /><span className="srOnly">选择 {result.file_name}</span></label>
-                          <button className="assetCenterRowMain" type="button" onClick={() => setSelectedTaskResultId(result.id)}>
+                          <button className="assetCenterRowMain" type="button" onClick={() => selectAssetResult(result.id)}>
                             <span className={`assetResultKindIcon kind-${result.kind}`}>{taskResultIcon(result.kind)}</span>
                             <span><strong title={result.file_name}>{result.file_name}</strong><small>{taskResultContextLabel(result)}</small></span>
                           </button>
                           <div className="assetCenterRowTags"><span className={`taskSourceTag source-${result.source}`}>{taskSourceLabel(result.source)}</span><span className={`taskResultKindTag kind-${result.kind}`}>{taskResultKindLabel(result.kind)}</span>{result.relation !== "task" && <span className={`taskResultRelationTag relation-${result.relation}`}>{taskResultRelationLabel(result.relation)}</span>}</div>
-                          <div className="assetCenterRowMeta"><span>{result.model ?? "未关联模型"}</span><time>{formatHistoryTime(result.created_at)}</time></div>
+                          <div className="assetCenterRowMeta"><span>{modelIdentifierLabel(result.model)}</span><time>{formatHistoryTime(result.created_at)}</time></div>
                           <button type="button" className="assetRowOpenButton" title={result.summary_only ? "查看章节成果" : result.bilibili_history_id ? "打开媒体采样" : result.file_path ? "打开文件" : "导出文件"} aria-label={result.summary_only ? "查看章节成果" : result.bilibili_history_id ? "打开媒体采样" : result.file_path ? "打开文件" : "导出文件"} disabled={taskCenterAction !== null || !result.exists || !canOpen} onClick={() => void onOpenTaskResult(result)}>
                             {opening || downloading ? <Loader2 className="spin" size={16} /> : result.file_path || result.bilibili_history_id ? <FolderOpen size={16} strokeWidth={1.9} /> : <Download size={16} strokeWidth={1.9} />}<span className="srOnly">打开成果</span>
                           </button>
@@ -8137,10 +8201,10 @@ export function App() {
             </div>
           </section>
 
-          <aside className="assetCenterInspector" aria-label="成果详情">
+          <aside ref={assetInspectorRef} className="assetCenterInspector" aria-label="成果详情">
             {selected ? (
               <>
-                <header className="assetInspectorHeader"><div><span className={`assetResultKindIcon kind-${selected.kind}`}>{taskResultIcon(selected.kind)}</span><div><span>{taskResultKindLabel(selected.kind)} · {taskSourceLabel(selected.source)}</span><strong title={selected.file_name}>{selected.file_name}</strong></div></div>{selected.summary_only ? <em>章节汇总</em> : !selected.exists && <em>文件缺失</em>}</header>
+                <header className="assetInspectorHeader"><div><span className={`assetResultKindIcon kind-${selected.kind}`}>{taskResultIcon(selected.kind)}</span><div><span>{taskResultKindLabel(selected.kind)} · {taskSourceLabel(selected.source)}</span><strong title={selected.file_name}>{selected.file_name}</strong></div></div><div className="assetInspectorHeaderActions"><button type="button" className="assetInspectorBackButton" onClick={returnToAssetList}><ChevronLeft size={14} strokeWidth={1.9} /><span>返回列表</span></button>{selected.summary_only ? <em>章节汇总</em> : !selected.exists && <em>文件缺失</em>}</div></header>
                 <div className="assetInspectorPreview">
                   {selected.summary_only ? (
                     <div className="ebookInspectorPreview">
@@ -8159,7 +8223,7 @@ export function App() {
                   <div><dt>来源</dt><dd>{taskSourceLabel(selected.source)}</dd></div>
                   <div><dt>文件状态</dt><dd className={selected.summary_only ? "" : selected.relation === "orphan" || !selected.exists ? "assetMetaAttention" : ""}>{selected.summary_only ? (ebookInspectorSummary ? `已读取 ${ebookInspectorSummary.chapters.length} 个章节` : "按章节任务管理") : !selected.exists ? "文件缺失" : taskResultRelationLabel(selected.relation)}</dd></div>
                   <div><dt>关联任务</dt><dd title={selected.task_title}>{selected.relation === "orphan" ? "未关联任务" : selected.task_title}</dd></div>
-                  <div><dt>模型</dt><dd>{selected.model ?? "未关联模型"}</dd></div>
+                  <div><dt>模型</dt><dd>{modelIdentifierLabel(selected.model)}</dd></div>
                   <div><dt>文件信息</dt><dd>{selected.summary_only ? `${ebookInspectorSummary?.chapters.length ?? "-"} 个章节音频集合` : selected.duration_seconds ? formatDuration(selected.duration_seconds) : selected.size_bytes !== null && selected.size_bytes !== undefined ? formatAssetSize(selected.size_bytes) : "可导出结果"}</dd></div>
                   <div><dt>创建时间</dt><dd>{formatHistoryTime(selected.created_at)}</dd></div>
                 </dl>
@@ -9712,7 +9776,7 @@ export function App() {
                             <span>角色来源：{voiceSourceLabel(managedVoice.sourceType)}</span>
                             {managedReference && <span>片段来源：{voiceSourceLabel(managedReference.sourceType)}</span>}
                             {managedVoice.modelBinding && <span>限定模型：GPT-SoVITS</span>}
-                            <span>授权：{managedVoice.authorizationStatus ?? "未标注"}</span>
+                            <span>授权：{voiceAuthorizationLabel(managedVoice.authorizationStatus)}</span>
                           </div>
                         </aside>
                       </div>
@@ -10030,7 +10094,7 @@ export function App() {
                       >
                         <div>
                           <strong>{asset.file_name}</strong>
-                          <span>{asset.model ?? "未关联模型"} · {formatAssetSize(asset.file_size_bytes)} · {formatHistoryTime(asset.modified_at)}</span>
+                          <span>{modelIdentifierLabel(asset.model)} · {formatAssetSize(asset.file_size_bytes)} · {formatHistoryTime(asset.modified_at)}</span>
                         </div>
                         <em className={`origin-${asset.origin}`}>{audioAssetOriginLabel(asset.origin)}</em>
                       </button>
@@ -10063,7 +10127,7 @@ export function App() {
                         />
                       </div>
                       <div className="audioAssetMeta">
-                        <span>模型</span><strong>{selectedAudioAsset.model ?? "未关联"}</strong>
+                        <span>模型</span><strong>{modelIdentifierLabel(selectedAudioAsset.model)}</strong>
                         <span>生成时间</span><strong>{formatHistoryTime(selectedAudioAsset.modified_at)}</strong>
                         <span>产出来源</span><strong>{audioAssetOriginLabel(selectedAudioAsset.origin)}</strong>
                         <span>任务类型</span><strong>{selectedAudioAsset.project_title ?? audioAssetSourceLabel(selectedAudioAsset.source)}</strong>

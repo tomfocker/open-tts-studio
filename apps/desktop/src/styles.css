@@ -2346,6 +2346,14 @@ summary:focus-visible {
     width: auto;
     margin: 0;
   }
+
+  /* 100vw includes the vertical scrollbar.  Let the padded overlay provide
+     the actual available width so the close action and footer never sit
+     outside the narrow window. */
+  .voiceManagerOverlay .settingsDialog.voiceManagerDialog {
+    width: 100%;
+    max-width: 100%;
+  }
 }
 
 /* The idle canvas should teach the next action without competing with the
@@ -11526,11 +11534,16 @@ summary:focus-visible {
 
 .assetInspectorHeader {
   min-width: 0;
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
 }
 
 .assetInspectorHeader > div { gap: 9px; }
+.assetInspectorHeaderActions { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
+.assetInspectorBackButton { display: none; align-items: center; gap: 3px; border: 0; border-radius: 6px; padding: 4px 6px; color: var(--accent-dark); background: color-mix(in srgb, var(--accent) 9%, transparent); cursor: pointer; font-size: 10px; font-weight: 720; }
+.assetInspectorBackButton:hover { background: color-mix(in srgb, var(--accent) 15%, transparent); }
 .assetInspectorHeader > div > div { min-width: 0; display: grid; gap: 4px; }
 .assetInspectorHeader > div > div > span { color: var(--muted); font-size: 10px; }
 .assetInspectorHeader strong { overflow: hidden; color: var(--text); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
@@ -11757,6 +11770,7 @@ summary:focus-visible {
   .assetCenterRow { grid-template-columns: 22px minmax(0, 1fr) 34px; }
   .assetCenterRowTags { display: none; }
   .assetCenterInspector { grid-column: auto; }
+  .assetInspectorBackButton { display: inline-flex; }
   .taskQueueOverlay { padding: 10px; }
   .taskQueueDrawer { width: 100%; }
   .taskQueueSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -12065,6 +12079,11 @@ summary:focus-visible {
     grid-template-columns: 26px minmax(0, 1fr) auto;
     gap: 6px;
     padding: 7px;
+  }
+
+  .settingsDialog.settingsCenterDialog {
+    height: calc(100dvh - 48px);
+    max-height: calc(100dvh - 48px);
   }
 }
 
