@@ -245,7 +245,7 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
               <span>{media?.fileName || "选择音频或视频"}</span>
               <small>{media ? formatBytes(media.fileSizeBytes) : "支持常见音频、视频格式"}</small>
             </button>
-            <input ref={browserFileRef} className="enhancementHiddenInput" type="file" accept="audio/*,video/*" onChange={(event) => void onMediaPicked(event)} />
+            <input ref={browserFileRef} className="enhancementHiddenInput" type="file" accept="audio/*,video/*" aria-label="选择音频分轨素材" onChange={(event) => void onMediaPicked(event)} />
 
             <fieldset className="enhancementModels"><legend>分轨模型</legend>{MODEL_OPTIONS.map((option) => <label key={option.id} className={model === option.id ? "active" : ""}><input type="radio" name="audio-separation-model" checked={model === option.id} onChange={() => setModel(option.id)} /><span><strong>{option.name}</strong><small>{option.detail}</small></span></label>)}</fieldset>
             <button className="enhancementPrimaryButton" type="button" onClick={() => void start()} disabled={pendingAction === "start" || !media || selectedModelReady === false}>{pendingAction === "start" ? <Loader2 className="spin" size={16} /> : <Waves size={16} />}开始分轨</button>

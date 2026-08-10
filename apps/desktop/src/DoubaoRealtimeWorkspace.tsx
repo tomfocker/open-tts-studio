@@ -226,10 +226,10 @@ export function DoubaoRealtimeWorkspace() {
           <button type="button" className="doubaoIconButton" title="清空会话" aria-label="清空会话" onClick={() => { stopPlayback(); setMessages([]); setStatus("已清除本次会话上下文。"); }} disabled={!messages.length || sending}><Trash2 size={16} /></button>
         </header>
         <div className="doubaoRealtimeFeedback">
-          <div className="doubaoRealtimeStatus" role="status"><Cloud size={15} /><span>{status}</span></div>
+          <div className="doubaoRealtimeStatus" role="status" aria-live="polite"><Cloud size={15} /><span>{status}</span></div>
           {error && <div className="doubaoRealtimeError" role="alert" aria-live="assertive"><CircleAlert size={15} /><span>{error}</span></div>}
         </div>
-        <div className="doubaoRealtimeMessages" aria-live="polite">
+        <div className="doubaoRealtimeMessages" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
           {!messages.length && (
             <div className="doubaoRealtimeEmpty"><Volume2 size={30} /><strong>输入一句话开始对话</strong><span>AI 的完整回复会由豆包自动朗读，并保留在本次会话中。</span></div>
           )}

@@ -48,7 +48,7 @@ import {
   X
 } from "lucide-react";
 import QRCode from "qrcode";
-import { CSSProperties, ChangeEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ChangeEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import {
@@ -735,6 +735,8 @@ type SettingsDraft = {
   default_model_id: "indextts2" | "voxcpm2" | "gptsovits";
   prewarm_default_model_on_startup: boolean;
 };
+
+type SettingsSection = "common" | "assets" | "system";
 
 const defaultGlobalLlmSettings: GlobalLlmSettings = {
   enabled: true,
@@ -2237,8 +2239,10 @@ export function App() {
   const [modelProfileDrafts, setModelProfileDrafts] = useState<Record<string, ModelProfileDraft>>({});
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>(() => createSettingsDraft(null));
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsSection, setSettingsSection] = useState<"common" | "assets" | "system">("common");
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>("common");
   const settingsBodyRef = useRef<HTMLDivElement | null>(null);
+  const settingsNavigationTargetRef = useRef<string | null>(null);
+  const [settingsNavigationRequest, setSettingsNavigationRequest] = useState(0);
   const modalRestoreFocusRef = useRef<HTMLElement | null>(null);
   const previousModalKeyRef = useRef<string | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -4164,6 +4168,23 @@ export function App() {
     });
   }
 
+  function handleWorkbenchNavigationKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("[data-workbench-id]"));
+    if (!buttons.length) return;
+    const focusedIndex = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const currentIndex = focusedIndex >= 0 ? focusedIndex : buttons.findIndex((button) => button.dataset.workbenchId === activeWorkspace);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? buttons.length - 1
+        : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length;
+    event.preventDefault();
+    const nextButton = buttons[nextIndex];
+    nextButton?.focus({ preventScroll: true });
+    nextButton?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+
   useEffect(() => () => {
     workspaceTransitionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     // A renderer refresh must not leave the API believing that a no-longer
@@ -5269,6 +5290,7 @@ export function App() {
 
   function openSettings() {
     setSettingsDraft(createSettingsDraft(appSettings));
+    settingsNavigationTargetRef.current = null;
     setSettingsSection("common");
     void loadGlobalLlmSettings();
     setSettingsError(null);
@@ -5280,6 +5302,12 @@ export function App() {
 
   function closeSettings() {
     setSettingsOpen(false);
+  }
+
+  function navigateSettingsSection(section: SettingsSection, targetSelector?: string) {
+    settingsNavigationTargetRef.current = targetSelector ?? null;
+    setSettingsSection(section);
+    setSettingsNavigationRequest((current) => current + 1);
   }
 
   async function onSaveGlobalLlmSettings() {
@@ -6780,10 +6808,25 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (settingsOpen) {
-      settingsBodyRef.current?.scrollTo({ top: 0, behavior: "auto" });
-    }
-  }, [settingsOpen, settingsSection]);
+    if (!settingsOpen) return undefined;
+    const body = settingsBodyRef.current;
+    if (!body) return undefined;
+    const targetSelector = settingsNavigationTargetRef.current;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const frame = window.requestAnimationFrame(() => {
+      if (targetSelector) {
+        const target = body.querySelector<HTMLElement>(targetSelector);
+        if (target instanceof HTMLDetailsElement) {
+          target.open = true;
+        }
+        target?.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+      } else {
+        body.scrollTo({ top: 0, behavior: "auto" });
+      }
+      settingsNavigationTargetRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [settingsNavigationRequest, settingsOpen, settingsSection]);
 
   useEffect(() => {
     const wasOpen = previousModalKeyRef.current !== null;
@@ -7436,7 +7479,7 @@ export function App() {
                   <Plus size={15} strokeWidth={1.9} />
                   <span>新增片段</span>
                 </button>
-                <input ref={batchFileInputRef} className="hiddenFile" type="file" accept=".txt,.srt,.vtt,text/plain" onChange={onImportBatchSource} />
+                <input ref={batchFileInputRef} className="hiddenFile" type="file" accept=".txt,.srt,.vtt,text/plain" aria-label="选择批量文本文件" onChange={onImportBatchSource} />
                 <span>{batchProjectSegmentCount} 个有效片段</span>
               </div>
               {batchProjectSegments.length === 0 ? (
@@ -7843,7 +7886,7 @@ export function App() {
           </div>
         </div>
 
-        <div className="workbenchNavWrap" aria-label="工作台导航">
+        <nav className="workbenchNavWrap" aria-label="工作台导航">
           <button className="workbenchNavScroll" type="button" disabled={!workbenchNavScrollState.canScrollBackward} title={workbenchNavScrollState.canScrollBackward ? "显示前面的工作台" : "已到最前面的工作台"} aria-label={workbenchNavScrollState.canScrollBackward ? "显示前面的工作台" : "已到最前面的工作台"} onClick={() => scrollWorkbenchNavigation(-1)}>
             <ChevronLeft size={16} strokeWidth={2} />
           </button>
@@ -7852,36 +7895,37 @@ export function App() {
             ref={workbenchNavRef}
             role="group"
             aria-label="功能工作台"
+            onKeyDown={handleWorkbenchNavigationKeyDown}
             data-can-scroll-backward={workbenchNavScrollState.canScrollBackward ? "true" : "false"}
             data-can-scroll-forward={workbenchNavScrollState.canScrollForward ? "true" : "false"}
             style={{ "--workbench-indicator-x": `${workbenchIndicator.left}px`, "--workbench-indicator-width": `${workbenchIndicator.width}px`, "--workbench-indicator-opacity": workbenchIndicator.ready ? 1 : 0 } as CSSProperties}
           >
             <span className="workbenchNavIndicator" aria-hidden="true" />
-            <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "creation" ? "page" : undefined} aria-pressed={activeWorkspace === "creation"} onClick={() => selectWorkspace("creation")}>
+            <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "creation" ? "page" : undefined} onClick={() => selectWorkspace("creation")}>
               <Sparkles size={16} strokeWidth={1.9} />
               <span>本地 TTS</span>
             </button>
-            <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "doubao" ? "page" : undefined} aria-pressed={activeWorkspace === "doubao"} onClick={() => selectWorkspace("doubao")}>
+            <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "doubao" ? "page" : undefined} onClick={() => selectWorkspace("doubao")}>
               <Cloud size={16} strokeWidth={1.9} />
               <span>云端 TTS</span>
             </button>
-            <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "transcription" ? "page" : undefined} aria-pressed={activeWorkspace === "transcription"} onClick={() => selectWorkspace("transcription")}>
+            <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "transcription" ? "page" : undefined} onClick={() => selectWorkspace("transcription")}>
               <FileText size={16} strokeWidth={1.9} />
               <span>转写文字</span>
             </button>
-            <button data-workbench-id="sampler" className={activeWorkspace === "sampler" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "sampler" ? "page" : undefined} aria-pressed={activeWorkspace === "sampler"} onClick={() => selectWorkspace("sampler")}>
+            <button data-workbench-id="sampler" className={activeWorkspace === "sampler" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "sampler" ? "page" : undefined} onClick={() => selectWorkspace("sampler")}>
               <Film size={16} strokeWidth={1.9} />
               <span>媒体采样</span>
             </button>
-            <button data-workbench-id="enhancement" className={activeWorkspace === "enhancement" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "enhancement" ? "page" : undefined} aria-pressed={activeWorkspace === "enhancement"} onClick={() => selectWorkspace("enhancement")}>
+            <button data-workbench-id="enhancement" className={activeWorkspace === "enhancement" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "enhancement" ? "page" : undefined} onClick={() => selectWorkspace("enhancement")}>
               <Wand2 size={16} strokeWidth={1.9} />
               <span>语音增强</span>
             </button>
-            <button data-workbench-id="separation" className={activeWorkspace === "separation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "separation" ? "page" : undefined} aria-pressed={activeWorkspace === "separation"} onClick={() => selectWorkspace("separation")}>
+            <button data-workbench-id="separation" className={activeWorkspace === "separation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "separation" ? "page" : undefined} onClick={() => selectWorkspace("separation")}>
               <Waves size={16} strokeWidth={1.9} />
               <span>音频分轨</span>
             </button>
-            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "assets" ? "page" : undefined} aria-pressed={activeWorkspace === "assets"} onClick={() => openAudioLibrary()}>
+            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "assets" ? "page" : undefined} onClick={() => openAudioLibrary()}>
               <Library size={16} strokeWidth={1.9} />
               <span>成果中心</span>
             </button>
@@ -7889,7 +7933,7 @@ export function App() {
           <button className="workbenchNavScroll" type="button" disabled={!workbenchNavScrollState.canScrollForward} title={workbenchNavScrollState.canScrollForward ? "显示后面的工作台" : "已到最后面的工作台"} aria-label={workbenchNavScrollState.canScrollForward ? "显示后面的工作台" : "已到最后面的工作台"} onClick={() => scrollWorkbenchNavigation(1)}>
             <ChevronRight size={16} strokeWidth={2} />
           </button>
-        </div>
+        </nav>
 
         <div className="topStatus" title={`${online ? "本地后端在线" : "等待后端"} · ${apiBaseLabel}`}>
           <span className={online ? "statusDot online" : "statusDot"} />
@@ -8672,7 +8716,7 @@ export function App() {
                     </div>
                   )}
                 </div>
-                <input ref={fileInputRef} className="hiddenFile" type="file" accept=".txt,text/plain" onChange={onImportText} />
+                <input ref={fileInputRef} className="hiddenFile" type="file" accept=".txt,text/plain" aria-label="选择文本文件" onChange={onImportText} />
               </div>
               <textarea
                 className="targetText"
@@ -8763,7 +8807,11 @@ export function App() {
           </section>}
             </>
           ) : (
-            <section className="workspaceScreen" aria-live="polite">
+            <section
+              className="workspaceScreen"
+              role="region"
+              aria-label={activeWorkspace === "doubao" ? "云端 TTS 工作台" : activeWorkspace === "transcription" ? "音视频转写工作台" : activeWorkspace === "sampler" ? "媒体采样工作台" : activeWorkspace === "enhancement" ? "语音增强工作台" : activeWorkspace === "assets" ? "成果中心" : "音频分轨工作台"}
+            >
               {activeWorkspace === "doubao" ? (
                 <DoubaoWorkspace initialTab="synthesis" onClose={() => {
                   selectWorkspace("creation");
@@ -9090,7 +9138,7 @@ export function App() {
                                 <Upload size={15} strokeWidth={1.9} />
                                 <span>上传自定义头像</span>
                               </button>
-                              <input ref={avatarFileInputRef} type="file" accept="image/*" hidden onChange={onCustomAvatarSelected} />
+                              <input ref={avatarFileInputRef} type="file" accept="image/*" aria-label="上传自定义头像" hidden onChange={onCustomAvatarSelected} />
                               <span>建议使用正方形图片，头像只保存在本机。</span>
                             </div>
                           </div>
@@ -10205,22 +10253,22 @@ export function App() {
 
             <section className="settingsOverview" aria-label="设置概览">
               <div className="settingsOverviewItems">
-                <button type="button" className={settingsLlmConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} onClick={() => setSettingsSection("common")}>
+                <button type="button" className={settingsLlmConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} aria-controls="settings-global-llm" onClick={() => navigateSettingsSection("common", "#settings-global-llm")}>
                   <span className="settingsOverviewItemIcon"><Sparkles size={16} strokeWidth={1.9} /></span>
                   <span className="settingsOverviewItemCopy"><small>全局 LLM</small><strong>{settingsLlmConfigured ? "已配置" : "未配置"}</strong><em>{globalLlmSettings.model || "填写模型名"}</em></span>
                   <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
                 </button>
-                <button type="button" className="settingsOverviewItem ready" onClick={() => setSettingsSection("common")}>
+                <button type="button" className="settingsOverviewItem ready" aria-controls="settings-generation-preferences" onClick={() => navigateSettingsSection("common", "#settings-generation-preferences")}>
                   <span className="settingsOverviewItemIcon"><Cpu size={16} strokeWidth={1.9} /></span>
                   <span className="settingsOverviewItemCopy"><small>默认 TTS</small><strong>{settingsDefaultModelName}</strong><em>{settingsDraft.prewarm_default_model_on_startup ? "启动时预热" : "按需加载"}</em></span>
                   <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
                 </button>
-                <button type="button" className={settingsStorageConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} onClick={() => setSettingsSection("assets")}>
+                <button type="button" className={settingsStorageConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} aria-controls="settings-managed-storage" onClick={() => navigateSettingsSection("assets", "#settings-managed-storage")}>
                   <span className="settingsOverviewItemIcon"><FolderOpen size={16} strokeWidth={1.9} /></span>
                   <span className="settingsOverviewItemCopy"><small>统一资源库</small><strong>{settingsStorageConfigured ? "目录已连接" : "正在读取"}</strong><em>{settingsStorageConfigured ? "模型与成品集中管理" : "检查资源目录"}</em></span>
                   <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
                 </button>
-                <button type="button" className={online ? "settingsOverviewItem ready" : "settingsOverviewItem"} onClick={() => setSettingsSection("system")}>
+                <button type="button" className={online ? "settingsOverviewItem ready" : "settingsOverviewItem"} aria-controls="settings-api-service" onClick={() => navigateSettingsSection("system", "#settings-api-service")}>
                   <span className="settingsOverviewItemIcon"><Server size={16} strokeWidth={1.9} /></span>
                   <span className="settingsOverviewItemCopy"><small>本地服务</small><strong>{online ? "运行正常" : "等待后端"}</strong><em>{apiBaseLabel}</em></span>
                   <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
@@ -10239,7 +10287,7 @@ export function App() {
                   type="button"
                   className={settingsSection === id ? "settingsSectionTab active" : "settingsSectionTab"}
                   aria-current={settingsSection === id ? "page" : undefined}
-                  onClick={() => setSettingsSection(id)}
+                  onClick={() => navigateSettingsSection(id)}
                 >
                   <strong>{label}</strong>
                 </button>
@@ -10340,7 +10388,7 @@ export function App() {
                 </div>
               </div>
 
-              <details className="settingsGroup generationSettingsGroup" data-settings-section="common" data-settings-sections="common assets">
+              <details id="settings-generation-preferences" className="settingsGroup generationSettingsGroup" data-settings-section="common" data-settings-sections="common assets">
                 <summary className="settingsGroupTitle settingsGroupSummary">
                   <Cpu size={16} strokeWidth={1.9} />
                   <span>生成偏好</span>
@@ -10836,7 +10884,7 @@ export function App() {
               </div>
               </details>
 
-              <div className="settingsGroup llmSettingsGroup" data-settings-section="common">
+              <div id="settings-global-llm" className="settingsGroup llmSettingsGroup" data-settings-section="common">
                 <div className="settingsGroupTitle">
                   <Sparkles size={16} strokeWidth={1.9} />
                   <span>全局 LLM</span>
@@ -10869,7 +10917,7 @@ export function App() {
                 {(globalLlmError || globalLlmMessage) && <div role={globalLlmError ? "alert" : "status"} aria-live={globalLlmError ? "assertive" : "polite"} className={globalLlmError ? "settingsFeedback error" : "settingsFeedback"}><span>{globalLlmError ?? globalLlmMessage}</span></div>}
               </div>
 
-              <div className="settingsGroup managedStorageSettingsGroup" data-settings-section="assets">
+              <div id="settings-managed-storage" className="settingsGroup managedStorageSettingsGroup" data-settings-section="assets">
                 <div className="settingsGroupTitle">
                   <FolderOpen size={16} strokeWidth={1.9} />
                   <span>统一资源库</span>
@@ -10909,7 +10957,7 @@ export function App() {
                 </div>
               </div>
 
-              <div className="settingsGroup apiSettingsGroup" data-settings-section="system">
+              <div id="settings-api-service" className="settingsGroup apiSettingsGroup" data-settings-section="system">
                 <div className="settingsGroupTitle">
                   <Server size={16} strokeWidth={1.9} />
                   <span>API 服务</span>

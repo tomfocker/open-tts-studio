@@ -263,7 +263,7 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
               <span>{media?.fileName || "选择音频或视频"}</span>
               <small>{media ? formatBytes(media.fileSizeBytes) : "支持常见音频、视频格式"}</small>
             </button>
-            <input ref={browserFileRef} className="enhancementHiddenInput" type="file" accept="audio/*,video/*" onChange={(event) => void onBrowserMediaPicked(event)} />
+            <input ref={browserFileRef} className="enhancementHiddenInput" type="file" accept="audio/*,video/*" aria-label="选择语音增强素材" onChange={(event) => void onBrowserMediaPicked(event)} />
 
             <fieldset className="enhancementModels"><legend>对比模型</legend>{MODEL_OPTIONS.map((model) => <label key={model.id} className={backends.includes(model.id) ? "active" : ""}><input type="checkbox" checked={backends.includes(model.id)} disabled={backendReady(model.id) === false && !backends.includes(model.id)} onChange={() => toggleBackend(model.id)} /><span><strong>{model.name}</strong><small>{backendReady(model.id) === false ? (readiness?.audio_enhancement_runtime_installed ? "模型目录不完整，请到设置中修复。" : "缺少专用 Python 运行时，请到设置中修复。") : model.detail}</small></span></label>)}</fieldset>
 

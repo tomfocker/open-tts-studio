@@ -1186,7 +1186,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
       </header>
 
       {(error || message) && (
-        <div className={`doubaoFeedback ${error ? "error" : "success"}`} role="status">
+        <div className={`doubaoFeedback ${error ? "error" : "success"}`} role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"}>
           {error ? <Activity size={16} /> : <CheckCircle2 size={16} />}
           <span>{error || message}</span>
           <button type="button" onClick={() => { setError(null); setMessage(null); }} aria-label="关闭提示"><X size={15} /></button>
@@ -1349,7 +1349,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               </div>
               <div className="doubaoVoiceFilters">
                 <label><Search size={15} /><input value={voiceQuery} placeholder="搜索名称或标签" onChange={(event) => setVoiceQuery(event.target.value)} /></label>
-                <select value={voiceGender} onChange={(event) => setVoiceGender(event.target.value)}>
+                <select value={voiceGender} aria-label="音色性别筛选" onChange={(event) => setVoiceGender(event.target.value)}>
                   <option value="">全部性别</option><option value="女">女声</option><option value="男">男声</option>
                 </select>
               </div>
@@ -1512,7 +1512,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
           <div className="doubaoReaderLayout">
             <aside className="doubaoPanel doubaoReaderSidebar">
               <div className="doubaoSectionHeading compact"><div><BookOpen size={18} /><span><strong>导入电子书</strong><small>TXT / EPUB 直接分章节，不依赖本地模型</small></span></div></div>
-              <input ref={ebookFileInputRef} className="hiddenFile" type="file" accept=".txt,.epub,text/plain,application/epub+zip" onChange={(event) => void onImportEbook(event.target.files?.[0] || null)} />
+              <input ref={ebookFileInputRef} className="hiddenFile" type="file" accept=".txt,.epub,text/plain,application/epub+zip" aria-label="选择电子书文件" onChange={(event) => void onImportEbook(event.target.files?.[0] || null)} />
               <button type="button" className="doubaoPrimaryButton" disabled={pendingAction === "ebook-import"} onClick={() => ebookFileInputRef.current?.click()}>
                 {pendingAction === "ebook-import" ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}<span>导入 TXT / EPUB</span>
               </button>

@@ -754,7 +754,7 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
           <span className={playbackError ? "error" : sending ? "busy" : ""}>{playbackError ? <CircleAlert size={14} /> : sending ? <Loader2 className="spin" size={14} /> : <Volume2 size={14} />}{playbackError ?? (sending ? "回复处理中，可随时打断" : "语音队列空闲")}</span>
         </div>
 
-        <div className="realtimeMessageList" aria-live="polite">
+        <div className="realtimeMessageList" role="log" aria-live="polite" aria-relevant="additions text" aria-atomic="false">
           {!messages.length && (
             <div className="realtimeEmptyState">
               <button

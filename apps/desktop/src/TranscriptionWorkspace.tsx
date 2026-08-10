@@ -359,7 +359,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
               <span>{media ? media.fileName : "选择本地音频或视频"}</span>
               <small>{media ? formatBytes(media.fileSizeBytes) : "MP4、MOV、MKV、MP3、WAV 等"}</small>
             </button>
-            <input ref={browserFileRef} className="transcriptionHiddenInput" type="file" accept="audio/*,video/*" onChange={(event) => void onBrowserMediaPicked(event)} />
+            <input ref={browserFileRef} className="transcriptionHiddenInput" type="file" accept="audio/*,video/*" aria-label="选择转写媒体文件" onChange={(event) => void onBrowserMediaPicked(event)} />
 
             <fieldset className="transcriptionFormatPicker">
               <legend>导出类型</legend>

@@ -5251,6 +5251,7 @@ audio {
   overflow: auto;
   padding: 16px 18px;
   display: grid;
+  align-content: start;
   gap: 14px;
   scrollbar-width: thin;
   scrollbar-color: rgba(116, 132, 148, 0.32) transparent;
@@ -6674,6 +6675,8 @@ audio {
 }
 
 .appUpdateCard {
+  align-self: start;
+  align-content: start;
   display: grid;
   gap: 11px;
   padding: 13px;
