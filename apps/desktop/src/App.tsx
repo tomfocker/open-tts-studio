@@ -8231,7 +8231,7 @@ export function App() {
             <Waves size={18} strokeWidth={2} />
           </div>
           <div>
-            <strong>OpenTTS Studio</strong>
+            <strong title="OpenTTS Studio">OpenTTS Studio</strong>
             <span>Local Voice Workstation</span>
           </div>
         </div>
@@ -8251,31 +8251,31 @@ export function App() {
             style={{ "--workbench-indicator-x": `${workbenchIndicator.left}px`, "--workbench-indicator-width": `${workbenchIndicator.width}px`, "--workbench-indicator-opacity": workbenchIndicator.ready ? 1 : 0 } as CSSProperties}
           >
             <span className="workbenchNavIndicator" aria-hidden="true" />
-            <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "creation" ? "page" : undefined} onClick={() => selectWorkspace("creation")}>
+            <button data-workbench-id="creation" className={activeWorkspace === "creation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" title="本地 TTS" aria-current={activeWorkspace === "creation" ? "page" : undefined} onClick={() => selectWorkspace("creation")}>
               <Sparkles size={16} strokeWidth={1.9} />
               <span>本地 TTS</span>
             </button>
-            <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "doubao" ? "page" : undefined} onClick={() => selectWorkspace("doubao")}>
+            <button data-workbench-id="doubao" className={activeWorkspace === "doubao" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" title="云端 TTS" aria-current={activeWorkspace === "doubao" ? "page" : undefined} onClick={() => selectWorkspace("doubao")}>
               <Cloud size={16} strokeWidth={1.9} />
               <span>云端 TTS</span>
             </button>
-            <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "transcription" ? "page" : undefined} onClick={() => selectWorkspace("transcription")}>
+            <button data-workbench-id="transcription" className={activeWorkspace === "transcription" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" title="转写文字" aria-current={activeWorkspace === "transcription" ? "page" : undefined} onClick={() => selectWorkspace("transcription")}>
               <FileText size={16} strokeWidth={1.9} />
               <span>转写文字</span>
             </button>
-            <button data-workbench-id="sampler" className={activeWorkspace === "sampler" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "sampler" ? "page" : undefined} onClick={() => selectWorkspace("sampler")}>
+            <button data-workbench-id="sampler" className={activeWorkspace === "sampler" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" title="媒体采样" aria-current={activeWorkspace === "sampler" ? "page" : undefined} onClick={() => selectWorkspace("sampler")}>
               <Film size={16} strokeWidth={1.9} />
               <span>媒体采样</span>
             </button>
-            <button data-workbench-id="enhancement" className={activeWorkspace === "enhancement" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "enhancement" ? "page" : undefined} onClick={() => selectWorkspace("enhancement")}>
+            <button data-workbench-id="enhancement" className={activeWorkspace === "enhancement" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" title="语音增强" aria-current={activeWorkspace === "enhancement" ? "page" : undefined} onClick={() => selectWorkspace("enhancement")}>
               <Wand2 size={16} strokeWidth={1.9} />
               <span>语音增强</span>
             </button>
-            <button data-workbench-id="separation" className={activeWorkspace === "separation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "separation" ? "page" : undefined} onClick={() => selectWorkspace("separation")}>
+            <button data-workbench-id="separation" className={activeWorkspace === "separation" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" title="音频分轨" aria-current={activeWorkspace === "separation" ? "page" : undefined} onClick={() => selectWorkspace("separation")}>
               <Waves size={16} strokeWidth={1.9} />
               <span>音频分轨</span>
             </button>
-            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" aria-current={activeWorkspace === "assets" ? "page" : undefined} onClick={() => openAudioLibrary()}>
+            <button data-workbench-id="assets" className={activeWorkspace === "assets" ? "workbenchNavButton active" : "workbenchNavButton"} type="button" title="成果中心" aria-current={activeWorkspace === "assets" ? "page" : undefined} onClick={() => openAudioLibrary()}>
               <Library size={16} strokeWidth={1.9} />
               <span>成果中心</span>
             </button>
@@ -10608,22 +10608,22 @@ export function App() {
 
             <section className="settingsOverview" aria-label="设置概览">
               <div className="settingsOverviewItems">
-                <button type="button" className={settingsLlmConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} aria-controls="settings-global-llm" onClick={() => navigateSettingsSection("common", "#settings-global-llm")}>
+                <button type="button" className={settingsLlmConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} title="打开全局 LLM 设置" aria-controls="settings-global-llm" onClick={() => navigateSettingsSection("common", "#settings-global-llm")}>
                   <span className="settingsOverviewItemIcon"><Sparkles size={16} strokeWidth={1.9} /></span>
                   <span className="settingsOverviewItemCopy"><small>全局 LLM</small><strong>{settingsLlmConfigured ? "已配置" : "未配置"}</strong><em>{globalLlmSettings.model || "填写模型名"}</em></span>
                   <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
                 </button>
-                <button type="button" className="settingsOverviewItem ready" aria-controls="settings-generation-preferences" onClick={() => navigateSettingsSection("common", "#settings-generation-preferences")}>
+                <button type="button" className="settingsOverviewItem ready" title="打开默认 TTS 设置" aria-controls="settings-generation-preferences" onClick={() => navigateSettingsSection("common", "#settings-generation-preferences")}>
                   <span className="settingsOverviewItemIcon"><Cpu size={16} strokeWidth={1.9} /></span>
                   <span className="settingsOverviewItemCopy"><small>默认 TTS</small><strong>{settingsDefaultModelName}</strong><em>{settingsDraft.prewarm_default_model_on_startup ? "启动时预热" : "按需加载"}</em></span>
                   <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
                 </button>
-                <button type="button" className={settingsStorageConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} aria-controls="settings-managed-storage" onClick={() => navigateSettingsSection("assets", "#settings-managed-storage")}>
+                <button type="button" className={settingsStorageConfigured ? "settingsOverviewItem ready" : "settingsOverviewItem"} title="打开统一资源库设置" aria-controls="settings-managed-storage" onClick={() => navigateSettingsSection("assets", "#settings-managed-storage")}>
                   <span className="settingsOverviewItemIcon"><FolderOpen size={16} strokeWidth={1.9} /></span>
                   <span className="settingsOverviewItemCopy"><small>统一资源库</small><strong>{settingsStorageConfigured ? "目录已连接" : "正在读取"}</strong><em>{settingsStorageConfigured ? "模型与成品集中管理" : "检查资源目录"}</em></span>
                   <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />
                 </button>
-                <button type="button" className={online ? "settingsOverviewItem ready" : "settingsOverviewItem"} aria-controls="settings-api-service" onClick={() => navigateSettingsSection("system", "#settings-api-service")}>
+                <button type="button" className={online ? "settingsOverviewItem ready" : "settingsOverviewItem"} title="打开本地服务设置" aria-controls="settings-api-service" onClick={() => navigateSettingsSection("system", "#settings-api-service")}>
                   <span className="settingsOverviewItemIcon"><Server size={16} strokeWidth={1.9} /></span>
                   <span className="settingsOverviewItemCopy"><small>本地服务</small><strong>{online ? "运行正常" : "等待后端"}</strong><em>{apiBaseLabel}</em></span>
                   <ChevronRight size={15} strokeWidth={1.9} aria-hidden="true" />

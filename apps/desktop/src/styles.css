@@ -12025,6 +12025,28 @@ summary:focus-visible {
   }
 }
 
+/* The overview cards remain useful on narrow windows: give each card a
+   readable two-column slot instead of squeezing four status summaries into
+   ellipses. The body already owns scrolling, so the extra row does not move
+   the dialog frame or its close/save actions. */
+@media (max-width: 720px) {
+  .settingsCenterDialog .settingsOverview {
+    padding: 10px 12px;
+  }
+
+  .settingsCenterDialog .settingsOverviewItems {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    padding-right: 0;
+  }
+
+  .settingsCenterDialog .settingsOverviewItem {
+    grid-template-columns: 26px minmax(0, 1fr) auto;
+    gap: 6px;
+    padding: 7px;
+  }
+}
+
 /* Dark theme parity for the compact local controls. These used to inherit
    the light preset material, which made the left rail look like a pasted-on
    light card in an otherwise coherent night workspace. */
