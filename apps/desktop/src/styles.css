@@ -1571,6 +1571,10 @@ summary:focus-visible {
   min-width: 0;
 }
 
+.brandMark > div:last-child {
+  min-width: 0;
+}
+
 .brandGlyph {
   width: 42px;
   height: 42px;
