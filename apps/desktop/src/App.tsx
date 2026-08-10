@@ -8833,8 +8833,17 @@ export function App() {
                 className="targetText"
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                    event.preventDefault();
+                    if (canGenerate && !loading) {
+                      void onGenerate();
+                    }
+                  }
+                }}
                 placeholder="目标文本"
                 aria-label="目标文本"
+                aria-keyshortcuts="Control+Enter"
               />
               {scriptRewriteError && <div className="scriptRewriteFeedback error"><AlertCircle size={14} /><span>{scriptRewriteError}</span></div>}
               {scriptRewriteResult && (
@@ -8853,6 +8862,7 @@ export function App() {
                 <span>{input.trim().length} 字</span>
                 {showNormalizeToggle && <span>{normalizeText ? "文本正则化开" : "文本正则化关"}</span>}
                 {showDenoiseToggle && <span>{denoise ? "降噪开" : "降噪关"}</span>}
+                <span className="editorShortcutHint">Ctrl+Enter 生成</span>
               </div>
             </div>
               </>

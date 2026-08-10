@@ -12241,3 +12241,17 @@ summary:focus-visible {
     scroll-behavior: auto;
   }
 }
+
+.editorShortcutHint {
+  margin-left: auto;
+  color: var(--muted);
+  background: transparent !important;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 10px;
+}
+
+@media (max-width: 720px) {
+  .editorShortcutHint {
+    display: none;
+  }
+}
