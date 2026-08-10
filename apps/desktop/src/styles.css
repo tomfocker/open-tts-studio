@@ -12051,3 +12051,27 @@ summary:focus-visible {
     transition-duration: 1ms;
   }
 }
+
+/* Light workspace parity: keep the same three-layer hierarchy as dark mode
+   without turning every control into a high-contrast white tile. */
+:root:not([data-theme="dark"]) .leftRail,
+:root:not([data-theme="dark"]) .rightRail,
+:root:not([data-theme="dark"]) .mainStage {
+  border-color: rgba(83, 103, 122, 0.24);
+  background: linear-gradient(145deg, rgba(239, 245, 249, 0.82), rgba(220, 230, 237, 0.74));
+  box-shadow: 0 12px 28px rgba(88, 108, 127, 0.14), var(--inner);
+}
+
+:root:not([data-theme="dark"]) .modelPill,
+:root:not([data-theme="dark"]) .generationWorkspaceTabs {
+  border-color: rgba(83, 103, 122, 0.18);
+  box-shadow: 0 6px 14px rgba(88, 108, 127, 0.08), var(--inner);
+}
+
+:root:not([data-theme="dark"]) .modelPill:not(.active) {
+  background: linear-gradient(145deg, rgba(250, 253, 255, 0.92), rgba(231, 239, 245, 0.9));
+}
+
+:root:not([data-theme="dark"]) .generationWorkspaceTabs {
+  background: linear-gradient(145deg, rgba(221, 231, 238, 0.94), rgba(246, 249, 252, 0.9));
+}
