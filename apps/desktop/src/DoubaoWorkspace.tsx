@@ -1240,10 +1240,11 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               <div className="doubaoComposerFooter">
                 <div className="doubaoFormatSwitch" aria-label="输出格式">
                   {(["mp3", "wav"] as const).map((format) => (
-                    <button key={format} className={audioFormat === format ? "active" : ""} onClick={() => setAudioFormat(format)}>{format.toUpperCase()}</button>
+                    <button type="button" key={format} className={audioFormat === format ? "active" : ""} aria-pressed={audioFormat === format} onClick={() => setAudioFormat(format)}>{format.toUpperCase()}</button>
                   ))}
                 </div>
                 <button
+                  type="button"
                   className="doubaoPrimaryButton"
                   disabled={!ttsText.trim() || !selectedVoiceId || pendingAction === "generate" || usableCookieCount === 0}
                   onClick={() => void onGenerateSpeech()}
@@ -1253,12 +1254,13 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 </button>
               </div>
               {usableCookieCount === 0 && (
-                <button className="doubaoInlineNotice" onClick={() => openManagementTab("accounts")}>
+                <button type="button" className="doubaoInlineNotice" onClick={() => openManagementTab("accounts")}>
                   <KeyRound size={16} /><span>需要先扫码登录或添加一个有效 Cookie</span>
                 </button>
               )}
               <div className={speechResult ? "doubaoAudioResult ready" : "doubaoAudioResult"}>
                 <button
+                  type="button"
                   className="doubaoAudioPlayButton"
                   disabled={!speechResult}
                   aria-label={speechPlaying ? "暂停预览" : "播放预览"}
@@ -1290,6 +1292,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                   {speechResult && <span className="doubaoAudioPath" title={speechResult.file_path}>{speechResult.file_path}</span>}
                 </div>
                 <button
+                  type="button"
                   className="doubaoSecondaryButton"
                   disabled={!speechResult}
                   onClick={() => speechResult && void window.desktopFiles?.openPath(speechResult.file_path)}
@@ -1311,12 +1314,13 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               <section className="doubaoSpeechHistory">
                 <div className="doubaoSpeechHistoryHeading">
                   <span><strong>合成历史</strong><small>保留最近 50 条</small></span>
-                  {speechHistory.length > 0 && <button onClick={() => { if (window.confirm("确定清空豆包合成历史和对应音频文件吗？")) void onClearSpeechHistory(); }}><Trash2 size={13} />清空</button>}
+                  {speechHistory.length > 0 && <button type="button" onClick={() => { if (window.confirm("确定清空豆包合成历史和对应音频文件吗？")) void onClearSpeechHistory(); }}><Trash2 size={13} />清空</button>}
                 </div>
                 <div className="doubaoSpeechHistoryList">
                   {speechHistory.map((item) => (
                     <article key={item.id} className={speechResult?.file_path === item.result.file_path ? "active" : ""}>
                       <button
+                        type="button"
                         className="doubaoSpeechHistoryMain"
                         title="载入播放器试听"
                         onClick={() => {
@@ -1331,7 +1335,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                         <span><strong>{item.voiceName}</strong><small>{item.text}</small></span>
                       </button>
                       <span>{item.format.toUpperCase()} · {formatDate(item.createdAt)}</span>
-                      <button className="doubaoSpeechHistoryDelete" title="删除历史与音频" onClick={() => { if (window.confirm("确定删除这条历史和音频文件吗？")) void onDeleteSpeechHistory(item); }}><Trash2 size={13} /></button>
+                      <button type="button" className="doubaoSpeechHistoryDelete" title="删除历史与音频" aria-label="删除历史与音频" onClick={() => { if (window.confirm("确定删除这条历史和音频文件吗？")) void onDeleteSpeechHistory(item); }}><Trash2 size={13} /></button>
                     </article>
                   ))}
                   {!speechHistory.length && <div className="doubaoEmptyState small"><Volume2 size={20} /><span>生成后的音频会出现在这里</span></div>}
@@ -1352,7 +1356,9 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               <div className="doubaoVoiceList">
                 {filteredVoices.map((voice) => (
                   <button
+                    type="button"
                     key={voice.style_id}
+                    aria-pressed={selectedVoiceId === voice.style_id}
                     className={selectedVoiceId === voice.style_id ? "doubaoVoiceItem active" : "doubaoVoiceItem"}
                     onClick={() => setSelectedVoiceId(voice.style_id)}
                   >
