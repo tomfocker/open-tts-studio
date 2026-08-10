@@ -2413,7 +2413,9 @@ export function App() {
                     ? "voice-save"
                     : monitorPanelOpen
                       ? "monitor"
-                      : null;
+                      : activeWorkspace === "transcription" || activeWorkspace === "sampler" || activeWorkspace === "enhancement" || activeWorkspace === "separation"
+                        ? "workspace"
+                        : null;
 
   const localModels = useMemo(
     () => models.filter(isLocalSynthesisModel),
