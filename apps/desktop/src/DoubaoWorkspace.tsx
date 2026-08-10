@@ -31,7 +31,7 @@ import {
   Wifi,
   X
 } from "lucide-react";
-import { type CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   cancelDoubaoPrefetch,
@@ -1147,6 +1147,18 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
     setModeView("detail");
   }
 
+  function onWorkspaceKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key !== "Escape" || modeView !== "detail") {
+      return;
+    }
+    // Confirmation dialogs are rendered outside this section, so their
+    // Escape handling still belongs to App. Inside cloud detail, mirror the
+    // visible back action instead of jumping all the way to local TTS.
+    event.preventDefault();
+    event.stopPropagation();
+    setModeView("landing");
+  }
+
   function confirmDestructive(title: string, message: string, confirmLabel = "删除") {
     return requestConfirmation({ title, message, confirmLabel, tone: "danger" });
   }
@@ -1205,7 +1217,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
   const activeModeTitle = tab === "realtime" ? "实时对话" : tab === "reader" ? "批量电子书" : tab === "accounts" ? "账号" : tab === "maintenance" ? "维护" : "语音合成";
 
   return (
-    <section className="doubaoWorkspace" role="region" aria-label="云端语音合成工作台">
+    <section className="doubaoWorkspace" role="region" aria-label="云端语音合成工作台" onKeyDown={onWorkspaceKeyDown}>
       <header className="doubaoWorkspaceHeader">
         <div className="doubaoBrand">
           <span className="doubaoBrandIcon"><Cloud size={21} strokeWidth={1.9} /></span>
