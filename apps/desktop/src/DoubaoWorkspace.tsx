@@ -381,6 +381,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
   const [selectedDocument, setSelectedDocument] = useState<DoubaoDocument | null>(null);
   const modeLandingRef = useRef<HTMLElement | null>(null);
   const modeDetailRef = useRef<HTMLElement | null>(null);
+  const modeDetailBackRef = useRef<HTMLButtonElement | null>(null);
+  const modeViewPreviousRef = useRef(modeView);
 
   useLayoutEffect(() => {
     const landing = modeLandingRef.current;
@@ -393,6 +395,18 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
       if (modeView !== "detail") detail.setAttribute("inert", "");
       else detail.removeAttribute("inert");
     }
+  }, [modeView]);
+
+  useEffect(() => {
+    if (modeViewPreviousRef.current === modeView) return undefined;
+    modeViewPreviousRef.current = modeView;
+    const focusTimer = window.setTimeout(() => {
+      const target = modeView === "detail"
+        ? modeDetailBackRef.current
+        : modeLandingRef.current?.querySelector<HTMLButtonElement>(".doubaoModeCard");
+      target?.focus({ preventScroll: true });
+    }, 0);
+    return () => window.clearTimeout(focusTimer);
   }, [modeView]);
 
   const filteredVoices = useMemo(() => {
@@ -1247,7 +1261,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
 
         <section ref={modeDetailRef} className="doubaoModeDetail" aria-hidden={modeView !== "detail"} aria-labelledby="doubao-detail-title">
           <header className="doubaoDetailHeader">
-            <button type="button" className="doubaoBackButton" aria-label="返回功能选择" onClick={() => setModeView("landing")}>
+            <button ref={modeDetailBackRef} type="button" className="doubaoBackButton" aria-label="返回功能选择" onClick={() => setModeView("landing")}>
               <ChevronLeft size={16} />
               <span>功能选择</span>
             </button>
