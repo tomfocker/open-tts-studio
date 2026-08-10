@@ -722,11 +722,11 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
           {connectionState === "ready" ? <Wifi size={16} /> : connectionState === "connecting" ? <Loader2 className="spin" size={16} /> : <WifiOff size={16} />}
           <span>{connectionState === "ready" ? "实时后端已连接" : connectionState === "connecting" ? "正在连接" : "尚未连接"}</span>
         </div>
-        <button className="secondaryAction realtimeConnectButton" onClick={() => void connect()} disabled={!settingsReady || connectionState === "connecting" || (ttsEnabled && runtimeState === "reserving")}>
+        <button type="button" className="secondaryAction realtimeConnectButton" onClick={() => void connect()} disabled={!settingsReady || connectionState === "connecting" || (ttsEnabled && runtimeState === "reserving")}>
           {connectionState === "ready" ? <Wifi size={16} /> : <Radio size={16} />}
           <span>{connectionState === "ready" ? "重新应用会话设置" : "连接实时后端"}</span>
         </button>
-        {connectionState !== "offline" && <button className="realtimeDisconnect" onClick={disconnect}>断开会话</button>}
+        {connectionState !== "offline" && <button type="button" className="realtimeDisconnect" onClick={disconnect}>断开会话</button>}
       </aside>
 
       <main className="realtimeConversationPanel">
@@ -737,12 +737,12 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
             <small>{activeVoice ? `使用 ${activeVoice.name} 回答` : ttsEnabled ? "使用 VoxCPM2 默认音色回答" : "当前只输出文字"}</small>
           </div>
           <div className="realtimeHeaderActions">
-            {sending && <button className="realtimeIconButton stop" title="停止当前回答" aria-label="停止当前回答" onClick={requestInterrupt}><Square size={15} fill="currentColor" /></button>}
-            <button className="realtimeIconButton" title="清除会话" aria-label="清除会话" onClick={clearConversation}><Trash2 size={16} /></button>
+            {sending && <button type="button" className="realtimeIconButton stop" title="停止当前回答" aria-label="停止当前回答" onClick={requestInterrupt}><Square size={15} fill="currentColor" /></button>}
+            <button type="button" className="realtimeIconButton" title="清除会话" aria-label="清除会话" onClick={clearConversation}><Trash2 size={16} /></button>
           </div>
         </header>
 
-        <div className="realtimeStatus" role="status">
+        <div className="realtimeStatus" role={connectionState === "error" ? "alert" : "status"} aria-live={connectionState === "error" ? "assertive" : "polite"}>
           {connectionState === "error" ? <CircleAlert size={16} /> : <Radio size={16} />}
           <span>{statusText}</span>
         </div>
@@ -781,6 +781,7 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
 
         <footer className="realtimeComposer">
           <button
+            type="button"
             className={microphoneActive ? "realtimeMicButton active" : "realtimeMicButton"}
             onClick={() => void startMicrophone()}
             aria-pressed={microphoneActive}
@@ -801,7 +802,7 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
             placeholder="也可以先输入一段文字测试会话…"
             rows={2}
           />
-          <button className="primaryAction realtimeSendButton" disabled={!settingsReady || !draft.trim() || (ttsEnabled && runtimeState === "reserving")} onClick={() => void sendText()}>
+          <button type="button" className="primaryAction realtimeSendButton" disabled={!settingsReady || !draft.trim() || (ttsEnabled && runtimeState === "reserving")} onClick={() => void sendText()}>
             <Send size={17} /><span>发送</span>
           </button>
         </footer>

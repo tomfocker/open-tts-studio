@@ -256,7 +256,7 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
           <section className="enhancementResult">
             {selectedJob ? <>
               <div className="enhancementStatus"><span className={`enhancementStatusPill ${selectedJob.status}`}>{statusLabel(selectedJob.status)}</span><span>{selectedJob.stage}</span><span>{selectedJob.progress_percent}%</span></div>
-              <div className="enhancementProgress"><span style={{ width: `${selectedJob.progress_percent}%` }} /></div>
+              <div className="enhancementProgress" role="progressbar" aria-label="音频分轨进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, Math.min(100, selectedJob.progress_percent))}><span style={{ width: `${selectedJob.progress_percent}%` }} /></div>
               {selectedJob.error && <div className="enhancementFeedback error"><AlertCircle size={16} /><span>{selectedJob.error}</span></div>}
               {selectedJob.warnings.map((warning) => <div key={warning} className="enhancementFeedback warning"><AlertCircle size={16} /><span>{warning}</span></div>)}
               {selectedJob.outputs.length ? <div className="enhancementOutputs">{selectedJob.outputs.map((output) => <article key={output.stem}><div className="enhancementOutputHeader"><div><strong>{stemLabel(output.stem)}</strong><small>{outputFileName(output.file_path)}</small><small>{output.sample_rate / 1000} kHz · {formatTime(output.duration_seconds)} · {selectedJob.model_display_name}</small></div><button type="button" className="enhancementRevealButton" onClick={() => void revealOutput(output.file_path)} title={output.file_path}><FolderOpen size={14} />定位文件</button></div><audio controls preload="metadata" src={toAudioUrl(output.audio_url)} /></article>)}</div> : isActive(selectedJob) ? <div className="enhancementEmptyState"><Loader2 className="spin" size={30} /><strong>{selectedJob.status === "queued" ? "正在等待本地 GPU 槽位" : "正在分离人声与伴奏"}</strong><span>处理时会自动避免与 TTS、ASR 同时占用显存。</span></div> : <div className="enhancementEmptyState"><Volume2 size={31} /><strong>{selectedJob.status === "cancelled" ? "任务已取消" : "本次处理未完成"}</strong><span>检查本地 MDX-Net 模型与分轨运行时后可重试。</span></div>}
@@ -264,10 +264,10 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
             </> : <div className="enhancementEmptyState"><Waves size={32} /><strong>还没有音频分轨任务</strong><span>导入一条素材，选择分轨侧重后即可在本机生成两条音轨。</span></div>}
           </section>
 
-          <aside className="enhancementHistory"><div className="enhancementSectionHeading"><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div><div>{jobs.map((job) => <button key={job.id} className={job.id === selectedJob?.id ? "active" : ""} onClick={() => setSelectedJobId(job.id)}><span className={`enhancementHistoryDot ${job.status}`} /><span><strong>{job.source_file_name}</strong><small>{job.model_display_name} · {statusLabel(job.status)}</small></span></button>)}{!jobs.length && <p>完成、失败和取消的记录会保留在本机。</p>}</div></aside>
+          <aside className="enhancementHistory"><div className="enhancementSectionHeading"><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div><div>{jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} onClick={() => setSelectedJobId(job.id)}><span className={`enhancementHistoryDot ${job.status}`} /><span><strong>{job.source_file_name}</strong><small>{job.model_display_name} · {statusLabel(job.status)}</small></span></button>)}{!jobs.length && <p>完成、失败和取消的记录会保留在本机。</p>}</div></aside>
         </div>
 
-        {(message || error) && <footer className={`enhancementFooter ${error ? "error" : ""}`}>{error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}<span>{error || message}</span></footer>}
+        {(message || error) && <footer role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} className={`enhancementFooter ${error ? "error" : ""}`}>{error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}<span>{error || message}</span></footer>}
       </section>
     </div>
   );

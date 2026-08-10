@@ -348,7 +348,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
               <span>本地识别 · TXT / 真实时间轴 SRT</span>
             </div>
           </div>
-          <button className="transcriptionIconButton" title="关闭" aria-label="关闭音视频转写" onClick={onClose}><X size={19} /></button>
+          <button type="button" className="transcriptionIconButton" title="关闭" aria-label="关闭音视频转写" onClick={onClose}><X size={19} /></button>
         </header>
 
         <div className="transcriptionBody">
@@ -392,7 +392,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
           <section className="transcriptionResult" aria-live="polite">
             <div className="transcriptionSectionHeading">
               <div><FileText size={17} /><span><strong>转写结果</strong><small>{selectedJob ? selectedJob.source_file_name : "选择媒体后创建任务"}</small></span></div>
-              <button className="transcriptionIconButton" title="刷新任务" onClick={() => void refreshJobs()}><RefreshCw size={16} /></button>
+              <button type="button" className="transcriptionIconButton" title="刷新任务" aria-label="刷新转写任务" onClick={() => void refreshJobs()}><RefreshCw size={16} /></button>
             </div>
 
             {selectedJob ? (
@@ -402,8 +402,8 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
                   <span>{selectedJob.model || (selectedJob.backend === "qwen3" ? "Qwen3 本地识别" : "SenseVoiceSmall")}</span>
                   {selectedJob.duration_seconds != null && <span>{formatTime(selectedJob.duration_seconds)}</span>}
                 </div>
-                {isActive(selectedJob) && <div className="transcriptionProgress"><span style={{ width: `${Math.max(8, selectedJob.progress_percent)}%` }} /></div>}
-                {selectedJob.error && <div className="transcriptionFeedback error"><AlertCircle size={15} /><span>{selectedJob.error}</span></div>}
+                {isActive(selectedJob) && <div className="transcriptionProgress" role="progressbar" aria-label="转写进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, Math.min(100, selectedJob.progress_percent))}><span style={{ width: `${Math.max(8, selectedJob.progress_percent)}%` }} /></div>}
+                {selectedJob.error && <div className="transcriptionFeedback error" role="alert" aria-live="assertive"><AlertCircle size={15} /><span>{selectedJob.error}</span></div>}
                 {selectedJobHasLegacyQwenPathError && runtimeReadiness?.qwen_asr_model_installed && (
                   <div className="transcriptionFeedback warning"><RefreshCw size={15} /><span>这是旧版本留下的 Qwen3 失败记录。当前本地 Qwen3 组件已就绪；若原媒体仍在本地暂存，可按当前配置重试。</span></div>
                 )}
@@ -447,13 +447,13 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
           <aside className="transcriptionHistory" aria-label="最近转写任务">
             <div className="transcriptionSectionHeading"><div><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div></div>
             <div className="transcriptionHistoryList">
-              {jobs.map((job) => <button key={job.id} className={job.id === selectedJob?.id ? "active" : ""} onClick={() => setSelectedJobId(job.id)}><span className={`transcriptionHistoryDot ${job.status}`} /><span><strong>{job.source_file_name}</strong><small>{job.output_format.toUpperCase()} · {statusLabel(job.status)}</small></span></button>)}
+              {jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} onClick={() => setSelectedJobId(job.id)}><span className={`transcriptionHistoryDot ${job.status}`} /><span><strong>{job.source_file_name}</strong><small>{job.output_format.toUpperCase()} · {statusLabel(job.status)}</small></span></button>)}
               {!jobs.length && <div className="transcriptionHistoryEmpty">最近完成、失败和取消的任务会保留在本机。</div>}
             </div>
           </aside>
         </div>
 
-        {(message || error) && <footer className={`transcriptionFooter ${error ? "error" : ""}`}>{error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}<span>{error || message}</span></footer>}
+        {(message || error) && <footer role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} className={`transcriptionFooter ${error ? "error" : ""}`}>{error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}<span>{error || message}</span></footer>}
       </section>
     </div>
   );

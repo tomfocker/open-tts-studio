@@ -216,18 +216,18 @@ export function DoubaoRealtimeWorkspace() {
           <span>音调 {pitch > 0 ? `+${pitch}` : pitch}</span>
           <input type="range" min={-12} max={12} step={1} value={pitch} onChange={(event) => setPitch(Number(event.target.value))} disabled={sending} />
         </label>
-        <button className="doubaoSecondaryButton" onClick={stopPlayback} disabled={!playingId}><Square size={15} fill="currentColor" /><span>停止播放</span></button>
+        <button type="button" className="doubaoSecondaryButton" onClick={stopPlayback} disabled={!playingId}><Square size={15} fill="currentColor" /><span>停止播放</span></button>
         <small className="doubaoRealtimeFootnote">这不是本地实时语音交互的替代：若需要麦克风、打断和逐块流式音频，仍使用“本地 TTS → 实时语音交互”。</small>
       </aside>
 
       <section className="doubaoPanel doubaoRealtimeConversation">
         <header className="doubaoRealtimeHeader">
           <div><span className={sending ? "doubaoRealtimeDot active" : "doubaoRealtimeDot"} /><strong>实时朗读会话</strong><small>每轮均使用当前全局 LLM 与当前豆包音色</small></div>
-          <button className="doubaoIconButton" title="清空会话" onClick={() => { stopPlayback(); setMessages([]); setStatus("已清除本次会话上下文。"); }} disabled={!messages.length || sending}><Trash2 size={16} /></button>
+          <button type="button" className="doubaoIconButton" title="清空会话" aria-label="清空会话" onClick={() => { stopPlayback(); setMessages([]); setStatus("已清除本次会话上下文。"); }} disabled={!messages.length || sending}><Trash2 size={16} /></button>
         </header>
         <div className="doubaoRealtimeFeedback">
           <div className="doubaoRealtimeStatus" role="status"><Cloud size={15} /><span>{status}</span></div>
-          {error && <div className="doubaoRealtimeError"><CircleAlert size={15} /><span>{error}</span></div>}
+          {error && <div className="doubaoRealtimeError" role="alert" aria-live="assertive"><CircleAlert size={15} /><span>{error}</span></div>}
         </div>
         <div className="doubaoRealtimeMessages" aria-live="polite">
           {!messages.length && (
@@ -236,13 +236,13 @@ export function DoubaoRealtimeWorkspace() {
           {messages.map((message) => (
             <article key={message.id} className={`doubaoRealtimeMessage ${message.role}${message.pending ? " pending" : ""}`}>
               <span className="doubaoRealtimeAvatar">{message.role === "user" ? <UserRound size={16} /> : <Bot size={16} />}</span>
-              <div><p>{message.text}</p>{message.audioUrl && <button className="doubaoRealtimePlay" onClick={() => void playMessage(message)}>{playingId === message.id ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}<span>{playingId === message.id ? "暂停朗读" : "播放朗读"}</span></button>}</div>
+              <div><p>{message.text}</p>{message.audioUrl && <button type="button" className="doubaoRealtimePlay" onClick={() => void playMessage(message)}>{playingId === message.id ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}<span>{playingId === message.id ? "暂停朗读" : "播放朗读"}</span></button>}</div>
             </article>
           ))}
         </div>
         <footer className="doubaoRealtimeComposer">
           <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendTurn(); } }} placeholder="输入一句话，Enter 发送；Shift + Enter 换行" disabled={sending || !settingsReady} />
-          <button className="doubaoPrimaryButton" disabled={sending || !draft.trim() || !selectedVoice || !llmReady || !settingsReady} onClick={() => void sendTurn()}>{sending ? <Loader2 className="spin" size={17} /> : <Send size={17} />}<span>{sending ? "生成中" : "发送并朗读"}</span></button>
+          <button type="button" className="doubaoPrimaryButton" disabled={sending || !draft.trim() || !selectedVoice || !llmReady || !settingsReady} onClick={() => void sendTurn()}>{sending ? <Loader2 className="spin" size={17} /> : <Send size={17} />}<span>{sending ? "生成中" : "发送并朗读"}</span></button>
         </footer>
         <audio ref={audioRef} onEnded={() => setPlayingId(null)} onPause={() => setPlayingId(null)} />
       </section>

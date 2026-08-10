@@ -1392,13 +1392,13 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                       )}
                       <div className="doubaoButtonRow">
                         {qrStatus?.status === "confirmed" ? (
-                          <button className="doubaoPrimaryButton" disabled={!qrCookieName.trim() || pendingAction === "qr-confirm"} onClick={() => void onConfirmQrLogin()}>
+                          <button type="button" className="doubaoPrimaryButton" disabled={!qrCookieName.trim() || pendingAction === "qr-confirm"} onClick={() => void onConfirmQrLogin()}>
                             {pendingAction === "qr-confirm" ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />}<span>保存账号</span>
                           </button>
                         ) : (
-                          <button className="doubaoSecondaryButton" onClick={() => void onStartQrLogin()}><RefreshCw size={15} /><span>刷新二维码</span></button>
+                          <button type="button" className="doubaoSecondaryButton" onClick={() => void onStartQrLogin()}><RefreshCw size={15} /><span>刷新二维码</span></button>
                         )}
-                        <button className="doubaoGhostButton" onClick={() => { setQrSession(null); setQrStatus(null); }}>取消</button>
+                        <button type="button" className="doubaoGhostButton" onClick={() => { setQrSession(null); setQrStatus(null); }}>取消</button>
                       </div>
                     </div>
                   </>
@@ -1407,7 +1407,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                     <span><KeyRound size={29} /></span>
                     <strong>免手工复制 Cookie</strong>
                     <p>扫码确认后，后端直接接收登录凭据并加密落盘，页面不会显示 Cookie 明文。</p>
-                    <button className="doubaoPrimaryButton" disabled={pendingAction === "qr-start"} onClick={() => void onStartQrLogin()}>
+                    <button type="button" className="doubaoPrimaryButton" disabled={pendingAction === "qr-start"} onClick={() => void onStartQrLogin()}>
                       {pendingAction === "qr-start" ? <Loader2 className="spin" size={17} /> : <LogIn size={17} />}<span>生成登录二维码</span>
                     </button>
                   </div>
@@ -1425,8 +1425,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 <label className="doubaoField wide"><span>Cookie 请求头</span><textarea value={cookieDraft.value} maxLength={10000} placeholder="sessionid=...; s_v_web_id=..." onChange={(event) => setCookieDraft((draft) => ({ ...draft, value: event.target.value }))} /></label>
               </div>
               <div className="doubaoButtonRow end">
-                {cookieDraft.id && <button className="doubaoGhostButton" onClick={() => setCookieDraft(emptyCookieDraft)}>取消编辑</button>}
-                <button className="doubaoPrimaryButton" disabled={!cookieDraft.name.trim() || !cookieDraft.value.trim() || pendingAction?.startsWith("cookie-save") || pendingAction === "cookie-create"} onClick={() => void onSaveCookie()}>
+                {cookieDraft.id && <button type="button" className="doubaoGhostButton" onClick={() => setCookieDraft(emptyCookieDraft)}>取消编辑</button>}
+                <button type="button" className="doubaoPrimaryButton" disabled={!cookieDraft.name.trim() || !cookieDraft.value.trim() || pendingAction?.startsWith("cookie-save") || pendingAction === "cookie-create"} onClick={() => void onSaveCookie()}>
                   {pendingAction?.startsWith("cookie-save") || pendingAction === "cookie-create" ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />}<span>{cookieDraft.id ? "保存修改" : "加密保存"}</span>
                 </button>
               </div>
@@ -1436,29 +1436,29 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               <div className="doubaoSectionHeading">
                 <div><CookieIcon size={18} /><span><strong>Cookie 池</strong><small>{cookieStats?.valid || 0} 可用 · {cookieStats?.totalRequests || 0} 次请求</small></span></div>
                 <div className="doubaoButtonRow">
-                  <button className="doubaoSecondaryButton" disabled={!cookies.length || pendingAction === "cookies-test-all"} onClick={() => void onCookieAction("cookies-test-all", () => testAllDoubaoCookies(cookies.map((_cookie, index) => index)), "全部账号验证完成")}>
+                  <button type="button" className="doubaoSecondaryButton" disabled={!cookies.length || pendingAction === "cookies-test-all"} onClick={() => void onCookieAction("cookies-test-all", () => testAllDoubaoCookies(cookies.map((_cookie, index) => index)), "全部账号验证完成")}>
                     {pendingAction === "cookies-test-all" ? <Loader2 className="spin" size={15} /> : <Activity size={15} />}<span>全部验证</span>
                   </button>
-                  <button className="doubaoSecondaryButton" disabled={!cookies.length} onClick={() => void onCookieAction("cookie-rotate", () => rotateDoubaoCookie(), "已切换到下一个账号")}><RotateCw size={15} /><span>轮换</span></button>
+                  <button type="button" className="doubaoSecondaryButton" disabled={!cookies.length} onClick={() => void onCookieAction("cookie-rotate", () => rotateDoubaoCookie(), "已切换到下一个账号")}><RotateCw size={15} /><span>轮换</span></button>
                 </div>
               </div>
               <div className="doubaoRotationBar">
                 <label className="doubaoCheck"><input type="checkbox" checked={rotationEnabled} onChange={(event) => setRotationEnabled(event.target.checked)} /><span>按使用次数自动轮换</span></label>
                 <label><span>每个账号</span><input type="number" min={1} max={1000} value={rotationCount} onChange={(event) => setRotationCount(Number(event.target.value))} /><span>次</span></label>
-                <button className="doubaoSecondaryButton" onClick={() => void onCookieAction("rotation-save", () => configureDoubaoCookieRotation({ usageLimitEnabled: rotationEnabled, usageCountPerCookie: rotationCount }), "轮换策略已保存")}><SlidersHorizontal size={15} /><span>保存策略</span></button>
+                <button type="button" className="doubaoSecondaryButton" onClick={() => void onCookieAction("rotation-save", () => configureDoubaoCookieRotation({ usageLimitEnabled: rotationEnabled, usageCountPerCookie: rotationCount }), "轮换策略已保存")}><SlidersHorizontal size={15} /><span>保存策略</span></button>
               </div>
               <div className="doubaoCookieToolbar">
                 <label className="doubaoCheck"><input type="checkbox" checked={allVisibleCookiesSelected} onChange={(event) => setSelectedCookieIds((current) => { const next = new Set(current); for (const cookie of visibleCookies) event.target.checked ? next.add(cookie.id) : next.delete(cookie.id); return next; })} /><span>多选 {selectedCookieIds.size ? `(${selectedCookieIds.size})` : ""}</span></label>
                 <label className="doubaoCookieSearch"><Search size={14} /><input value={cookieQuery} placeholder="搜索名称或备注" onChange={(event) => setCookieQuery(event.target.value)} /></label>
                 <select value={cookieSort} onChange={(event) => setCookieSort(event.target.value as CookieSort)}><option value="name">按名称</option><option value="usageCount">按使用次数</option><option value="createdAt">按创建时间</option></select>
-                <button title="切换排序方向" onClick={() => setCookieSortAscending((current) => !current)}><SlidersHorizontal size={14} />{cookieSortAscending ? "升序" : "降序"}</button>
-                <button title="切换卡片/列表视图" onClick={() => setCookieViewMode((current) => current === "grid" ? "list" : "grid")}><Library size={14} />{cookieViewMode === "grid" ? "列表" : "卡片"}</button>
+                <button type="button" title="切换排序方向" aria-label="切换账号排序方向" onClick={() => setCookieSortAscending((current) => !current)}><SlidersHorizontal size={14} />{cookieSortAscending ? "升序" : "降序"}</button>
+                <button type="button" title="切换卡片/列表视图" aria-label="切换账号视图" onClick={() => setCookieViewMode((current) => current === "grid" ? "list" : "grid")}><Library size={14} />{cookieViewMode === "grid" ? "列表" : "卡片"}</button>
               </div>
               {selectedCookieIds.size > 0 && (
                 <div className="doubaoCookieBatchBar">
                   <span>已选择 {selectedCookieIds.size} 个账号</span>
-                  <button disabled={pendingAction === "cookies-batch-test"} onClick={() => void onBatchTestCookies(selectedCookieIds)}><Activity size={14} />批量验证</button>
-                  <button className="danger" disabled={pendingAction === "cookies-batch-delete"} onClick={() => { if (window.confirm(`确定删除选中的 ${selectedCookieIds.size} 个账号吗？`)) void onBatchDeleteCookies(); }}><Trash2 size={14} />批量删除</button>
+                  <button type="button" disabled={pendingAction === "cookies-batch-test"} onClick={() => void onBatchTestCookies(selectedCookieIds)}><Activity size={14} />批量验证</button>
+                  <button type="button" className="danger" disabled={pendingAction === "cookies-batch-delete"} onClick={() => { if (window.confirm(`确定删除选中的 ${selectedCookieIds.size} 个账号吗？`)) void onBatchDeleteCookies(); }}><Trash2 size={14} />批量删除</button>
                 </div>
               )}
               <div className={`doubaoCookieList ${cookieViewMode}`}>
@@ -1490,20 +1490,20 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                       </div>
                     )}
                     <div className="doubaoCookieActions">
-                      <button onClick={() => void onCookieAction(`activate-${cookie.id}`, () => rotateDoubaoCookie(cookie.id), "已切换当前账号")} disabled={cookie.status.isDisabled || cookie.status.isActive}>设为当前</button>
-                      <button onClick={() => void onCookieAction(`test-${cookie.id}`, () => testDoubaoCookie(cookie.id), "账号验证完成")}>验证</button>
-                      <button onClick={() => void onEditCookie(cookie.id)}>编辑</button>
-                      <button onClick={() => setExpandedCookieId((current) => current === cookie.id ? "" : cookie.id)}>{expandedCookieId === cookie.id ? "收起详情" : "详情"}</button>
-                      <button onClick={() => void onCookieAction(`toggle-${cookie.id}`, () => toggleDoubaoCookie(cookie.id), cookie.status.isDisabled ? "账号已启用" : "账号已停用")}>{cookie.status.isDisabled ? "启用" : "停用"}</button>
-                      <label className="doubaoLimitInput"><span>总限制</span><input type="number" min={0} max={10000} value={usageLimits[cookie.id] ?? 0} onChange={(event) => setUsageLimits((values) => ({ ...values, [cookie.id]: Number(event.target.value) }))} /><button onClick={() => void onCookieAction(`limit-${cookie.id}`, () => setDoubaoCookieUsageLimit(cookie.id, usageLimits[cookie.id] ?? 0), "账号总限制已保存")}>保存</button></label>
-                      <button className="danger" onClick={() => { if (window.confirm(`确定删除“${cookie.name}”吗？`)) void onCookieAction(`delete-${cookie.id}`, () => deleteDoubaoCookie(cookie.id), "账号已删除"); }}><Trash2 size={14} />删除</button>
+                      <button type="button" onClick={() => void onCookieAction(`activate-${cookie.id}`, () => rotateDoubaoCookie(cookie.id), "已切换当前账号")} disabled={cookie.status.isDisabled || cookie.status.isActive}>设为当前</button>
+                      <button type="button" onClick={() => void onCookieAction(`test-${cookie.id}`, () => testDoubaoCookie(cookie.id), "账号验证完成")}>验证</button>
+                      <button type="button" onClick={() => void onEditCookie(cookie.id)}>编辑</button>
+                      <button type="button" aria-expanded={expandedCookieId === cookie.id} onClick={() => setExpandedCookieId((current) => current === cookie.id ? "" : cookie.id)}>{expandedCookieId === cookie.id ? "收起详情" : "详情"}</button>
+                      <button type="button" onClick={() => void onCookieAction(`toggle-${cookie.id}`, () => toggleDoubaoCookie(cookie.id), cookie.status.isDisabled ? "账号已启用" : "账号已停用")}>{cookie.status.isDisabled ? "启用" : "停用"}</button>
+                      <label className="doubaoLimitInput"><span>总限制</span><input type="number" min={0} max={10000} value={usageLimits[cookie.id] ?? 0} onChange={(event) => setUsageLimits((values) => ({ ...values, [cookie.id]: Number(event.target.value) }))} /><button type="button" onClick={() => void onCookieAction(`limit-${cookie.id}`, () => setDoubaoCookieUsageLimit(cookie.id, usageLimits[cookie.id] ?? 0), "账号总限制已保存")}>保存</button></label>
+                      <button type="button" className="danger" onClick={() => { if (window.confirm(`确定删除“${cookie.name}”吗？`)) void onCookieAction(`delete-${cookie.id}`, () => deleteDoubaoCookie(cookie.id), "账号已删除"); }}><Trash2 size={14} />删除</button>
                     </div>
                   </article>
                 )) : (
                   <div className="doubaoEmptyState"><CookieIcon size={26} /><strong>{cookies.length ? "没有匹配账号" : "还没有账号"}</strong><span>{cookies.length ? "换一个搜索词试试" : "扫码登录或在上方手工添加 Cookie"}</span></div>
                 )}
               </div>
-              {cookies.length > 0 && <button className="doubaoDangerLink" onClick={() => { if (window.confirm("确定清空全部豆包 Cookie 吗？")) void onCookieAction("cookies-clear", clearDoubaoCookies, "全部 Cookie 已清空"); }}><Trash2 size={14} />清空全部 Cookie</button>}
+              {cookies.length > 0 && <button type="button" className="doubaoDangerLink" onClick={() => { if (window.confirm("确定清空全部豆包 Cookie 吗？")) void onCookieAction("cookies-clear", clearDoubaoCookies, "全部 Cookie 已清空"); }}><Trash2 size={14} />清空全部 Cookie</button>}
             </section>
           </div>
         )}
@@ -1513,7 +1513,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             <aside className="doubaoPanel doubaoReaderSidebar">
               <div className="doubaoSectionHeading compact"><div><BookOpen size={18} /><span><strong>导入电子书</strong><small>TXT / EPUB 直接分章节，不依赖本地模型</small></span></div></div>
               <input ref={ebookFileInputRef} className="hiddenFile" type="file" accept=".txt,.epub,text/plain,application/epub+zip" onChange={(event) => void onImportEbook(event.target.files?.[0] || null)} />
-              <button className="doubaoPrimaryButton" disabled={pendingAction === "ebook-import"} onClick={() => ebookFileInputRef.current?.click()}>
+              <button type="button" className="doubaoPrimaryButton" disabled={pendingAction === "ebook-import"} onClick={() => ebookFileInputRef.current?.click()}>
                 {pendingAction === "ebook-import" ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}<span>导入 TXT / EPUB</span>
               </button>
               <p className="doubaoImportHint">支持自动识别常见章节标题；导入后可预览、勾选章节，并复用现有任务队列批量生成。</p>
@@ -1522,13 +1522,13 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               <div className="doubaoServerForm">
                 <label className="doubaoField"><span>服务器地址</span><input value={serverIp} onChange={(event) => setServerIp(event.target.value)} /></label>
                 <label className="doubaoField"><span>端口</span><input type="number" min={1} max={65535} value={serverPort} onChange={(event) => setServerPort(Number(event.target.value))} /></label>
-                <button className="doubaoPrimaryButton" disabled={pendingAction === "load-books"} onClick={() => void onLoadBooks()}>
+                <button type="button" className="doubaoPrimaryButton" disabled={pendingAction === "load-books"} onClick={() => void onLoadBooks()}>
                   {pendingAction === "load-books" ? <Loader2 className="spin" size={16} /> : <Wifi size={16} />}<span>连接并读取书架</span>
                 </button>
               </div>
               <div className="doubaoBookList">
                 {books.map((book) => (
-                  <button key={book.bookUrl} className={selectedBookUrl === book.bookUrl ? "active" : ""} onClick={() => void onSelectBook(book)}>
+                  <button type="button" key={book.bookUrl} className={selectedBookUrl === book.bookUrl ? "active" : ""} aria-pressed={selectedBookUrl === book.bookUrl} onClick={() => void onSelectBook(book)}>
                     <span className="doubaoBookCover"><BookOpen size={18} /></span>
                     <span><strong>{bookName(book)}</strong><small>{String(book.author || "作者未知")} · {book.totalChapters ?? "?"} 章</small></span>
                   </button>
@@ -1542,10 +1542,10 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 <div><BookOpen size={18} /><span><strong>{bookName(selectedBook)}</strong><small>{selectedBook ? `${chapters.length} 章 · ${selectedBookIsLocal ? "本地电子书" : "Legado 书架"} · ID ${bookId || "生成中"}` : "导入一本电子书或从左侧选择书籍"}</small></span></div>
                 {selectedBook && !selectedBookIsLocal && (
                   <div className="doubaoButtonRow">
-                    <button className="doubaoSecondaryButton" disabled={pendingAction === "cache-book"} onClick={() => void onCacheSelectedBook()}>
+                    <button type="button" className="doubaoSecondaryButton" disabled={pendingAction === "cache-book"} onClick={() => void onCacheSelectedBook()}>
                       {pendingAction === "cache-book" ? <Loader2 className="spin" size={15} /> : <HardDrive size={15} />}<span>缓存整本正文</span>
                     </button>
-                    {pendingAction === "cache-book" && <button className="doubaoGhostButton" onClick={() => void runAction("cache-cancel", () => cancelLegadoBookCache(selectedBook.bookUrl), "已发送取消请求")}>取消缓存</button>}
+                    {pendingAction === "cache-book" && <button type="button" className="doubaoGhostButton" onClick={() => void runAction("cache-cancel", () => cancelLegadoBookCache(selectedBook.bookUrl), "已发送取消请求")}>取消缓存</button>}
                   </div>
                 )}
               </div>
@@ -1555,7 +1555,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                     <span><strong>{bookCacheProgress.status === "starting" ? "正在准备正文缓存" : bookCacheProgress.status === "cancelling" ? "正在取消缓存" : bookCacheProgress.status === "completed" ? "正文缓存完成" : bookCacheProgress.status === "partial" ? "正文缓存部分完成" : bookCacheProgress.status === "cancelled" ? "正文缓存已取消" : "正在缓存正文"}</strong><small>{bookCacheProgress.chapter || bookName(selectedBook)}</small></span>
                     <strong>{bookCacheProgress.percent}%</strong>
                   </div>
-                  <div className="doubaoProgress"><span style={{ width: `${bookCacheProgress.percent}%` }} /></div>
+                  <div className="doubaoProgress" role="progressbar" aria-label="正文缓存进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, Math.min(100, bookCacheProgress.percent))}><span style={{ width: `${bookCacheProgress.percent}%` }} /></div>
                   <div className="doubaoBookCacheProgressMeta"><span>{bookCacheProgress.current} / {bookCacheProgress.total || "?"} 章</span><span>新增 {bookCacheProgress.cached}</span><span>跳过 {bookCacheProgress.skipped}</span><span>失败 {bookCacheProgress.failed}</span></div>
                   {bookCacheProgress.error && <div className="doubaoCardError">{bookCacheProgress.error}</div>}
                 </section>
@@ -1566,8 +1566,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                     <label className="doubaoCheck"><input type="checkbox" checked={chapters.length > 0 && selectedChapterKeys.size === chapters.length} onChange={(event) => { setSelectedChapterKeys(event.target.checked ? new Set(chapters.map(chapterKey)) : new Set()); setChapterAnchorKey(event.target.checked && chapters[0] ? chapterKey(chapters[0]) : ""); }} /><span>全选 {chapters.length} 章</span></label>
                     <div className="doubaoChapterBatchActions">
                       <span>已选 {selectedChapterKeys.size} 章</span>
-                      <button disabled={!chapters.length} onClick={selectChaptersToEnd}>选至末尾</button>
-                      <button disabled={!selectedChapterKeys.size} onClick={() => { setSelectedChapterKeys(new Set()); setChapterAnchorKey(""); }}>清空</button>
+                      <button type="button" disabled={!chapters.length} onClick={selectChaptersToEnd}>选至末尾</button>
+                      <button type="button" disabled={!selectedChapterKeys.size} onClick={() => { setSelectedChapterKeys(new Set()); setChapterAnchorKey(""); }}>清空</button>
                     </div>
                   </div>
                   <div className="doubaoChapterList">
@@ -1576,7 +1576,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                       return (
                         <article key={key} className={selectedChapterKeys.has(key) ? "selected" : ""}>
                           <label><input type="checkbox" checked={selectedChapterKeys.has(key)} onChange={() => { setChapterAnchorKey(key); setSelectedChapterKeys((current) => { const next = new Set(current); next.has(key) ? next.delete(key) : next.add(key); return next; }); }} /><span>{chapterIndex(chapter) + 1}</span><strong>{chapterTitle(chapter)}</strong></label>
-                          <button onClick={() => void onPreviewChapter(chapter)}>预览正文</button>
+                          <button type="button" onClick={() => void onPreviewChapter(chapter)}>预览正文</button>
                         </article>
                       );
                     })}
@@ -1589,7 +1589,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                     {!selectedBookIsLocal && <label className="doubaoCheck"><input type="checkbox" checked={useCacheOnly} onChange={(event) => setUseCacheOnly(event.target.checked)} /><span>仅使用本地正文</span></label>}
                     <label className="doubaoCheck"><input type="checkbox" checked={forceRegenerate} onChange={(event) => setForceRegenerate(event.target.checked)} /><span>覆盖已有音频</span></label>
                     <label className="doubaoCompactNumber"><span>轮询延迟</span><input type="number" min={0} max={60} value={prefetchRequestDelay} onChange={(event) => setPrefetchRequestDelay(Number(event.target.value))} /><span>秒</span></label>
-                    <button className="doubaoPrimaryButton" disabled={!selectedChapters.length || !selectedVoiceId || pendingAction === "prefetch-start"} onClick={() => void onStartPrefetch()}>
+                    <button type="button" className="doubaoPrimaryButton" disabled={!selectedChapters.length || !selectedVoiceId || pendingAction === "prefetch-start"} onClick={() => void onStartPrefetch()}>
                       {pendingAction === "prefetch-start" ? <Loader2 className="spin" size={16} /> : <Volume2 size={16} />}<span>预制 {selectedChapters.length} 章</span>
                     </button>
                   </div>
@@ -1612,24 +1612,24 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 </label>
                 <div className="doubaoConfigTemplates" aria-label="实时配置模板">
                   {readerConfigTemplates.map((template) => (
-                    <button key={template.id} className={configTemplate === template.id ? "active" : ""} onClick={() => applyReaderConfigTemplate(template.id)}>{template.label}</button>
+                    <button type="button" key={template.id} className={configTemplate === template.id ? "active" : ""} aria-pressed={configTemplate === template.id} onClick={() => applyReaderConfigTemplate(template.id)}>{template.label}</button>
                   ))}
                 </div>
                 <label className="doubaoField"><span>实时模式延迟（秒）</span><input type="number" min={0} max={60} value={configDelay} onChange={(event) => { setConfigDelay(Number(event.target.value)); setConfigTemplate("custom"); }} /></label>
                 <div className="doubaoConfigLink">
                   <span><strong>阅读 App · 实时</strong><code>{realtimeConfigUrl || "先选择音色"}</code></span>
                   <div>
-                    <button title="测试配置" disabled={!realtimeConfigUrl || pendingAction === "test-config-实时"} onClick={() => void onTestReaderConfig(realtimeConfigUrl, "实时")}><Activity size={15} /></button>
-                    <button title="复制配置链接" disabled={!realtimeConfigUrl} onClick={() => void copyText(realtimeConfigUrl, "实时配置链接")}><Clipboard size={15} /></button>
-                    <button title="一键导入到阅读" disabled={!realtimeImportUrl} onClick={() => void openLegadoImport(realtimeConfigUrl, "实时")}><BookOpen size={15} /></button>
+                    <button type="button" title="测试配置" aria-label="测试实时配置" disabled={!realtimeConfigUrl || pendingAction === "test-config-实时"} onClick={() => void onTestReaderConfig(realtimeConfigUrl, "实时")}><Activity size={15} /></button>
+                    <button type="button" title="复制配置链接" aria-label="复制实时配置链接" disabled={!realtimeConfigUrl} onClick={() => void copyText(realtimeConfigUrl, "实时配置链接")}><Clipboard size={15} /></button>
+                    <button type="button" title="一键导入到阅读" aria-label="导入实时配置到阅读" disabled={!realtimeImportUrl} onClick={() => void openLegadoImport(realtimeConfigUrl, "实时")}><BookOpen size={15} /></button>
                   </div>
                 </div>
                 <div className="doubaoConfigLink">
                   <span><strong>阅读 App · 预制</strong><code>{prefabConfigUrl || "服务地址无效"}</code></span>
                   <div>
-                    <button title="测试配置" disabled={!prefabConfigUrl || pendingAction === "test-config-预制"} onClick={() => void onTestReaderConfig(prefabConfigUrl, "预制")}><Activity size={15} /></button>
-                    <button title="复制配置链接" disabled={!prefabConfigUrl} onClick={() => void copyText(prefabConfigUrl, "预制配置链接")}><Clipboard size={15} /></button>
-                    <button title="一键导入到阅读" disabled={!prefabImportUrl} onClick={() => void openLegadoImport(prefabConfigUrl, "预制")}><BookOpen size={15} /></button>
+                    <button type="button" title="测试配置" aria-label="测试预制配置" disabled={!prefabConfigUrl || pendingAction === "test-config-预制"} onClick={() => void onTestReaderConfig(prefabConfigUrl, "预制")}><Activity size={15} /></button>
+                    <button type="button" title="复制配置链接" aria-label="复制预制配置链接" disabled={!prefabConfigUrl} onClick={() => void copyText(prefabConfigUrl, "预制配置链接")}><Clipboard size={15} /></button>
+                    <button type="button" title="一键导入到阅读" aria-label="导入预制配置到阅读" disabled={!prefabImportUrl} onClick={() => void openLegadoImport(prefabConfigUrl, "预制")}><BookOpen size={15} /></button>
                   </div>
                 </div>
                 {!normalizedLegadoServiceBase && <p className="doubaoCardError">请输入有效的 HTTP/HTTPS 服务地址，例如 http://192.168.1.20:8765。</p>}
@@ -1654,24 +1654,24 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             </section>
 
             <section className="doubaoPanel doubaoTaskPanel">
-              <div className="doubaoSectionHeading"><div><Gauge size={18} /><span><strong>预制任务</strong><small>任务状态会每 4 秒自动更新</small></span></div><button className="doubaoSecondaryButton" onClick={() => void runAction("task-refresh", refreshTaskAndCacheState, "任务状态已刷新")}><RefreshCw size={15} /><span>刷新</span></button></div>
+              <div className="doubaoSectionHeading"><div><Gauge size={18} /><span><strong>预制任务</strong><small>任务状态会每 4 秒自动更新</small></span></div><button type="button" className="doubaoSecondaryButton" onClick={() => void runAction("task-refresh", refreshTaskAndCacheState, "任务状态已刷新")}><RefreshCw size={15} /><span>刷新</span></button></div>
               <div className="doubaoTaskList">
                 {tasks.map((task) => {
                   const progress = prefetchProgress(task);
                   return (
                     <article key={task.taskId} className={`doubaoTaskCard ${task.status}`}>
                       <div className="doubaoTaskHeader"><div><strong>{bookName(task.bookInfo)}</strong><span>{task.taskId}</span></div><span className={`doubaoStatusPill ${task.status}`}>{taskStatusLabel(task.status)}</span></div>
-                      <div className="doubaoProgress"><span style={{ width: `${progress.percent}%` }} /></div>
+                      <div className="doubaoProgress" role="progressbar" aria-label={`预制任务进度：${bookName(task.bookInfo)}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, Math.min(100, progress.percent))}><span style={{ width: `${progress.percent}%` }} /></div>
                       <div className="doubaoTaskMeta"><span>{progress.completed} / {progress.total} 章</span><span>{progress.failed ? `${progress.failed} 章失败` : "无失败章节"}</span><span>{formatDate(task.updatedAt)}</span></div>
                       {task.chapters?.find((chapter) => chapter.error)?.error && <div className="doubaoCardError">{task.chapters.find((chapter) => chapter.error)?.error}</div>}
                       <div className="doubaoTaskActions">
-                        <button onClick={() => { setExpandedTaskId((current) => current === task.taskId ? "" : task.taskId); setCacheChapterPreview(null); }}><FileText size={14} />{expandedTaskId === task.taskId ? "收起章节" : "章节明细"}</button>
-                        {task.status === "processing" && <button onClick={() => void onTaskAction(`pause-${task.taskId}`, () => pauseDoubaoPrefetch(task.taskId), "任务已暂停")}><Pause size={14} />暂停</button>}
-                        {(["paused", "cancelled", "partial", "failed"] as string[]).includes(task.status) && <button onClick={() => void onTaskAction(`resume-${task.taskId}`, () => resumeDoubaoPrefetch(task.taskId), "任务已恢复")}><Play size={14} />恢复</button>}
-                        {(["processing", "paused"] as string[]).includes(task.status) && <button onClick={() => void onTaskAction(`cancel-${task.taskId}`, () => cancelDoubaoPrefetch(task.taskId), "任务已取消，已生成内容保留")}><X size={14} />取消</button>}
-                        {(["partial", "failed", "paused"] as string[]).includes(task.status) && <button onClick={() => void onTaskAction(`retry-${task.taskId}`, () => retryDoubaoPrefetch(task.taskId), "失败章节已重新排队")}><RotateCw size={14} />重试</button>}
-                        <button onClick={() => void onTaskAction(`files-${task.taskId}`, () => deleteDoubaoPrefetchFiles(task.taskId), "任务音频文件已清理")}><HardDrive size={14} />清理文件</button>
-                        <button className="danger" onClick={() => { if (window.confirm("确定删除这条预制任务记录吗？")) void onTaskAction(`remove-${task.taskId}`, () => deleteDoubaoPrefetchTask(task.taskId), "任务记录已删除"); }}><Trash2 size={14} />删除</button>
+                        <button type="button" aria-expanded={expandedTaskId === task.taskId} onClick={() => { setExpandedTaskId((current) => current === task.taskId ? "" : task.taskId); setCacheChapterPreview(null); }}><FileText size={14} />{expandedTaskId === task.taskId ? "收起章节" : "章节明细"}</button>
+                        {task.status === "processing" && <button type="button" onClick={() => void onTaskAction(`pause-${task.taskId}`, () => pauseDoubaoPrefetch(task.taskId), "任务已暂停")}><Pause size={14} />暂停</button>}
+                        {(["paused", "cancelled", "partial", "failed"] as string[]).includes(task.status) && <button type="button" onClick={() => void onTaskAction(`resume-${task.taskId}`, () => resumeDoubaoPrefetch(task.taskId), "任务已恢复")}><Play size={14} />恢复</button>}
+                        {(["processing", "paused"] as string[]).includes(task.status) && <button type="button" onClick={() => void onTaskAction(`cancel-${task.taskId}`, () => cancelDoubaoPrefetch(task.taskId), "任务已取消，已生成内容保留")}><X size={14} />取消</button>}
+                        {(["partial", "failed", "paused"] as string[]).includes(task.status) && <button type="button" onClick={() => void onTaskAction(`retry-${task.taskId}`, () => retryDoubaoPrefetch(task.taskId), "失败章节已重新排队")}><RotateCw size={14} />重试</button>}
+                        <button type="button" onClick={() => void onTaskAction(`files-${task.taskId}`, () => deleteDoubaoPrefetchFiles(task.taskId), "任务音频文件已清理")}><HardDrive size={14} />清理文件</button>
+                        <button type="button" className="danger" onClick={() => { if (window.confirm("确定删除这条预制任务记录吗？")) void onTaskAction(`remove-${task.taskId}`, () => deleteDoubaoPrefetchTask(task.taskId), "任务记录已删除"); }}><Trash2 size={14} />删除</button>
                       </div>
                       {expandedTaskId === task.taskId && (
                         <div className="doubaoTaskChapterDetails">
@@ -1684,16 +1684,16 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                               </div>
                               {chapter.error && <p className="doubaoTaskChapterError">{chapter.error}</p>}
                               <div className="doubaoTaskChapterActions">
-                                <button onClick={() => void onInspectTaskChapter(task, chapter.chapterId, chapter.chapterTitle)}><FileText size={13} />查看索引</button>
-                                <button disabled={chapter.status === "completed" || chapter.status === "processing"} onClick={() => void onTaskAction(`retry-${task.taskId}-${chapter.chapterId}`, () => retryDoubaoPrefetch(task.taskId, chapter.chapterId), "本章已重新排队")}><RotateCw size={13} />重试本章</button>
-                                <button className="danger" onClick={() => { if (window.confirm(`确定删除“${chapter.chapterTitle}”的预制音频吗？`)) void onDeletePrefetchChapter(task.bookInfo.bookId, chapter.chapterId); }}><Trash2 size={13} />删除音频</button>
+                                <button type="button" onClick={() => void onInspectTaskChapter(task, chapter.chapterId, chapter.chapterTitle)}><FileText size={13} />查看索引</button>
+                                <button type="button" disabled={chapter.status === "completed" || chapter.status === "processing"} onClick={() => void onTaskAction(`retry-${task.taskId}-${chapter.chapterId}`, () => retryDoubaoPrefetch(task.taskId, chapter.chapterId), "本章已重新排队")}><RotateCw size={13} />重试本章</button>
+                                <button type="button" className="danger" onClick={() => { if (window.confirm(`确定删除“${chapter.chapterTitle}”的预制音频吗？`)) void onDeletePrefetchChapter(task.bookInfo.bookId, chapter.chapterId); }}><Trash2 size={13} />删除音频</button>
                               </div>
                             </article>
                           ))}
                           {!task.chapters?.length && <div className="doubaoEmptyState small"><FileText size={20} /><span>此任务没有章节明细</span></div>}
                           {cacheChapterPreview && (
                             <article className="doubaoCacheChapterPreview">
-                              <header><div><strong>{cacheChapterPreview.title}</strong><small>{cacheChapterPreview.detail}</small></div><button className="doubaoIconButton" title="关闭预览" onClick={() => setCacheChapterPreview(null)}><X size={14} /></button></header>
+                              <header><div><strong>{cacheChapterPreview.title}</strong><small>{cacheChapterPreview.detail}</small></div><button type="button" className="doubaoIconButton" title="关闭预览" aria-label="关闭章节预览" onClick={() => setCacheChapterPreview(null)}><X size={14} /></button></header>
                               <pre>{cacheChapterPreview.content}</pre>
                             </article>
                           )}
@@ -1707,7 +1707,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             </section>
 
             <section className="doubaoPanel doubaoCacheBooksPanel">
-              <div className="doubaoSectionHeading"><div><Database size={18} /><span><strong>书籍缓存</strong><small>正文缓存和预制音频统一管理</small></span></div><div className="doubaoButtonRow"><button className="doubaoSecondaryButton" onClick={() => { if (window.confirm("确定清空全部正文和预制缓存吗？")) void onTaskAction("cache-clear-all", () => clearDoubaoBookCache("all"), "全部豆包缓存已清空"); }}><Trash2 size={15} /><span>清空全部</span></button></div></div>
+              <div className="doubaoSectionHeading"><div><Database size={18} /><span><strong>书籍缓存</strong><small>正文缓存和预制音频统一管理</small></span></div><div className="doubaoButtonRow"><button type="button" className="doubaoSecondaryButton" onClick={() => { if (window.confirm("确定清空全部正文和预制缓存吗？")) void onTaskAction("cache-clear-all", () => clearDoubaoBookCache("all"), "全部豆包缓存已清空"); }}><Trash2 size={15} /><span>清空全部</span></button></div></div>
               <div className="doubaoCachedBookGrid">
                 {cachedBooks.map((book, index) => {
                   const identifier = cachedBookIdentifier(book);
@@ -1717,8 +1717,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                       <span className="doubaoBookCover large"><BookOpen size={21} /></span>
                       <div><strong>{bookName(book)}</strong><small>{book.source === "prefetch" ? "预制音频" : "正文缓存"} · {book.cachedChapters ?? book.totalChapters ?? "?"} 章</small><span>{formatBytes(Number(book.totalSize || book.size || 0))} · {formatDate(book.updatedAt || book.cachedAt)}</span></div>
                       <div className="doubaoCachedBookActions">
-                        <button className="doubaoIconButton" title="查看缓存章节" disabled={!identifier} onClick={() => void onInspectCachedBook(book)}><FileText size={16} /></button>
-                        <button className="doubaoIconButton danger" title="删除书籍缓存" disabled={!identifier} onClick={() => { if (window.confirm(`确定删除《${bookName(book)}》的缓存吗？`)) void onTaskAction(`cache-delete-${identifier}`, () => deleteDoubaoCachedBook(identifier), "书籍缓存已删除").then(() => { if (isInspected) { setInspectedCachedBook(null); setInspectedCachedChapters([]); setCacheChapterPreview(null); } }); }}><Trash2 size={16} /></button>
+                        <button type="button" className="doubaoIconButton" title="查看缓存章节" aria-label="查看缓存章节" disabled={!identifier} onClick={() => void onInspectCachedBook(book)}><FileText size={16} /></button>
+                        <button type="button" className="doubaoIconButton danger" title="删除书籍缓存" aria-label="删除书籍缓存" disabled={!identifier} onClick={() => { if (window.confirm(`确定删除《${bookName(book)}》的缓存吗？`)) void onTaskAction(`cache-delete-${identifier}`, () => deleteDoubaoCachedBook(identifier), "书籍缓存已删除").then(() => { if (isInspected) { setInspectedCachedBook(null); setInspectedCachedChapters([]); setCacheChapterPreview(null); } }); }}><Trash2 size={16} /></button>
                       </div>
                     </article>
                   );
@@ -1729,7 +1729,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 <section className="doubaoCacheInspector">
                   <header>
                     <div><strong>《{bookName(inspectedCachedBook)}》章节明细</strong><small>{inspectedCachedBook.source === "prefetch" ? "预制音频索引" : "阅读正文缓存"} · {inspectedCachedChapters.length} 章</small></div>
-                    <button className="doubaoIconButton" title="关闭明细" onClick={() => { setInspectedCachedBook(null); setInspectedCachedChapters([]); setCacheChapterPreview(null); }}><X size={15} /></button>
+                    <button type="button" className="doubaoIconButton" title="关闭明细" aria-label="关闭缓存明细" onClick={() => { setInspectedCachedBook(null); setInspectedCachedChapters([]); setCacheChapterPreview(null); }}><X size={15} /></button>
                   </header>
                   <div className="doubaoCacheInspectorBody">
                     <div className="doubaoCacheChapterList">
@@ -1740,8 +1740,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                             <span>{Number.isFinite(chapter.index) ? chapter.index + 1 : chapterPosition + 1}</span>
                             <div><strong>{chapter.title}</strong><small>{inspectedCachedBook.source === "prefetch" ? `章节 ID：${chapterId}` : "正文已缓存"}</small></div>
                             <div>
-                              <button title={inspectedCachedBook.source === "prefetch" ? "查看预制索引" : "查看正文"} onClick={() => void onInspectCachedChapter(inspectedCachedBook, chapter)}><FileText size={14} /></button>
-                              {inspectedCachedBook.source === "prefetch" && <button className="danger" title="删除本章预制音频" onClick={() => { if (window.confirm(`确定删除“${chapter.title}”的预制音频吗？`)) void onDeletePrefetchChapter(cachedBookIdentifier(inspectedCachedBook), chapterId); }}><Trash2 size={14} /></button>}
+                              <button type="button" title={inspectedCachedBook.source === "prefetch" ? "查看预制索引" : "查看正文"} aria-label={inspectedCachedBook.source === "prefetch" ? "查看预制索引" : "查看正文"} onClick={() => void onInspectCachedChapter(inspectedCachedBook, chapter)}><FileText size={14} /></button>
+                              {inspectedCachedBook.source === "prefetch" && <button type="button" className="danger" title="删除本章预制音频" aria-label="删除本章预制音频" onClick={() => { if (window.confirm(`确定删除“${chapter.title}”的预制音频吗？`)) void onDeletePrefetchChapter(cachedBookIdentifier(inspectedCachedBook), chapterId); }}><Trash2 size={14} /></button>}
                             </div>
                           </article>
                         );
@@ -1749,7 +1749,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                       {!inspectedCachedChapters.length && <div className="doubaoEmptyState small"><Database size={20} /><span>没有可显示的章节</span></div>}
                     </div>
                     <article className="doubaoCacheChapterPreview standalone">
-                      {cacheChapterPreview ? <><header><div><strong>{cacheChapterPreview.title}</strong><small>{cacheChapterPreview.detail}</small></div><button className="doubaoIconButton" title="关闭预览" onClick={() => setCacheChapterPreview(null)}><X size={14} /></button></header><pre>{cacheChapterPreview.content}</pre></> : <div className="doubaoEmptyState fill"><FileText size={24} /><strong>选择一个章节</strong><span>正文或预制索引会显示在这里</span></div>}
+                      {cacheChapterPreview ? <><header><div><strong>{cacheChapterPreview.title}</strong><small>{cacheChapterPreview.detail}</small></div><button type="button" className="doubaoIconButton" title="关闭预览" aria-label="关闭章节预览" onClick={() => setCacheChapterPreview(null)}><X size={14} /></button></header><pre>{cacheChapterPreview.content}</pre></> : <div className="doubaoEmptyState fill"><FileText size={24} /><strong>选择一个章节</strong><span>正文或预制索引会显示在这里</span></div>}
                     </article>
                   </div>
                 </section>
@@ -1769,8 +1769,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
                 <label className="doubaoField"><span>正文缓存并发</span><input type="number" min={1} max={50} value={legacySettings.prefetch.cacheConcurrent} onChange={(event) => setLegacySettings((settings) => ({ ...settings, prefetch: { ...settings.prefetch, cacheConcurrent: Number(event.target.value) } }))} /><small>只影响从阅读服务拉取正文</small></label>
               </div>
               <div className="doubaoButtonRow end">
-                <button className="doubaoSecondaryButton" onClick={() => void runAction("legacy-reset", resetDoubaoLegacySettings, "已恢复默认参数").then((result) => { if (result) setLegacySettings(result); })}><RefreshCw size={15} /><span>恢复默认</span></button>
-                <button className="doubaoPrimaryButton" disabled={pendingAction === "legacy-settings-save"} onClick={() => void onSaveLegacySettings()}>{pendingAction === "legacy-settings-save" ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />}<span>保存参数</span></button>
+                <button type="button" className="doubaoSecondaryButton" onClick={() => void runAction("legacy-reset", resetDoubaoLegacySettings, "已恢复默认参数").then((result) => { if (result) setLegacySettings(result); })}><RefreshCw size={15} /><span>恢复默认</span></button>
+                <button type="button" className="doubaoPrimaryButton" disabled={pendingAction === "legacy-settings-save"} onClick={() => void onSaveLegacySettings()}>{pendingAction === "legacy-settings-save" ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />}<span>保存参数</span></button>
               </div>
             </section>
 
@@ -1778,20 +1778,20 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
               <div className="doubaoSectionHeading compact"><div><ShieldCheck size={18} /><span><strong>豆包设备标识</strong><small>WebSocket 请求身份的一部分</small></span></div></div>
               {deviceId ? (
                 <div className="doubaoDeviceValues">
-                  <label><span>Device ID</span><code>{deviceId.deviceId}</code><button onClick={() => void copyText(deviceId.deviceId, "Device ID")}><Clipboard size={14} /></button></label>
-                  <label><span>Web ID</span><code>{deviceId.webId}</code><button onClick={() => void copyText(deviceId.webId, "Web ID")}><Clipboard size={14} /></button></label>
+                  <label><span>Device ID</span><code>{deviceId.deviceId}</code><button type="button" title="复制 Device ID" aria-label="复制 Device ID" onClick={() => void copyText(deviceId.deviceId, "Device ID")}><Clipboard size={14} /></button></label>
+                  <label><span>Web ID</span><code>{deviceId.webId}</code><button type="button" title="复制 Web ID" aria-label="复制 Web ID" onClick={() => void copyText(deviceId.webId, "Web ID")}><Clipboard size={14} /></button></label>
                   <label className="doubaoCheck"><input type="checkbox" checked={deviceId.autoGenerate} onChange={(event) => void runAction("device-auto", () => setDoubaoDeviceIdAutoGenerate(event.target.checked), "设备 ID 策略已更新").then((result) => { if (result) setDeviceId(result); })} /><span>每次请求自动生成新设备 ID</span></label>
-                  <button className="doubaoSecondaryButton" onClick={() => void runAction("device-regenerate", regenerateDoubaoDeviceId, "设备 ID 已重新生成").then((result) => { if (result) setDeviceId(result); })}><RotateCw size={15} /><span>立即重新生成</span></button>
+                  <button type="button" className="doubaoSecondaryButton" onClick={() => void runAction("device-regenerate", regenerateDoubaoDeviceId, "设备 ID 已重新生成").then((result) => { if (result) setDeviceId(result); })}><RotateCw size={15} /><span>立即重新生成</span></button>
                 </div>
               ) : <div className="doubaoEmptyState small"><Loader2 className="spin" size={22} /><span>正在读取设备标识</span></div>}
             </section>
 
             <section className="doubaoPanel doubaoDocsPanel">
               <div className="doubaoSectionHeading"><div><FileText size={18} /><span><strong>本地维护文档</strong><small>不加载上游远程公告或可执行内容</small></span></div></div>
-              <div className="doubaoDocsToolbar"><label><Search size={15} /><input value={documentQuery} placeholder="搜索文档名称或正文" onChange={(event) => setDocumentQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void onSearchDocuments(); }} /></label><button className="doubaoSecondaryButton" onClick={() => void onSearchDocuments()}><Search size={15} /><span>搜索</span></button></div>
+              <div className="doubaoDocsToolbar"><label><Search size={15} /><input value={documentQuery} placeholder="搜索文档名称或正文" aria-label="搜索维护文档" onChange={(event) => setDocumentQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void onSearchDocuments(); }} /></label><button type="button" className="doubaoSecondaryButton" onClick={() => void onSearchDocuments()}><Search size={15} /><span>搜索</span></button></div>
               <div className="doubaoDocsLayout">
                 <div className="doubaoDocList">
-                  {documents.map((document) => <button key={document.id} className={selectedDocument?.id === document.id ? "active" : ""} onClick={() => void onOpenDocument(document.id)}><FileText size={16} /><span><strong>{document.name}</strong><small>{document.path} · {formatBytes(document.size)}</small></span></button>)}
+                  {documents.map((document) => <button type="button" key={document.id} className={selectedDocument?.id === document.id ? "active" : ""} aria-pressed={selectedDocument?.id === document.id} onClick={() => void onOpenDocument(document.id)}><FileText size={16} /><span><strong>{document.name}</strong><small>{document.path} · {formatBytes(document.size)}</small></span></button>)}
                 </div>
                 <article className="doubaoDocContent">
                   {selectedDocument ? <><header><strong>{selectedDocument.name}</strong><span>{selectedDocument.path}</span></header><pre>{selectedDocument.content}</pre></> : <div className="doubaoEmptyState fill"><FileText size={26} /><strong>选择文档阅读</strong><span>维护说明来自当前项目本地文件</span></div>}
@@ -1802,7 +1802,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis" }: DoubaoWor
             <section className="doubaoPanel doubaoSafetyCard">
               <div className="doubaoSectionHeading compact"><div><ShieldCheck size={18} /><span><strong>维护版安全边界</strong><small>已替换上游高风险自更新链路</small></span></div></div>
               <ul><li>Cookie 使用 Windows DPAPI 加密，不写明文配置。</li><li>远程公告与远程文档已改为本地只读内容。</li><li>不支持上传 ZIP 覆盖正在运行的程序，更新由 Electron 安全流程负责。</li><li>豆包网页接口未提供稳定性承诺，协议变更集中在独立适配层维护。</li></ul>
-              <button className="doubaoSecondaryButton" onClick={() => void runAction("clean-logs", cleanDoubaoLogCache, "任务日志缓存已清理")}><Trash2 size={15} /><span>清理任务日志缓存</span></button>
+              <button type="button" className="doubaoSecondaryButton" onClick={() => void runAction("clean-logs", cleanDoubaoLogCache, "任务日志缓存已清理")}><Trash2 size={15} /><span>清理任务日志缓存</span></button>
             </section>
           </div>
         )}
