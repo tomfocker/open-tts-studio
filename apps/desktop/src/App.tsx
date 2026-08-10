@@ -1694,6 +1694,11 @@ function asEbookTaskSummary(task: DoubaoPrefetchTask): TaskSummary {
   };
 }
 
+function settingsDraftHasChanges(draft: SettingsDraft, settings: AppSettings | null) {
+  const baseline = createSettingsDraft(settings);
+  return (Object.keys(baseline) as Array<keyof SettingsDraft>).some((key) => draft[key] !== baseline[key]);
+}
+
 function taskResultContextLabel(result: Pick<TaskCenterResult, "file_name" | "label" | "task_title">) {
   const label = result.label?.trim();
   const taskTitle = result.task_title?.trim();
@@ -2205,6 +2210,7 @@ export function App() {
   const [ebookPrefetchTasks, setEbookPrefetchTasks] = useState<DoubaoPrefetchTask[]>([]);
   const [taskCenterAction, setTaskCenterAction] = useState<string | null>(null);
   const [taskCenterRefreshing, setTaskCenterRefreshing] = useState(false);
+  const [taskSummariesLoading, setTaskSummariesLoading] = useState(false);
   const [taskCenterError, setTaskCenterError] = useState<string | null>(null);
   const [taskCenterMessage, setTaskCenterMessage] = useState<string | null>(null);
   const [ebookInspectorSummary, setEbookInspectorSummary] = useState<DoubaoPrefetchTaskSummary | null>(null);
@@ -2226,6 +2232,7 @@ export function App() {
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [globalLlmSettings, setGlobalLlmSettings] = useState<GlobalLlmSettings>(defaultGlobalLlmSettings);
+  const [savedGlobalLlmSettings, setSavedGlobalLlmSettings] = useState<GlobalLlmSettings>(defaultGlobalLlmSettings);
   const [globalLlmLoading, setGlobalLlmLoading] = useState(false);
   const [globalLlmSaving, setGlobalLlmSaving] = useState(false);
   const [globalLlmTesting, setGlobalLlmTesting] = useState(false);
@@ -2499,6 +2506,16 @@ export function App() {
   const visibleFavoriteVoiceCount = useMemo(
     () => visibleManagedVoices.filter((voice) => voiceFavoriteIds.includes(voice.id)).length,
     [voiceFavoriteIds, visibleManagedVoices]
+  );
+  const settingsDirty = useMemo(
+    () => settingsDraftHasChanges(settingsDraft, appSettings),
+    [appSettings, settingsDraft]
+  );
+  const globalLlmDirty = useMemo(
+    () => globalLlmSettings.baseUrl !== savedGlobalLlmSettings.baseUrl
+      || globalLlmSettings.model !== savedGlobalLlmSettings.model
+      || globalLlmSettings.apiKey !== savedGlobalLlmSettings.apiKey,
+    [globalLlmSettings, savedGlobalLlmSettings]
   );
   const voiceManagerDirty = useMemo(() => {
     if (!managedVoice) {
@@ -3433,7 +3450,21 @@ export function App() {
     }
   }
 
-  function closeVoiceManager() {
+  async function closeVoiceManager() {
+    if (voiceManagerAction) {
+      return;
+    }
+    if (voiceManagerDirty) {
+      const confirmed = await requestConfirmation({
+        title: "放弃音色修改？",
+        message: "当前角色名称或参考片段文字还有未保存修改，关闭后这些修改会丢失。",
+        confirmLabel: "放弃修改",
+        tone: "danger"
+      });
+      if (!confirmed) {
+        return;
+      }
+    }
     stopVoiceManagerPreview();
     setVoiceManagerOpen(false);
   }
@@ -4582,6 +4613,7 @@ export function App() {
     if (taskSummariesRequestRef.current) {
       return taskSummariesRequestRef.current;
     }
+    setTaskSummariesLoading(true);
     const request = (async () => {
       try {
         const [tasks, ebookTasks] = await Promise.all([
@@ -4590,9 +4622,8 @@ export function App() {
         ]);
         setRemoteTasks(tasks);
         setEbookPrefetchTasks(ebookTasks);
-      } catch {
-        setRemoteTasks([]);
-        setEbookPrefetchTasks([]);
+      } catch (err) {
+        setTaskCenterError(err instanceof Error ? `任务记录读取失败：${err.message}` : "任务记录读取失败，请稍后重试。");
       }
     })();
     taskSummariesRequestRef.current = request;
@@ -4602,6 +4633,7 @@ export function App() {
       if (taskSummariesRequestRef.current === request) {
         taskSummariesRequestRef.current = null;
       }
+      setTaskSummariesLoading(false);
     }
   }
 
@@ -4629,7 +4661,9 @@ export function App() {
     setGlobalLlmLoading(true);
     try {
       const settings = await bridge.load();
-      setGlobalLlmSettings({ ...defaultGlobalLlmSettings, ...settings });
+      const loaded = { ...defaultGlobalLlmSettings, ...settings };
+      setGlobalLlmSettings(loaded);
+      setSavedGlobalLlmSettings(loaded);
     } catch (err) {
       setGlobalLlmError(err instanceof Error ? err.message : "读取全局 LLM 配置失败");
     } finally {
@@ -4649,15 +4683,17 @@ export function App() {
         throw new Error(listed.error ?? "无法读取 B 站下载历史");
       }
       const details = await Promise.all(
-        listed.data
-          .filter((entry) => entry.exists)
-          .slice(0, 120)
-          .map(async (entry) => {
-            const detail = await bridge.getHistoryItem(entry.id);
-            return detail.success && detail.data ? detail.data : null;
-          })
+        listed.data.slice(0, 120).map(async (entry) => {
+          if (!entry.exists) {
+            return { ...entry, previewUrl: "" };
+          }
+          const detail = await bridge.getHistoryItem(entry.id);
+          return detail.success && detail.data
+            ? detail.data
+            : { ...entry, exists: false, previewUrl: "" };
+        })
       );
-      setBilibiliHistoryItems(details.filter((item): item is BilibiliMediaHistoryItem => Boolean(item)));
+      setBilibiliHistoryItems(details);
     } catch (err) {
       if (window.desktopBilibiliSampler) {
         setTaskCenterError(err instanceof Error ? err.message : "无法读取 B 站下载历史");
@@ -5409,8 +5445,30 @@ export function App() {
     setSettingsOpen(true);
   }
 
-  function closeSettings() {
+  async function closeSettings() {
+    if (settingsSaving || settingsMigrationAction) {
+      return;
+    }
+    if (settingsDirty || globalLlmDirty) {
+      const confirmed = await requestConfirmation({
+        title: "放弃未保存修改？",
+        message: "设置中心里还有未保存的修改，关闭后这些修改会丢失。",
+        confirmLabel: "放弃修改",
+        tone: "danger"
+      });
+      if (!confirmed) {
+        return;
+      }
+      setSettingsDraft(createSettingsDraft(appSettings));
+      setGlobalLlmSettings(savedGlobalLlmSettings);
+    }
     setSettingsOpen(false);
+  }
+
+  function restoreSettingsDraft() {
+    setSettingsDraft(createSettingsDraft(appSettings));
+    setSettingsError(null);
+    setSettingsMessage("已恢复上次保存的设置。");
   }
 
   function navigateSettingsSection(section: SettingsSection, targetSelector?: string) {
@@ -5433,7 +5491,10 @@ export function App() {
     setGlobalLlmError(null);
     setGlobalLlmMessage(null);
     try {
-      await bridge.save({ ...globalLlmSettings, baseUrl: globalLlmSettings.baseUrl.trim(), model: globalLlmSettings.model.trim() });
+      const saved = { ...globalLlmSettings, baseUrl: globalLlmSettings.baseUrl.trim(), model: globalLlmSettings.model.trim() };
+      await bridge.save(saved);
+      setGlobalLlmSettings(saved);
+      setSavedGlobalLlmSettings(saved);
       setGlobalLlmMessage("全局 LLM 配置已保存；实时语音会话会自动复用。");
       window.dispatchEvent(new Event("opentts:llm-settings-changed"));
     } catch (err) {
@@ -7055,7 +7116,7 @@ export function App() {
               settleConfirmation(false);
               break;
             case "settings":
-              closeSettings();
+              void closeSettings();
               break;
             case "sampler":
               void onSamplerCancel();
@@ -7079,7 +7140,7 @@ export function App() {
               closeReferenceAudioEditor();
               break;
             case "voice-manager":
-              closeVoiceManager();
+              void closeVoiceManager();
               break;
             case "voice-save":
               closeVoiceLibrarySaveDialog();
@@ -9981,8 +10042,10 @@ export function App() {
                 </div>
               )}
               {(taskCenterError || taskCenterMessage) && <div role={taskCenterError ? "alert" : "status"} aria-live={taskCenterError ? "assertive" : "polite"} className={taskCenterError ? "settingsFeedback error" : "settingsFeedback"}>{taskCenterError ? <AlertCircle size={15} strokeWidth={1.9} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}<span>{taskCenterError ?? taskCenterMessage}</span></div>}
-              {visibleTaskCenterTasks.length === 0 ? (
-                <div className="taskQueueEmpty"><CheckCircle2 size={25} strokeWidth={1.8} /><strong>{taskCenterTasks.length === 0 ? "还没有任务记录" : "没有符合条件的任务"}</strong><span>{taskCenterTasks.length === 0 ? "生成、转写、增强、分轨和媒体采样完成后，任务会自动出现在这里。" : "尝试切换状态、功能或搜索关键词。"}</span>{taskCenterFiltersActive && <button className="taskQueueLink" type="button" onClick={() => { setTaskCenterTaskSearch(""); setTaskCenterStatusFilter("all"); setTaskCenterTaskSourceFilter("all"); }}>清除筛选</button>}</div>
+              {taskSummariesLoading && taskCenterTasks.length === 0 ? (
+                <div className="taskQueueEmpty"><Loader2 className="spin" size={25} strokeWidth={1.8} /><strong>正在读取任务记录</strong><span>正在同步任务状态和最近事件，请稍候。</span></div>
+              ) : visibleTaskCenterTasks.length === 0 ? (
+                <div className="taskQueueEmpty"><CheckCircle2 size={25} strokeWidth={1.8} /><strong>{taskCenterTasks.length === 0 ? (taskCenterError ? "任务记录读取失败" : "还没有任务记录") : "没有符合条件的任务"}</strong><span>{taskCenterTasks.length === 0 ? (taskCenterError ? "原有记录没有被清除，请点击“刷新”重试。" : "生成、转写、增强、分轨和媒体采样完成后，任务会自动出现在这里。") : "尝试切换状态、功能或搜索关键词。"}</span>{taskCenterFiltersActive && <button className="taskQueueLink" type="button" onClick={() => { setTaskCenterTaskSearch(""); setTaskCenterStatusFilter("all"); setTaskCenterTaskSourceFilter("all"); }}>清除筛选</button>}</div>
               ) : (
                 visibleTaskCenterTasks.map((task) => {
                   const latestEvent = task.events[task.events.length - 1];
@@ -10442,7 +10505,7 @@ export function App() {
               <div>
                 <strong>设置中心</strong>
               </div>
-              <button type="button" className="modalClose" title="关闭设置中心" aria-label="关闭设置中心" onClick={closeSettings}>
+              <button type="button" className="modalClose" title="关闭设置中心" aria-label="关闭设置中心" onClick={() => void closeSettings()}>
                 <X size={18} strokeWidth={2} />
               </button>
             </header>
@@ -11227,7 +11290,7 @@ export function App() {
             )}
 
             <footer className="settingsFooter">
-              <button type="button" className="secondaryAction settingsAction" onClick={() => setSettingsDraft(createSettingsDraft(appSettings))}>
+              <button type="button" className="secondaryAction settingsAction" onClick={restoreSettingsDraft}>
                 <RefreshCw size={16} strokeWidth={1.9} />
                 <span>恢复</span>
               </button>
