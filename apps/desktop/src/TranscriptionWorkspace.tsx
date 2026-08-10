@@ -338,7 +338,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
   };
 
   return (
-    <div className="transcriptionOverlay" role="dialog" aria-modal="true" aria-label="音视频转写">
+    <div className="transcriptionOverlay" role="region" aria-label="音视频转写">
       <section className="transcriptionWorkspace">
         <header className="transcriptionHeader">
           <div className="transcriptionHeading">

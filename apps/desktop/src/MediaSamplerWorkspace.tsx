@@ -444,7 +444,7 @@ export function MediaSamplerWorkspace({ onClose, onCreateVoiceFromSample }: Prop
   }, [history, jobs]);
   useEffect(() => { if (!selected && history[0]) void openHistory(history[0]); }, [history, selected]);
 
-  return <div className="mediaSamplerOverlay" role="dialog" aria-modal="true" aria-label="媒体取样工作台">
+  return <div className="mediaSamplerOverlay" role="region" aria-label="媒体取样工作台">
     <section className={downloaderOpen ? "mediaSamplerWorkspace withDownloader" : "mediaSamplerWorkspace"}>
       <header className="mediaSamplerHeader"><div className="mediaSamplerHeading"><span className="mediaSamplerHeadingIcon"><Film size={20} strokeWidth={1.9} /></span><span><strong>媒体取样</strong><small>本地视频 · 波形选区 · ASR / SRT · 音色参考</small></span></div><div><button type="button" onClick={() => setDownloaderOpen((open) => !open)}><Sparkles size={16} />从 B 站下载</button><button className="icon" type="button" aria-label="关闭媒体取样" onClick={onClose}><X size={18} /></button></div></header>
       {downloaderOpen && <BilibiliDownloadPanel onClose={() => setDownloaderOpen(false)} onDownloaded={async () => { await refresh(); const entries = await window.desktopBilibiliSampler?.listHistory(); if (entries?.success && entries.data?.[0]) await openHistory(entries.data[0]); setDownloaderOpen(false); }} />}

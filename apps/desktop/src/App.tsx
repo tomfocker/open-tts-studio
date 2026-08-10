@@ -3123,7 +3123,7 @@ export function App() {
             </div>
             <div>
               <span>商用状态</span>
-              <strong>{inspectorModelInfo?.commercial_use ?? "-"}</strong>
+              <strong>{commercialUseLabel(inspectorModelInfo)}</strong>
             </div>
           </div>
         </section>

@@ -65,6 +65,24 @@ function statusLabel(status: AudioEnhancementJob["status"]): string {
   return { queued: "排队中", running: "处理中", completed: "已完成", failed: "失败", cancelled: "已取消" }[status];
 }
 
+function stageLabel(stage: string): string {
+  return {
+    preparing_audio: "准备音频",
+    waiting_for_gpu: "等待 GPU",
+    running_deepfilternet3: "运行 DeepFilterNet3",
+    running_mossformer2_se_48k: "运行 MossFormer2_SE_48K",
+    publishing_outputs: "写入结果",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+    interrupted: "服务重启中断"
+  }[stage] ?? "处理中";
+}
+
+function backendLabel(backend: AudioEnhancementBackend): string {
+  return MODEL_OPTIONS.find((option) => option.id === backend)?.name ?? "增强模型";
+}
+
 function isActive(job: AudioEnhancementJob | null): boolean {
   return Boolean(job && (job.status === "queued" || job.status === "running"));
 }
@@ -249,7 +267,7 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
 
   return (
     <div className="enhancementOverlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="enhancementWorkspace" role="dialog" aria-modal="true" aria-label="语音增强对比">
+      <section className="enhancementWorkspace" role="region" aria-label="语音增强对比">
         <header className="enhancementHeader">
           <div className="enhancementHeading"><span className="enhancementHeadingIcon"><Sparkles size={20} /></span><span><strong>语音增强对比</strong><small>本地降噪与增强，原始媒体不会被覆盖。</small></span></div>
           <button className="enhancementIconButton" type="button" aria-label="关闭" onClick={onClose}><X size={18} /></button>
@@ -274,7 +292,7 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
 
           <section className="enhancementResult">
             {selectedJob ? <>
-              <div className="enhancementStatus"><span className={`enhancementStatusPill ${selectedJob.status}`}>{statusLabel(selectedJob.status)}</span><span>{selectedJob.stage}</span><span>{selectedJob.progress_percent}%</span></div>
+              <div className="enhancementStatus"><span className={`enhancementStatusPill ${selectedJob.status}`}>{statusLabel(selectedJob.status)}</span><span>{stageLabel(selectedJob.stage)}</span><span>{selectedJob.progress_percent}%</span></div>
               <div className="enhancementProgress" role="progressbar" aria-label="语音增强进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, Math.min(100, selectedJob.progress_percent))}><span style={{ width: `${selectedJob.progress_percent}%` }} /></div>
               {selectedJob.error && <div className="enhancementFeedback error"><AlertCircle size={16} /><span>{selectedJob.error}</span></div>}
               {selectedJob.warnings.map((warning) => <div key={warning} className="enhancementFeedback warning"><AlertCircle size={16} /><span>{warning}</span></div>)}
@@ -283,7 +301,7 @@ export function EnhancementWorkspace({ onClose }: EnhancementWorkspaceProps) {
             </> : <div className="enhancementEmptyState"><Sparkles size={32} /><strong>还没有语音增强任务</strong><span>导入一条素材，选择一个或两个模型后即可开始本地对比。</span><div className="enhancementEmptySteps" aria-label="开始语音增强的步骤"><span className={media ? "ready" : ""}><Upload size={14} /><b>素材</b><em>{media ? "已选择" : "先选择"}</em></span><span className={backends.length && selectedBackendsReady ? "ready" : ""}><CheckCircle2 size={14} /><b>模型</b><em>{backends.length && selectedBackendsReady ? "已就绪" : "待检查"}</em></span><span className={media && backends.length && selectedBackendsReady ? "ready" : ""}><Sparkles size={14} /><b>生成</b><em>{media && backends.length && selectedBackendsReady ? "可以开始" : "等待前两步"}</em></span></div></div>}
           </section>
 
-          <aside className="enhancementHistory"><div className="enhancementSectionHeading"><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div><div>{jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} onClick={() => setSelectedJobId(job.id)}><span className={`enhancementHistoryDot ${job.status}`} /><span><strong title={job.source_file_name}>{job.source_file_name}</strong><small>{job.backends.length === 2 ? "双模型对比" : job.backends[0]} · {statusLabel(job.status)}</small></span></button>)}{!jobs.length && <p>完成、失败和取消的记录会保留在本机。</p>}</div></aside>
+          <aside className="enhancementHistory"><div className="enhancementSectionHeading"><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div><div>{jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} onClick={() => setSelectedJobId(job.id)}><span className={`enhancementHistoryDot ${job.status}`} /><span><strong title={job.source_file_name}>{job.source_file_name}</strong><small>{job.backends.length === 2 ? "双模型对比" : backendLabel(job.backends[0])} · {statusLabel(job.status)}</small></span></button>)}{!jobs.length && <p>完成、失败和取消的记录会保留在本机。</p>}</div></aside>
         </div>
 
         {(message || error) && <footer role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} className={`enhancementFooter ${error ? "error" : ""}`}>{error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}<span>{error || message}</span></footer>}

@@ -66,6 +66,19 @@ function statusLabel(status: AudioSeparationJob["status"]): string {
   return { queued: "排队中", running: "处理中", completed: "已完成", failed: "失败", cancelled: "已取消" }[status];
 }
 
+function stageLabel(stage: string): string {
+  return {
+    preparing_audio: "准备音频",
+    waiting_for_gpu: "等待 GPU",
+    running_mdx_net: "运行 MDX-Net",
+    publishing_outputs: "写入结果",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+    interrupted: "服务重启中断"
+  }[stage] ?? "处理中";
+}
+
 function isActive(job: AudioSeparationJob | null): boolean {
   return Boolean(job && (job.status === "queued" || job.status === "running"));
 }
@@ -231,7 +244,7 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
 
   return (
     <div className="enhancementOverlay" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="enhancementWorkspace" role="dialog" aria-modal="true" aria-label="人声伴奏分轨">
+      <section className="enhancementWorkspace" role="region" aria-label="人声伴奏分轨">
         <header className="enhancementHeader">
           <div className="enhancementHeading"><span className="enhancementHeadingIcon"><Waves size={20} /></span><span><strong>人声伴奏分轨</strong><small>本地 UVR 兼容 MDX / MDXC，原始媒体不会被覆盖。</small></span></div>
           <button className="enhancementIconButton" type="button" aria-label="关闭" onClick={onClose}><X size={18} /></button>
@@ -255,7 +268,7 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
 
           <section className="enhancementResult">
             {selectedJob ? <>
-              <div className="enhancementStatus"><span className={`enhancementStatusPill ${selectedJob.status}`}>{statusLabel(selectedJob.status)}</span><span>{selectedJob.stage}</span><span>{selectedJob.progress_percent}%</span></div>
+              <div className="enhancementStatus"><span className={`enhancementStatusPill ${selectedJob.status}`}>{statusLabel(selectedJob.status)}</span><span>{stageLabel(selectedJob.stage)}</span><span>{selectedJob.progress_percent}%</span></div>
               <div className="enhancementProgress" role="progressbar" aria-label="音频分轨进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, Math.min(100, selectedJob.progress_percent))}><span style={{ width: `${selectedJob.progress_percent}%` }} /></div>
               {selectedJob.error && <div className="enhancementFeedback error"><AlertCircle size={16} /><span>{selectedJob.error}</span></div>}
               {selectedJob.warnings.map((warning) => <div key={warning} className="enhancementFeedback warning"><AlertCircle size={16} /><span>{warning}</span></div>)}
