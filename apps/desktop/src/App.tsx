@@ -9266,7 +9266,10 @@ export function App() {
               aria-label={activeWorkspace === "doubao" ? "云端 TTS 工作台" : activeWorkspace === "transcription" ? "音视频转写工作台" : activeWorkspace === "sampler" ? "媒体采样工作台" : activeWorkspace === "enhancement" ? "语音增强工作台" : activeWorkspace === "assets" ? "成果中心" : "音频分轨工作台"}
             >
               {activeWorkspace === "doubao" ? (
-                <DoubaoWorkspace initialTab="synthesis" onClose={() => {
+                <DoubaoWorkspace initialTab="synthesis" onOpenLlmSettings={() => {
+                  openSettings();
+                  navigateSettingsSection("common", "#settings-global-llm");
+                }} onClose={() => {
                   selectWorkspace("creation");
                   void loadDoubaoState();
                 }} requestConfirmation={requestConfirmation} />

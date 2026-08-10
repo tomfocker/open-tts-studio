@@ -118,6 +118,7 @@ import "./doubao-workspace.css";
 
 type DoubaoWorkspaceProps = {
   onClose: () => void;
+  onOpenLlmSettings?: () => void;
   initialTab?: WorkspaceTab;
   requestConfirmation: (request: ConfirmationRequest) => Promise<boolean>;
 };
@@ -316,7 +317,7 @@ function cacheStatusLabel(status: unknown): string {
   return taskStatusLabel(typeof status === "string" ? status : "");
 }
 
-export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConfirmation }: DoubaoWorkspaceProps) {
+export function DoubaoWorkspace({ onClose, onOpenLlmSettings, initialTab = "synthesis", requestConfirmation }: DoubaoWorkspaceProps) {
   const [tab, setTab] = useState<WorkspaceTab>(initialTab);
   const [modeView, setModeView] = useState<"landing" | "detail">(
     initialTab === "accounts" || initialTab === "maintenance" ? "detail" : "landing"
@@ -622,13 +623,15 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
   }, [voices]);
 
   useEffect(() => {
-    if (!qrSession || qrStatus?.status === "confirmed" || qrStatus?.status === "expired") return;
+    if (!qrSession || ["confirmed", "expired", "error"].includes(qrStatus?.status || "")) return;
     const poll = async () => {
       try {
         const nextStatus = await pollDoubaoQrLogin(qrSession.sessionId);
         setQrStatus(nextStatus);
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "扫码状态检查失败");
+        const message = cause instanceof Error ? cause.message : "扫码状态检查失败";
+        setQrStatus({ status: "error", message });
+        setError(message);
       }
     };
     const timer = window.setInterval(() => void poll(), 1_500);
@@ -1140,6 +1143,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
 
   const online = status?.service.status === "running";
   const usableCookieCount = cookieStats?.valid ?? status?.cookies.valid ?? 0;
+  const actionBusy = pendingAction !== null;
   const speechAudioUrl = speechResult ? toAudioUrl(speechResult.audio_url) : "";
   const speechDuration = speechPlaybackDuration || speechResult?.duration_seconds || 0;
   const speechProgress = speechDuration > 0 ? Math.min((speechPlaybackTime / speechDuration) * 100, 100) : 0;
@@ -1474,7 +1478,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
           </div>
         )}
 
-        {tab === "realtime" && <DoubaoRealtimeWorkspace />}
+        {tab === "realtime" && <DoubaoRealtimeWorkspace onOpenLlmSettings={onOpenLlmSettings} />}
 
         {tab === "accounts" && (
           <div className="doubaoAccountsLayout">
@@ -1494,13 +1498,13 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
                       )}
                       <div className="doubaoButtonRow">
                         {qrStatus?.status === "confirmed" ? (
-                          <button type="button" className="doubaoPrimaryButton" disabled={!qrCookieName.trim() || pendingAction === "qr-confirm"} onClick={() => void onConfirmQrLogin()}>
+                          <button type="button" className="doubaoPrimaryButton" disabled={!qrCookieName.trim() || actionBusy} onClick={() => void onConfirmQrLogin()}>
                             {pendingAction === "qr-confirm" ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />}<span>保存账号</span>
                           </button>
                         ) : (
-                          <button type="button" className="doubaoSecondaryButton" onClick={() => void onStartQrLogin()}><RefreshCw size={15} /><span>刷新二维码</span></button>
+                          <button type="button" className="doubaoSecondaryButton" disabled={actionBusy} onClick={() => void onStartQrLogin()}>{pendingAction === "qr-start" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} />}<span>刷新二维码</span></button>
                         )}
-                        <button type="button" className="doubaoGhostButton" onClick={() => { setQrSession(null); setQrStatus(null); }}>取消</button>
+                        <button type="button" className="doubaoGhostButton" disabled={actionBusy} onClick={() => { setQrSession(null); setQrStatus(null); }}>取消</button>
                       </div>
                     </div>
                   </>
@@ -1509,7 +1513,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
                     <span><KeyRound size={29} /></span>
                     <strong>免手工复制 Cookie</strong>
                     <p>扫码确认后，后端直接接收登录凭据并加密落盘，页面不会显示 Cookie 明文。</p>
-                    <button type="button" className="doubaoPrimaryButton" disabled={pendingAction === "qr-start"} onClick={() => void onStartQrLogin()}>
+                    <button type="button" className="doubaoPrimaryButton" disabled={actionBusy} onClick={() => void onStartQrLogin()}>
                       {pendingAction === "qr-start" ? <Loader2 className="spin" size={17} /> : <LogIn size={17} />}<span>生成登录二维码</span>
                     </button>
                   </div>
@@ -1528,7 +1532,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
               </div>
               <div className="doubaoButtonRow end">
                 {cookieDraft.id && <button type="button" className="doubaoGhostButton" onClick={() => setCookieDraft(emptyCookieDraft)}>取消编辑</button>}
-                <button type="button" className="doubaoPrimaryButton" disabled={!cookieDraft.name.trim() || !cookieDraft.value.trim() || pendingAction?.startsWith("cookie-save") || pendingAction === "cookie-create"} onClick={() => void onSaveCookie()}>
+                <button type="button" className="doubaoPrimaryButton" disabled={!cookieDraft.name.trim() || !cookieDraft.value.trim() || actionBusy} onClick={() => void onSaveCookie()}>
                   {pendingAction?.startsWith("cookie-save") || pendingAction === "cookie-create" ? <Loader2 className="spin" size={16} /> : <ShieldCheck size={16} />}<span>{cookieDraft.id ? "保存修改" : "加密保存"}</span>
                 </button>
               </div>
@@ -1538,16 +1542,16 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
               <div className="doubaoSectionHeading">
                 <div><CookieIcon size={18} /><span><strong>Cookie 池</strong><small>{cookieStats?.valid || 0} 可用 · {cookieStats?.totalRequests || 0} 次请求</small></span></div>
                 <div className="doubaoButtonRow">
-                  <button type="button" className="doubaoSecondaryButton" disabled={!cookies.length || pendingAction === "cookies-test-all"} onClick={() => void onCookieAction("cookies-test-all", () => testAllDoubaoCookies(cookies.map((_cookie, index) => index)), "全部账号验证完成")}>
+                  <button type="button" className="doubaoSecondaryButton" disabled={!cookies.length || actionBusy} onClick={() => void onCookieAction("cookies-test-all", () => testAllDoubaoCookies(cookies.map((_cookie, index) => index)), "全部账号验证完成")}>
                     {pendingAction === "cookies-test-all" ? <Loader2 className="spin" size={15} /> : <Activity size={15} />}<span>全部验证</span>
                   </button>
-                  <button type="button" className="doubaoSecondaryButton" disabled={!cookies.length} onClick={() => void onCookieAction("cookie-rotate", () => rotateDoubaoCookie(), "已切换到下一个账号")}><RotateCw size={15} /><span>轮换</span></button>
+                  <button type="button" className="doubaoSecondaryButton" disabled={!cookies.length || actionBusy} onClick={() => void onCookieAction("cookie-rotate", () => rotateDoubaoCookie(), "已切换到下一个账号")}><RotateCw size={15} /><span>轮换</span></button>
                 </div>
               </div>
               <div className="doubaoRotationBar">
-                <label className="doubaoCheck"><input type="checkbox" checked={rotationEnabled} onChange={(event) => setRotationEnabled(event.target.checked)} /><span>按使用次数自动轮换</span></label>
-                <label><span>每个账号</span><input type="number" min={1} max={1000} value={rotationCount} onChange={(event) => setRotationCount(Number(event.target.value))} /><span>次</span></label>
-                <button type="button" className="doubaoSecondaryButton" onClick={() => void onCookieAction("rotation-save", () => configureDoubaoCookieRotation({ usageLimitEnabled: rotationEnabled, usageCountPerCookie: rotationCount }), "轮换策略已保存")}><SlidersHorizontal size={15} /><span>保存策略</span></button>
+                <label className="doubaoCheck"><input type="checkbox" checked={rotationEnabled} disabled={actionBusy} onChange={(event) => setRotationEnabled(event.target.checked)} /><span>按使用次数自动轮换</span></label>
+                <label><span>每个账号</span><input type="number" min={1} max={1000} value={rotationCount} disabled={actionBusy} onChange={(event) => setRotationCount(Number(event.target.value))} /><span>次</span></label>
+                <button type="button" className="doubaoSecondaryButton" disabled={actionBusy} onClick={() => void onCookieAction("rotation-save", () => configureDoubaoCookieRotation({ usageLimitEnabled: rotationEnabled, usageCountPerCookie: rotationCount }), "轮换策略已保存")}><SlidersHorizontal size={15} /><span>保存策略</span></button>
               </div>
               <div className="doubaoCookieToolbar">
                 <label className="doubaoCheck"><input type="checkbox" checked={allVisibleCookiesSelected} onChange={(event) => setSelectedCookieIds((current) => { const next = new Set(current); for (const cookie of visibleCookies) event.target.checked ? next.add(cookie.id) : next.delete(cookie.id); return next; })} /><span>多选 {selectedCookieIds.size ? `(${selectedCookieIds.size})` : ""}</span></label>
@@ -1559,8 +1563,8 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
               {selectedCookieIds.size > 0 && (
                 <div className="doubaoCookieBatchBar">
                   <span>已选择 {selectedCookieIds.size} 个账号</span>
-                  <button type="button" disabled={pendingAction === "cookies-batch-test"} onClick={() => void onBatchTestCookies(selectedCookieIds)}><Activity size={14} />批量验证</button>
-                  <button type="button" className="danger" disabled={pendingAction === "cookies-batch-delete"} onClick={() => { void confirmDestructive("批量删除账号？", `将删除选中的 ${selectedCookieIds.size} 个账号及其本机 Cookie 数据。此操作无法撤销。`, "批量删除").then((confirmed) => { if (confirmed) void onBatchDeleteCookies(); }); }}><Trash2 size={14} />批量删除</button>
+                  <button type="button" disabled={actionBusy} onClick={() => void onBatchTestCookies(selectedCookieIds)}><Activity size={14} />批量验证</button>
+                  <button type="button" className="danger" disabled={actionBusy} onClick={() => { void confirmDestructive("批量删除账号？", `将删除选中的 ${selectedCookieIds.size} 个账号及其本机 Cookie 数据。此操作无法撤销。`, "批量删除").then((confirmed) => { if (confirmed) void onBatchDeleteCookies(); }); }}><Trash2 size={14} />批量删除</button>
                 </div>
               )}
               <div className={`doubaoCookieList ${cookieViewMode}`}>
@@ -1592,20 +1596,20 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
                       </div>
                     )}
                     <div className="doubaoCookieActions">
-                      <button type="button" onClick={() => void onCookieAction(`activate-${cookie.id}`, () => rotateDoubaoCookie(cookie.id), "已切换当前账号")} disabled={cookie.status.isDisabled || cookie.status.isActive}>设为当前</button>
-                      <button type="button" onClick={() => void onCookieAction(`test-${cookie.id}`, () => testDoubaoCookie(cookie.id), "账号验证完成")}>验证</button>
-                      <button type="button" onClick={() => void onEditCookie(cookie.id)}>编辑</button>
+                      <button type="button" onClick={() => void onCookieAction(`activate-${cookie.id}`, () => rotateDoubaoCookie(cookie.id), "已切换当前账号")} disabled={actionBusy || cookie.status.isDisabled || cookie.status.isActive}>设为当前</button>
+                      <button type="button" disabled={actionBusy} onClick={() => void onCookieAction(`test-${cookie.id}`, () => testDoubaoCookie(cookie.id), "账号验证完成")}>验证</button>
+                      <button type="button" disabled={actionBusy} onClick={() => void onEditCookie(cookie.id)}>编辑</button>
                       <button type="button" aria-expanded={expandedCookieId === cookie.id} onClick={() => setExpandedCookieId((current) => current === cookie.id ? "" : cookie.id)}>{expandedCookieId === cookie.id ? "收起详情" : "详情"}</button>
-                      <button type="button" onClick={() => void onCookieAction(`toggle-${cookie.id}`, () => toggleDoubaoCookie(cookie.id), cookie.status.isDisabled ? "账号已启用" : "账号已停用")}>{cookie.status.isDisabled ? "启用" : "停用"}</button>
-                      <label className="doubaoLimitInput"><span>总限制</span><input type="number" min={0} max={10000} value={usageLimits[cookie.id] ?? 0} onChange={(event) => setUsageLimits((values) => ({ ...values, [cookie.id]: Number(event.target.value) }))} /><button type="button" onClick={() => void onCookieAction(`limit-${cookie.id}`, () => setDoubaoCookieUsageLimit(cookie.id, usageLimits[cookie.id] ?? 0), "账号总限制已保存")}>保存</button></label>
-                      <button type="button" className="danger" onClick={() => { void confirmDestructive("删除账号？", `将删除“${cookie.name}”及其本机 Cookie 数据。此操作无法撤销。`).then((confirmed) => { if (confirmed) void onCookieAction(`delete-${cookie.id}`, () => deleteDoubaoCookie(cookie.id), "账号已删除"); }); }}><Trash2 size={14} />删除</button>
+                      <button type="button" disabled={actionBusy} onClick={() => void onCookieAction(`toggle-${cookie.id}`, () => toggleDoubaoCookie(cookie.id), cookie.status.isDisabled ? "账号已启用" : "账号已停用")}>{cookie.status.isDisabled ? "启用" : "停用"}</button>
+                      <label className="doubaoLimitInput"><span>总限制</span><input type="number" min={0} max={10000} disabled={actionBusy} value={usageLimits[cookie.id] ?? 0} onChange={(event) => setUsageLimits((values) => ({ ...values, [cookie.id]: Number(event.target.value) }))} /><button type="button" disabled={actionBusy} onClick={() => void onCookieAction(`limit-${cookie.id}`, () => setDoubaoCookieUsageLimit(cookie.id, usageLimits[cookie.id] ?? 0), "账号总限制已保存")}>保存</button></label>
+                      <button type="button" className="danger" disabled={actionBusy} onClick={() => { void confirmDestructive("删除账号？", `将删除“${cookie.name}”及其本机 Cookie 数据。此操作无法撤销。`).then((confirmed) => { if (confirmed) void onCookieAction(`delete-${cookie.id}`, () => deleteDoubaoCookie(cookie.id), "账号已删除"); }); }}><Trash2 size={14} />删除</button>
                     </div>
                   </article>
                 )) : (
                   <div className="doubaoEmptyState"><CookieIcon size={26} /><strong>{cookies.length ? "没有匹配账号" : "还没有账号"}</strong><span>{cookies.length ? "换一个搜索词试试" : "扫码登录或在上方手工添加 Cookie"}</span></div>
                 )}
               </div>
-              {cookies.length > 0 && <button type="button" className="doubaoDangerLink" onClick={() => { void confirmDestructive("清空全部 Cookie？", "将清空全部豆包账号和本机 Cookie 数据。此操作无法撤销。", "全部清空").then((confirmed) => { if (confirmed) void onCookieAction("cookies-clear", clearDoubaoCookies, "全部 Cookie 已清空"); }); }}><Trash2 size={14} />清空全部 Cookie</button>}
+              {cookies.length > 0 && <button type="button" className="doubaoDangerLink" disabled={actionBusy} onClick={() => { void confirmDestructive("清空全部 Cookie？", "将清空全部豆包账号和本机 Cookie 数据。此操作无法撤销。", "全部清空").then((confirmed) => { if (confirmed) void onCookieAction("cookies-clear", clearDoubaoCookies, "全部 Cookie 已清空"); }); }}><Trash2 size={14} />清空全部 Cookie</button>}
             </section>
           </div>
         )}

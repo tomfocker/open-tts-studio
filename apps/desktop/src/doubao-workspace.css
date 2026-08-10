@@ -126,6 +126,7 @@
 .doubaoRealtimeLlmState > span { color: var(--dw-muted); font-size: 11px; }
 .doubaoRealtimeLlmState strong { color: var(--dw-text); font-size: 13px; }
 .doubaoRealtimeLlmState small { width: 100%; overflow: hidden; color: var(--dw-text-soft); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.doubaoRealtimeLlmAction { width: 100%; min-height: 32px; margin-top: 7px; }
 .doubaoRealtimeFootnote { margin-top: auto; color: var(--dw-muted); font-size: 11px; line-height: 1.6; }
 
 .doubaoRealtimeConversation { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; align-content: start; overflow: hidden; }
@@ -1277,6 +1278,12 @@
 .doubaoQrState.confirmed {
   color: var(--dw-accent-strong);
   background: var(--dw-accent-soft);
+}
+
+.doubaoQrState.expired,
+.doubaoQrState.error {
+  color: var(--dw-danger);
+  background: var(--dw-danger-soft);
 }
 
 .doubaoQrSteps ol {

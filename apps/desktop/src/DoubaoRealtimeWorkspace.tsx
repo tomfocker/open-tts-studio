@@ -7,6 +7,7 @@ import {
   Pause,
   Play,
   Send,
+  Settings2,
   Square,
   Trash2,
   UserRound,
@@ -28,6 +29,10 @@ type StoredRealtimeOptions = {
   voiceId?: string;
   speechRate?: number;
   pitch?: number;
+};
+
+type DoubaoRealtimeWorkspaceProps = {
+  onOpenLlmSettings?: () => void;
 };
 
 declare global {
@@ -57,7 +62,7 @@ function loadStoredOptions(): StoredRealtimeOptions {
   }
 }
 
-export function DoubaoRealtimeWorkspace() {
+export function DoubaoRealtimeWorkspace({ onOpenLlmSettings }: DoubaoRealtimeWorkspaceProps) {
   const storedOptions = useMemo(loadStoredOptions, []);
   const [llmSettings, setLlmSettings] = useState<GlobalLlmSettings>(DEFAULT_LLM_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(() => !window.desktopLlmSettings);
@@ -79,12 +84,28 @@ export function DoubaoRealtimeWorkspace() {
     [voiceId, voices]
   );
   const llmReady = Boolean(llmSettings.enabled && llmSettings.baseUrl.trim() && llmSettings.model.trim());
+  const llmStateLabel = !settingsReady
+    ? "读取中…"
+    : !llmSettings.enabled
+      ? "已停用"
+      : llmReady
+        ? llmSettings.model
+        : "尚未配置";
+  const llmStateDetail = llmReady
+    ? llmSettings.baseUrl
+    : !llmSettings.enabled
+      ? "全局 LLM 当前已关闭，启用并保存后即可开始对话"
+      : "填写接口地址和模型名并保存后即可开始对话";
 
   const loadLlmSettings = useCallback(async () => {
     try {
       const loaded = await window.desktopLlmSettings?.load();
-      if (loaded) setLlmSettings({ ...DEFAULT_LLM_SETTINGS, ...loaded });
-    } catch {
+      if (loaded) {
+        setLlmSettings({ ...DEFAULT_LLM_SETTINGS, ...loaded });
+        setError(null);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? `无法读取全局 LLM 设置：${cause.message}` : "无法读取全局 LLM 设置。");
       setStatus("未能读取全局 LLM 设置，请在设置中心检查接口配置。");
     } finally {
       setSettingsReady(true);
@@ -123,9 +144,9 @@ export function DoubaoRealtimeWorkspace() {
     }
     setStatus(llmReady
       ? "云端实时对话已就绪：输入文字后会自动朗读回复。"
-      : "豆包音色已就绪；请先在设置中心配置全局 LLM。"
+      : `豆包音色已就绪；请先${llmSettings.enabled ? "配置" : "启用"}全局 LLM。`
     );
-  }, [error, llmReady, settingsReady, voices.length, voicesReady]);
+  }, [error, llmReady, llmSettings.enabled, settingsReady, voices.length, voicesReady]);
 
   useEffect(() => {
     window.localStorage.setItem("opentts-doubao-realtime-options", JSON.stringify({ voiceId, speechRate, pitch }));
@@ -217,8 +238,9 @@ export function DoubaoRealtimeWorkspace() {
         </div>
         <div className="doubaoRealtimeLlmState">
           <span>全局 LLM</span>
-          <strong>{settingsReady ? (llmReady ? llmSettings.model : "尚未配置") : "读取中…"}</strong>
-          <small>{llmReady ? llmSettings.baseUrl : "请到设置中心的“全局 LLM”完成配置"}</small>
+          <strong>{llmStateLabel}</strong>
+          <small>{llmStateDetail}</small>
+          {settingsReady && !llmReady && onOpenLlmSettings && <button type="button" className="doubaoSecondaryButton doubaoRealtimeLlmAction" onClick={onOpenLlmSettings}><Settings2 size={15} /><span>打开全局 LLM 设置</span></button>}
         </div>
         <label className="doubaoField">
           <span>回答音色</span>
