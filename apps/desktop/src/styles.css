@@ -2310,12 +2310,28 @@ summary:focus-visible {
   }
 
   .settingsDialog.voiceManagerDialog .voiceManagerFooter {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: center;
+    gap: 8px;
     padding: 12px 14px 14px;
   }
 
+  .settingsDialog.voiceManagerDialog .voiceManagerFooter .voiceManagerDelete,
   .settingsDialog.voiceManagerDialog .voiceManagerFooter .settingsAction {
+    width: 100%;
     min-width: 0;
-    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerFooter .primaryAction {
+    grid-column: 1 / -1;
+  }
+
+  .settingsDialog.voiceManagerDialog .voiceManagerFooter .voiceManagerSaveState {
+    grid-column: 1 / -1;
+    width: auto;
+    margin: 0;
   }
 }
 
