@@ -580,6 +580,20 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
   }, [cookies, expandedCookieId]);
 
   useEffect(() => {
+    const visibleIds = new Set(visibleCookies.map((cookie) => cookie.id));
+    setSelectedCookieIds((current) => {
+      const next = new Set([...current].filter((id) => visibleIds.has(id)));
+      return next.size === current.size ? current : next;
+    });
+  }, [visibleCookies]);
+
+  useEffect(() => {
+    setSelectedVoiceId((current) => current && voices.some((voice) => voice.style_id === current)
+      ? current
+      : voices[0]?.style_id || "");
+  }, [voices]);
+
+  useEffect(() => {
     if (!qrSession || qrStatus?.status === "confirmed" || qrStatus?.status === "expired") return;
     const poll = async () => {
       try {
