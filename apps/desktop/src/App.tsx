@@ -5484,15 +5484,30 @@ export function App() {
       return;
     }
 
+    const apiPort = Number(settingsDraft.api_port);
+    if (!Number.isInteger(apiPort) || apiPort < 1024 || apiPort > 65535) {
+      setSettingsError("端口需要是 1024–65535 之间的整数");
+      return;
+    }
+
+    const idleTimeouts = [
+      Number(settingsDraft.indextts2_idle_timeout_seconds),
+      Number(settingsDraft.local_api_idle_timeout_seconds)
+    ];
+    if (idleTimeouts.some((seconds) => !Number.isFinite(seconds) || seconds < 30 || seconds > 86400)) {
+      setSettingsError("空闲释放时间需要在 30–86400 秒之间");
+      return;
+    }
+
     setSettingsSaving(true);
     setSettingsError(null);
     setSettingsMessage(null);
     try {
       const savedSettings = await saveAppSettings({
         api_host: settingsDraft.api_host.trim(),
-        api_port: Number(settingsDraft.api_port),
-        indextts2_idle_timeout_seconds: Number(settingsDraft.indextts2_idle_timeout_seconds),
-        local_api_idle_timeout_seconds: Number(settingsDraft.local_api_idle_timeout_seconds),
+        api_port: apiPort,
+        indextts2_idle_timeout_seconds: idleTimeouts[0],
+        local_api_idle_timeout_seconds: idleTimeouts[1],
         asr_backend: settingsDraft.asr_backend,
         audio_enhancement_python: settingsDraft.audio_enhancement_python.trim(),
         audio_enhancement_device: settingsDraft.audio_enhancement_device,

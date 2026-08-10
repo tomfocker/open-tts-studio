@@ -3764,3 +3764,67 @@
     display: none;
   }
 }
+
+/* The landing page is a decision surface, so keep a small amount of live
+   context beside the three entry points instead of leaving the lower half
+   visually empty. Values come from the existing cloud state; no decorative
+   counters are invented. */
+.doubaoModeCardMeta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dw-accent-strong);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 720;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doubaoModeCards.compact .doubaoModeCardMeta {
+  display: none;
+}
+
+.doubaoLandingStatus {
+  width: min(100%, 1320px);
+  margin-inline: auto;
+  padding: 8px 11px;
+  border: 1px solid color-mix(in srgb, var(--dw-line) 72%, transparent);
+  border-radius: 10px;
+  color: var(--dw-muted);
+  background: color-mix(in srgb, var(--dw-panel-solid) 54%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 7px 16px;
+  font-size: 10px;
+}
+
+.doubaoLandingStatusItem {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.doubaoLandingStatusItem > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.doubaoLandingStatusItem.ready {
+  color: var(--dw-accent-strong);
+}
+
+.doubaoLandingStatusItem.warning {
+  color: var(--dw-warn);
+}
+
+@media (max-width: 760px) {
+  .doubaoLandingStatus {
+    justify-content: flex-start;
+  }
+}

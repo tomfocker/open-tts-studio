@@ -1119,6 +1119,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
         icon: <Wand2 size={variant === "landing" ? 26 : 19} />,
         title: "语音合成",
         description: "输入文本，选择音色生成自然语音",
+        meta: voices.length ? `${voices.length} 个预设音色` : "音色读取中",
         accent: ""
       },
       {
@@ -1126,6 +1127,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
         icon: <Volume2 size={variant === "landing" ? 26 : 19} />,
         title: "实时对话",
         description: "连接 LLM，连续语音交流",
+        meta: "全局 LLM 由设置中心维护",
         accent: "realtime"
       },
       {
@@ -1133,6 +1135,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
         icon: <BookOpen size={variant === "landing" ? 26 : 19} />,
         title: "批量电子书",
         description: "导入书籍，预制章节音频",
+        meta: cachedBooks.length ? `${cachedBooks.length} 本缓存书` : "暂无缓存书",
         accent: "reader"
       }
     ];
@@ -1151,6 +1154,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
             <span className="doubaoModeCardCopy">
               <strong>{card.title}</strong>
               <small>{card.description}</small>
+              <em className="doubaoModeCardMeta">{card.meta}</em>
             </span>
             <span className="doubaoModeCardState">{variant === "landing" ? "开始" : tab === card.tab ? "当前" : "切换"}</span>
           </button>
@@ -1207,6 +1211,24 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
             <p>从一个入口开始你的云端语音工作流</p>
           </div>
           {renderModeCards("landing")}
+          <div className="doubaoLandingStatus" aria-label="云端状态概览">
+            <span className={online ? "doubaoLandingStatusItem ready" : "doubaoLandingStatusItem"}>
+              <i aria-hidden="true" />
+              {online ? "云端服务在线" : "等待本地后端"}
+            </span>
+            <span className={usableCookieCount > 0 ? "doubaoLandingStatusItem ready" : "doubaoLandingStatusItem warning"}>
+              <KeyRound size={14} strokeWidth={1.9} />
+              {usableCookieCount > 0 ? `${usableCookieCount} 个账号可用` : "需要登录账号"}
+            </span>
+            <span className="doubaoLandingStatusItem">
+              <Library size={14} strokeWidth={1.9} />
+              {voices.length ? `${voices.length} 个预设音色` : "音色读取中"}
+            </span>
+            <span className="doubaoLandingStatusItem">
+              <BookOpen size={14} strokeWidth={1.9} />
+              {cachedBooks.length ? `${cachedBooks.length} 本缓存书` : "暂无缓存书"}
+            </span>
+          </div>
         </section>
 
         <section ref={modeDetailRef} className="doubaoModeDetail" aria-hidden={modeView !== "detail"} aria-labelledby="doubao-detail-title">

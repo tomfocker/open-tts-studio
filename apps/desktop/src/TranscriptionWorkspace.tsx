@@ -122,7 +122,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
     try {
       const nextJobs = await fetchTranscriptionJobs();
       setJobs(nextJobs);
-      setSelectedJobId((current) => current || nextJobs[0]?.id || "");
+      setSelectedJobId((current) => current && nextJobs.some((job) => job.id === current) ? current : nextJobs[0]?.id || "");
       if (!quiet) setError(null);
     } catch (reason) {
       if (!quiet) setError(reason instanceof Error ? reason.message : "读取转写任务失败。");

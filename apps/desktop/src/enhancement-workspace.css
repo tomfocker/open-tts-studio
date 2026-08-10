@@ -204,3 +204,62 @@
   .mainStage.workspaceMainStage .enhancementOverlay { padding: 0; border: 0; border-radius: 0; }
   .mainStage.workspaceMainStage .enhancementWorkspace { border-radius: 0; }
 }
+
+.enhancementEmptySteps {
+  width: min(100%, 420px);
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.enhancementEmptySteps span {
+  min-width: 0;
+  min-height: 54px;
+  padding: 7px 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel-strong) 62%, transparent);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 5px;
+  text-align: left;
+}
+
+.enhancementEmptySteps span > svg {
+  grid-row: 1 / span 2;
+  color: currentColor;
+}
+
+.enhancementEmptySteps b,
+.enhancementEmptySteps em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enhancementEmptySteps b {
+  color: var(--text);
+  font-size: 10px;
+}
+
+.enhancementEmptySteps em {
+  color: var(--muted);
+  font-size: 9px;
+  font-style: normal;
+}
+
+.enhancementEmptySteps span.ready {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  color: var(--accent-dark);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong));
+}
+
+@media (max-width: 560px) {
+  .enhancementEmptySteps {
+    grid-template-columns: 1fr;
+  }
+}
