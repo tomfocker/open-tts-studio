@@ -1229,7 +1229,21 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
               </div>
               <label className="doubaoField doubaoTextField">
                 <span>待合成文本 <em>{ttsText.length} 字</em></span>
-                <textarea value={ttsText} maxLength={5000} onChange={(event) => setTtsText(event.target.value)} />
+                <textarea
+                  value={ttsText}
+                  maxLength={5000}
+                  onChange={(event) => setTtsText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                      event.preventDefault();
+                      if (ttsText.trim() && selectedVoiceId && pendingAction !== "generate" && usableCookieCount > 0) {
+                        void onGenerateSpeech();
+                      }
+                    }
+                  }}
+                  aria-label="待合成文本"
+                  aria-keyshortcuts="Control+Enter"
+                />
               </label>
               <div className="doubaoParameterGrid">
                 <label className="doubaoField">
@@ -1249,6 +1263,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
                     <button type="button" key={format} className={audioFormat === format ? "active" : ""} aria-pressed={audioFormat === format} onClick={() => setAudioFormat(format)}>{format.toUpperCase()}</button>
                   ))}
                 </div>
+                <span className="doubaoShortcutHint">Ctrl+Enter 生成</span>
                 <button
                   type="button"
                   className="doubaoPrimaryButton"
