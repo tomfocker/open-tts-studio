@@ -11629,7 +11629,7 @@ summary:focus-visible {
 .ebookInspectorBook strong { color: var(--text); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ebookInspectorBook span, .ebookInspectorChapterDetail header span { color: var(--muted); font-size: 10px; }
 .ebookInspectorChapterList { max-height: 154px; overflow: auto; display: grid; gap: 4px; }
-.ebookInspectorChapterList button { min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 6px; padding: 7px 8px; color: var(--muted); background: color-mix(in srgb, var(--panel-strong) 62%, transparent); text-align: left; }
+.ebookInspectorChapterList button { min-width: 0; content-visibility: auto; contain-intrinsic-size: auto 34px; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 6px; border: 1px solid transparent; border-radius: 6px; padding: 7px 8px; color: var(--muted); background: color-mix(in srgb, var(--panel-strong) 62%, transparent); text-align: left; }
 .ebookInspectorChapterList button:hover, .ebookInspectorChapterList button.active { border-color: color-mix(in srgb, var(--accent) 44%, var(--line)); color: var(--text); background: color-mix(in srgb, var(--accent) 10%, var(--panel-strong)); }
 .ebookInspectorChapterList button span { font-size: 10px; }
 .ebookInspectorChapterList button strong { min-width: 0; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
@@ -11639,7 +11639,7 @@ summary:focus-visible {
 .ebookInspectorChapterDetail > header > div { min-width: 0; display: grid; gap: 3px; }
 .ebookInspectorChapterDetail > header strong { overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .ebookInspectorSegments { max-height: 280px; overflow: auto; display: grid; gap: 7px; }
-.ebookInspectorSegments article { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--panel-strong) 56%, transparent); }
+.ebookInspectorSegments article { content-visibility: auto; contain-intrinsic-size: auto 92px; display: grid; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: color-mix(in srgb, var(--panel-strong) 56%, transparent); }
 .ebookInspectorSegments article > div { min-width: 0; display: grid; gap: 3px; }
 .ebookInspectorSegments article span { color: var(--accent-dark); font-size: 10px; font-weight: 700; }
 .ebookInspectorSegments article p { margin: 0; color: var(--text); font-size: 11px; line-height: 1.45; }

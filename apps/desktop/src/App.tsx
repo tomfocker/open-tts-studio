@@ -2283,6 +2283,7 @@ export function App() {
   const seenResultDateGroupsRef = useRef<Set<string>>(new Set());
   const assetListPanelRef = useRef<HTMLElement | null>(null);
   const assetInspectorRef = useRef<HTMLElement | null>(null);
+  const ebookInspectorSegmentsRef = useRef<HTMLDivElement | null>(null);
   const [bilibiliHistoryItems, setBilibiliHistoryItems] = useState<BilibiliMediaHistoryItem[]>([]);
   const [remoteTasks, setRemoteTasks] = useState<TaskSummary[]>([]);
   const [ebookPrefetchTasks, setEbookPrefetchTasks] = useState<DoubaoPrefetchTask[]>([]);
@@ -3042,6 +3043,9 @@ export function App() {
   const selectedEbookChapter = ebookInspectorSummary?.chapters.find((chapter) => chapter.chapterId === ebookInspectorChapterId)
     ?? ebookInspectorSummary?.chapters[0]
     ?? null;
+  useEffect(() => {
+    ebookInspectorSegmentsRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [ebookInspectorChapterId, selectedEbookTaskId]);
   const taskResultSources = useMemo(
     () => [...new Set(taskCenterResults.map((result) => result.source))]
       .map((source) => ({ source, count: taskCenterResults.filter((result) => result.source === source).length }))
@@ -8237,7 +8241,7 @@ export function App() {
                         <div className="ebookInspectorChapterList" aria-label="电子书章节">
                           {ebookInspectorSummary.chapters.map((chapter) => <button type="button" key={chapter.chapterId} className={chapter.chapterId === selectedEbookChapter?.chapterId ? "active" : ""} onClick={() => setEbookInspectorChapterId(chapter.chapterId)}><span>第 {chapter.chapterIndex + 1} 章</span><strong title={chapter.chapterTitle}>{chapter.chapterTitle}</strong><em>{chapter.segments.filter((segment) => segment.exists).length}/{chapter.segments.length || chapter.totalSegments || 0}</em></button>)}
                         </div>
-                        {selectedEbookChapter ? <div className="ebookInspectorChapterDetail"><header><div><strong>{selectedEbookChapter.chapterTitle}</strong><span>{ebookChapterStatusLabel(selectedEbookChapter.status)} · {selectedEbookChapter.segments.length} 段</span></div><button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onOpenEbookDirectory(selectedEbookChapter?.directoryPath, "本章")}><FolderOpen size={14} strokeWidth={1.9} />本章目录</button></header>{selectedEbookChapter.segments.length ? <div className="ebookInspectorSegments">{selectedEbookChapter.segments.map((segment, index) => <article key={segment.segmentId || index}><div><span>段落 {index + 1}</span><p>{segment.text || "（无文本）"}</p></div>{segment.exists && segment.audioUrl ? <audio controls preload="none" src={resolveTaskResultUrl(segment.audioUrl)} /> : <small>{segment.error || "音频尚未生成"}</small>}</article>)}</div> : <div className="assetInspectorPreviewEmpty"><FileText size={21} /><span>这个章节还没有可预览的分段成果。</span></div>}</div> : null}
+                        {selectedEbookChapter ? <div className="ebookInspectorChapterDetail"><header><div><strong>{selectedEbookChapter.chapterTitle}</strong><span>{ebookChapterStatusLabel(selectedEbookChapter.status)} · {selectedEbookChapter.segments.length} 段</span></div><button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onOpenEbookDirectory(selectedEbookChapter?.directoryPath, "本章")}><FolderOpen size={14} strokeWidth={1.9} />本章目录</button></header>{selectedEbookChapter.segments.length ? <div ref={ebookInspectorSegmentsRef} className="ebookInspectorSegments">{selectedEbookChapter.segments.map((segment, index) => <article key={segment.segmentId || index}><div><span>段落 {index + 1}</span><p>{segment.text || "（无文本）"}</p></div>{segment.exists && segment.audioUrl ? <audio controls preload="none" src={resolveTaskResultUrl(segment.audioUrl)} /> : <small>{segment.error || "音频尚未生成"}</small>}</article>)}</div> : <div className="assetInspectorPreviewEmpty"><FileText size={21} /><span>这个章节还没有可预览的分段成果。</span></div>}</div> : null}
                       </> : null}
                     </div>
                   ) : selectedIsAudio && selected.url && selected.exists ? <audio controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : selectedIsVideo && selected.url && selected.exists ? <video controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : <div className="assetInspectorPreviewEmpty">{taskResultIcon(selected.kind)}<span>{selected.exists ? selected.text || "此成果可通过下方操作打开或导出。" : "原始文件已不存在，可从任务记录中确认来源。"}</span></div>}
