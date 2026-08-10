@@ -2607,17 +2607,23 @@
 
 .doubaoDocsToolbar {
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .doubaoDocsToolbar label {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 240px;
   gap: 8px;
   padding-left: 10px;
   border: 1px solid var(--dw-line-strong);
   border-radius: 8px;
   color: var(--dw-muted);
   background: var(--dw-panel-solid);
+}
+
+.doubaoDocsToolbar > .doubaoGhostButton,
+.doubaoDocsToolbar > .doubaoSecondaryButton {
+  flex: 0 0 auto;
 }
 
 .doubaoDocsToolbar input {
@@ -2643,6 +2649,11 @@
   padding: 8px;
   border-right: 1px solid var(--dw-line);
   background: var(--dw-panel-subtle);
+}
+
+.doubaoDocList > .doubaoEmptyState {
+  min-height: 190px;
+  padding: 16px 8px;
 }
 
 .doubaoDocList button {

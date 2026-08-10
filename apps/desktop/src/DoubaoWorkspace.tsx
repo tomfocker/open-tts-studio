@@ -388,6 +388,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
   const [legacySettings, setLegacySettings] = useState<DoubaoLegacySettings>(defaultLegacySettings);
   const [deviceId, setDeviceId] = useState<DoubaoDeviceId | null>(null);
   const [documents, setDocuments] = useState<DoubaoDocument[]>([]);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
   const [documentQuery, setDocumentQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<DoubaoDocument | null>(null);
   const modeLandingRef = useRef<HTMLElement | null>(null);
@@ -503,6 +504,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
   }
 
   async function loadOperationalState() {
+    setDocumentsLoading(true);
     const results = await Promise.allSettled([
       fetchDoubaoStatus(),
       fetchDoubaoVoices(),
@@ -535,6 +537,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
     }
     if (results[7].status === "fulfilled") setDeviceId(results[7].value);
     if (results[8].status === "fulfilled") setDocuments(results[8].value);
+    setDocumentsLoading(false);
 
     const rejected = results.find((result) => result.status === "rejected");
     if (rejected?.status === "rejected") {
@@ -1120,9 +1123,14 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
     }
   }
 
-  async function onSearchDocuments() {
-    const result = await runAction("docs-search", () => fetchDoubaoDocuments(documentQuery));
-    if (result) setDocuments(result);
+  async function onSearchDocuments(nextQuery = documentQuery) {
+    setDocumentsLoading(true);
+    const result = await runAction("docs-search", () => fetchDoubaoDocuments(nextQuery));
+    if (result) {
+      setDocuments(result);
+      setSelectedDocument(null);
+    }
+    setDocumentsLoading(false);
   }
 
   async function onOpenDocument(documentId: string) {
@@ -1882,10 +1890,10 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
 
             <section className="doubaoPanel doubaoDocsPanel">
               <div className="doubaoSectionHeading"><div><FileText size={18} /><span><strong>本地维护文档</strong><small>不加载上游远程公告或可执行内容</small></span></div></div>
-              <div className="doubaoDocsToolbar"><label><Search size={15} /><input value={documentQuery} placeholder="搜索文档名称或正文" aria-label="搜索维护文档" onChange={(event) => setDocumentQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void onSearchDocuments(); }} /></label><button type="button" className="doubaoSecondaryButton" onClick={() => void onSearchDocuments()}><Search size={15} /><span>搜索</span></button></div>
+              <div className="doubaoDocsToolbar"><label><Search size={15} /><input value={documentQuery} placeholder="搜索文档名称或正文" aria-label="搜索维护文档" onChange={(event) => setDocumentQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void onSearchDocuments(); }} /></label>{documentQuery.trim() && <button type="button" className="doubaoGhostButton" disabled={pendingAction === "docs-search"} onClick={() => { setDocumentQuery(""); void onSearchDocuments(""); }}>清除</button>}<button type="button" className="doubaoSecondaryButton" disabled={pendingAction === "docs-search"} onClick={() => void onSearchDocuments()}>{pendingAction === "docs-search" ? <Loader2 className="spin" size={15} /> : <Search size={15} />}<span>{pendingAction === "docs-search" ? "搜索中" : "搜索"}</span></button></div>
               <div className="doubaoDocsLayout">
                 <div className="doubaoDocList">
-                  {documents.map((document) => <button type="button" key={document.id} className={selectedDocument?.id === document.id ? "active" : ""} aria-pressed={selectedDocument?.id === document.id} onClick={() => void onOpenDocument(document.id)}><FileText size={16} /><span><strong>{document.name}</strong><small>{document.path} · {formatBytes(document.size)}</small></span></button>)}
+                  {documentsLoading ? <div className="doubaoEmptyState small"><Loader2 className="spin" size={21} /><strong>正在读取维护文档</strong><span>只读取当前项目内的说明文件。</span></div> : documents.length ? documents.map((document) => <button type="button" key={document.id} className={selectedDocument?.id === document.id ? "active" : ""} aria-pressed={selectedDocument?.id === document.id} onClick={() => void onOpenDocument(document.id)}><FileText size={16} /><span><strong>{document.name}</strong><small>{document.path} · {formatBytes(document.size)}</small></span></button>) : <div className="doubaoEmptyState small"><Search size={21} /><strong>{documentQuery.trim() ? "没有匹配的维护文档" : "暂无本地维护文档"}</strong><span>{documentQuery.trim() ? "换一个关键词，或清除搜索条件后重试。" : "本版本没有可展示的项目说明文件。"}</span></div>}
                 </div>
                 <article className="doubaoDocContent">
                   {selectedDocument ? <><header><strong>{selectedDocument.name}</strong><span>{selectedDocument.path}</span></header><pre>{selectedDocument.content}</pre></> : <div className="doubaoEmptyState fill"><FileText size={26} /><strong>选择文档阅读</strong><span>维护说明来自当前项目本地文件</span></div>}
