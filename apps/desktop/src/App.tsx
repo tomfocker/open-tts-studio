@@ -2853,13 +2853,27 @@ export function App() {
       for (const group of newlyVisibleGroups) {
         if (group.key !== visibleTaskCenterResultGroups[0].key) next.add(group.key);
       }
-      if (newlyVisibleGroups.some((group) => group.key === visibleTaskCenterResultGroups[0].key)) {
-        next.delete(visibleTaskCenterResultGroups[0].key);
-      }
+      // The first group is the user's current result window.  Keep it open
+      // after a filter/search change even if that date group was previously
+      // collapsed while browsing another result set.
+      next.delete(visibleTaskCenterResultGroups[0].key);
       seenResultDateGroupsRef.current = visibleKeys;
       return next;
     });
   }, [visibleTaskCenterResultGroups]);
+  useEffect(() => {
+    const visibleIds = new Set(visibleTaskCenterResults.map((result) => result.id));
+    setSelectedTaskResultIds((current) => {
+      const next = current.filter((id) => visibleIds.has(id));
+      return next.length === current.length ? current : next;
+    });
+    setSelectedTaskResultId((current) => {
+      if (!visibleTaskCenterResults.length) {
+        return null;
+      }
+      return current && visibleIds.has(current) ? current : visibleTaskCenterResults[0].id;
+    });
+  }, [visibleTaskCenterResults]);
   const selectedTaskResults = useMemo(
     () => taskCenterResults.filter((result) => selectedTaskResultIds.includes(result.id)),
     [selectedTaskResultIds, taskCenterResults]
@@ -4659,6 +4673,7 @@ export function App() {
     setSelectedTaskResultId(selectedResultId ?? null);
     selectWorkspace("assets");
     void loadTaskSummaries();
+    void loadBatchProjects();
     void loadAudioAssets();
     void loadBilibiliHistory();
   }
@@ -6732,6 +6747,11 @@ export function App() {
       setTaskCenterError("所选结果没有可清理的本地文件或 B 站下载记录。");
       return;
     }
+    const bridge = historyResults.length ? window.desktopBilibiliSampler : null;
+    if (historyResults.length && !bridge) {
+      setTaskCenterError("当前预览环境不能移除 B 站下载记录，请在桌面软件中执行批量清理。");
+      return;
+    }
     const warning = [
       audioResults.length ? `删除 ${audioResults.length} 个本地音频文件` : "",
       historyResults.length ? `移除 ${historyResults.length} 条 B 站下载记录（MP4 文件保留）` : ""
@@ -6746,19 +6766,19 @@ export function App() {
     }
     setTaskCenterAction("batch-delete");
     setTaskCenterError(null);
+    let removedAudioCount = 0;
+    let removedHistoryCount = 0;
     try {
       for (const result of audioResults) {
         await deleteAudioAsset(result.asset!.asset_id);
-      }
-      const bridge = window.desktopBilibiliSampler;
-      if (historyResults.length && !bridge) {
-        throw new Error("请在桌面软件中管理 B 站下载记录。");
+        removedAudioCount += 1;
       }
       for (const result of historyResults) {
         const response = await bridge!.removeHistory(result.bilibili_history_id!);
         if (!response.success) {
           throw new Error(response.error ?? `移除 ${result.file_name} 失败`);
         }
+        removedHistoryCount += 1;
       }
       setAudioAssets((assets) => assets.filter((asset) => !audioResults.some((result) => result.asset?.asset_id === asset.asset_id)));
       setBilibiliHistoryItems((items) => items.filter((item) => !historyResults.some((result) => result.bilibili_history_id === item.id)));
@@ -6769,7 +6789,13 @@ export function App() {
       setTaskCenterMessage(`已完成清理：${warning}。`);
       await Promise.all([loadTaskSummaries(), loadAudioAssets()]);
     } catch (err) {
-      setTaskCenterError(err instanceof Error ? err.message : "批量清理失败");
+      await Promise.all([loadTaskSummaries(), loadAudioAssets(), loadBilibiliHistory()]);
+      const removedSummary = [
+        removedAudioCount ? `${removedAudioCount} 个本地音频文件` : "",
+        removedHistoryCount ? `${removedHistoryCount} 条 B 站下载记录` : ""
+      ].filter(Boolean).join("、");
+      const reason = err instanceof Error ? err.message : "批量清理失败";
+      setTaskCenterError(removedSummary ? `批量清理未全部完成：已处理 ${removedSummary}；${reason}` : reason);
     } finally {
       setTaskCenterAction(null);
     }
@@ -7308,6 +7334,15 @@ export function App() {
   }, [activeSpeechJob, activeWorkspace, batchProjects, samplerBusy, taskCenterOpen]);
 
   useEffect(() => {
+    if (!taskCenterOpen && activeWorkspace !== "assets") {
+      return undefined;
+    }
+    void loadBatchProjects();
+    const timer = window.setInterval(() => void loadBatchProjects(), 5_000);
+    return () => window.clearInterval(timer);
+  }, [activeWorkspace, taskCenterOpen]);
+
+  useEffect(() => {
     if (generationWorkspace !== "batch") {
       return undefined;
     }
@@ -7765,6 +7800,7 @@ export function App() {
           <div className="assetCenterHeaderActions">
             <button type="button" className="pathPickButton" disabled={taskCenterAction !== null || audioLibraryLoading} onClick={() => {
               void loadTaskSummaries();
+              void loadBatchProjects();
               void loadAudioAssets();
               void loadBilibiliHistory();
             }}>
@@ -7776,6 +7812,7 @@ export function App() {
               setTaskCenterMessage(null);
               setTaskHistoryClearConfirmOpen(false);
               void loadTaskSummaries();
+              void loadBatchProjects();
               setTaskCenterOpen(true);
             }}>
               <Gauge size={16} strokeWidth={1.9} />
@@ -9917,7 +9954,7 @@ export function App() {
                 <option value="batch">批量任务（旁白 / 电子书）</option>
                 {taskCenterSources.map(({ source, count }) => <option key={source} value={source}>{taskSourceLabel(source)}（{count}）</option>)}
               </select>
-               <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => { void loadTaskSummaries(); void loadAudioAssets(); void loadBilibiliHistory(); }}><RefreshCw size={15} strokeWidth={1.9} /><span>刷新</span></button>
+               <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => { void loadTaskSummaries(); void loadBatchProjects(); void loadAudioAssets(); void loadBilibiliHistory(); }}><RefreshCw size={15} strokeWidth={1.9} /><span>刷新</span></button>
             </div>
             <div className="taskCenterFilterMeta"><span>显示 {visibleTaskCenterTasks.length} / {taskCenterTasks.length} 项任务</span><span>失败任务会保留最近事件和日志入口，方便定位问题。</span></div>
             <div className="taskQueueBody">
