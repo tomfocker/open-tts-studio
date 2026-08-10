@@ -41,8 +41,8 @@ declare global {
 
 const DEFAULT_LLM_SETTINGS: GlobalLlmSettings = {
   enabled: true,
-  baseUrl: "https://api.cdn-krill-ai.com/codex/v1",
-  model: "gpt-5.6-luna",
+  baseUrl: "",
+  model: "",
   apiKey: "",
   systemPrompt: "你是 OpenTTS Studio 的实时中文语音助手。用自然、友好、简洁的口语直接回答。避免 Markdown、标题、列表符号、代码块、表情和括号说明。每次优先一到三句，需要补充时用短句说明；不要复述用户的问题。",
   temperature: 0.7,
@@ -62,6 +62,7 @@ export function DoubaoRealtimeWorkspace() {
   const [llmSettings, setLlmSettings] = useState<GlobalLlmSettings>(DEFAULT_LLM_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(() => !window.desktopLlmSettings);
   const [voices, setVoices] = useState<DoubaoVoice[]>([]);
+  const [voicesReady, setVoicesReady] = useState(false);
   const [voiceId, setVoiceId] = useState(storedOptions.voiceId || "");
   const [speechRate, setSpeechRate] = useState(Number.isFinite(storedOptions.speechRate) ? Number(storedOptions.speechRate) : 0);
   const [pitch, setPitch] = useState(Number.isFinite(storedOptions.pitch) ? Number(storedOptions.pitch) : 0);
@@ -101,13 +102,30 @@ export function DoubaoRealtimeWorkspace() {
     void fetchDoubaoVoices()
       .then((items) => {
         setVoices(items);
-        setVoiceId((current) => current || storedOptions.voiceId || items[0]?.style_id || "");
-        setStatus("云端实时对话已就绪：输入文字后会自动朗读回复。");
+        setVoiceId((current) => {
+          const preferred = current || storedOptions.voiceId || "";
+          return items.some((voice) => voice.style_id === preferred)
+            ? preferred
+            : items[0]?.style_id || "";
+        });
       })
       .catch((cause) => {
         setError(cause instanceof Error ? cause.message : "无法加载豆包音色。");
-      });
+      })
+      .finally(() => setVoicesReady(true));
   }, [storedOptions.voiceId]);
+
+  useEffect(() => {
+    if (!settingsReady || !voicesReady || error) return;
+    if (!voices.length) {
+      setStatus("暂时没有可用的豆包音色，请先刷新账号与音色资源。");
+      return;
+    }
+    setStatus(llmReady
+      ? "云端实时对话已就绪：输入文字后会自动朗读回复。"
+      : "豆包音色已就绪；请先在设置中心配置全局 LLM。"
+    );
+  }, [error, llmReady, settingsReady, voices.length, voicesReady]);
 
   useEffect(() => {
     window.localStorage.setItem("opentts-doubao-realtime-options", JSON.stringify({ voiceId, speechRate, pitch }));

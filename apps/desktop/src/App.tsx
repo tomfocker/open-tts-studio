@@ -742,8 +742,8 @@ type SettingsSection = "common" | "assets" | "system";
 
 const defaultGlobalLlmSettings: GlobalLlmSettings = {
   enabled: true,
-  baseUrl: "https://api.cdn-krill-ai.com/codex/v1",
-  model: "gpt-5.6-luna",
+  baseUrl: "",
+  model: "",
   apiKey: "",
   systemPrompt: "你是 OpenTTS Studio 的实时中文语音助手。用自然、友好、简洁的口语直接回答。避免 Markdown、标题、列表符号、代码块、表情和括号说明。每次优先一到三句，需要补充时用短句说明；不要复述用户的问题。",
   temperature: 0.7,

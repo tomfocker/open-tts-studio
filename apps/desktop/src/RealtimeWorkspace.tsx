@@ -73,12 +73,12 @@ type ChatMessage = {
   pending?: boolean;
 };
 
-const DEFAULT_LLM_BASE_URL = "https://api.cdn-krill-ai.com/codex/v1";
+const DEFAULT_LLM_BASE_URL = "";
 const DEFAULT_SYSTEM_PROMPT = "你是 OpenTTS Studio 的实时中文语音助手。用自然、友好、简洁的口语直接回答。避免 Markdown、标题、列表符号、代码块、表情和括号说明。每次优先一到三句，需要补充时用短句说明；不要复述用户的问题。";
 const DEFAULT_LLM_SETTINGS: GlobalLlmSettings = {
   enabled: true,
   baseUrl: DEFAULT_LLM_BASE_URL,
-  model: "gpt-5.6-luna",
+  model: "",
   apiKey: "",
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   temperature: 0.7,
@@ -644,8 +644,13 @@ export function RealtimeWorkspace({ runtimeState = "ready", runtimeMessage = "" 
 
   useEffect(() => {
     void fetchVoices().then((items) => {
-      setVoices(items.filter((voice) => Boolean(voice.reference_audio && voice.reference_text) && !voice.model_binding));
-    }).catch(() => setVoices([]));
+      const availableVoices = items.filter((voice) => Boolean(voice.reference_audio && voice.reference_text) && !voice.model_binding);
+      setVoices(availableVoices);
+      setVoiceId((current) => availableVoices.some((voice) => voice.id === current) ? current : "");
+    }).catch(() => {
+      setVoices([]);
+      setVoiceId("");
+    });
   }, []);
 
   useEffect(() => {
