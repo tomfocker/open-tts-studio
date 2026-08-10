@@ -1760,9 +1760,23 @@ function settingsDraftHasChanges(draft: SettingsDraft, settings: AppSettings | n
   return (Object.keys(baseline) as Array<keyof SettingsDraft>).some((key) => draft[key] !== baseline[key]);
 }
 
+function displayTaskTitle(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) {
+    return "未命名任务";
+  }
+  // A few legacy records were persisted with a broken code page. Keep the
+  // raw value in the title/diagnostic paths, but give the visible UI a stable
+  // label instead of letting a run of question marks dominate the card.
+  return normalized.includes("�") || /\?{3,}/.test(normalized)
+    ? "历史任务（文本编码异常）"
+    : normalized;
+}
+
 function taskResultContextLabel(result: Pick<TaskCenterResult, "file_name" | "label" | "task_title">) {
   const label = result.label?.trim();
-  const taskTitle = result.task_title?.trim();
+  const rawTaskTitle = result.task_title?.trim();
+  const taskTitle = rawTaskTitle ? displayTaskTitle(rawTaskTitle) : "";
   const context = taskTitle && taskTitle !== result.file_name && taskTitle !== label
     ? `任务：${taskTitle}`
     : null;
@@ -8222,7 +8236,7 @@ export function App() {
                 <dl className="assetInspectorMeta">
                   <div><dt>来源</dt><dd>{taskSourceLabel(selected.source)}</dd></div>
                   <div><dt>文件状态</dt><dd className={selected.summary_only ? "" : selected.relation === "orphan" || !selected.exists ? "assetMetaAttention" : ""}>{selected.summary_only ? (ebookInspectorSummary ? `已读取 ${ebookInspectorSummary.chapters.length} 个章节` : "按章节任务管理") : !selected.exists ? "文件缺失" : taskResultRelationLabel(selected.relation)}</dd></div>
-                  <div><dt>关联任务</dt><dd title={selected.task_title}>{selected.relation === "orphan" ? "未关联任务" : selected.task_title}</dd></div>
+                  <div><dt>关联任务</dt><dd title={selected.task_title}>{selected.relation === "orphan" ? "未关联任务" : displayTaskTitle(selected.task_title)}</dd></div>
                   <div><dt>模型</dt><dd>{modelIdentifierLabel(selected.model)}</dd></div>
                   <div><dt>文件信息</dt><dd>{selected.summary_only ? `${ebookInspectorSummary?.chapters.length ?? "-"} 个章节音频集合` : selected.duration_seconds ? formatDuration(selected.duration_seconds) : selected.size_bytes !== null && selected.size_bytes !== undefined ? formatAssetSize(selected.size_bytes) : "可导出结果"}</dd></div>
                   <div><dt>创建时间</dt><dd>{formatHistoryTime(selected.created_at)}</dd></div>
@@ -10240,7 +10254,7 @@ export function App() {
                   const taskIsActive = ["queued", "running", "cancelling"].includes(task.status);
                   return (
                     <article key={task.id} className={`taskQueueItem source-${task.source} ${task.status}`}>
-                      <header><div><span className={`taskSourceTag source-${task.source}`}>{taskSourceLabel(task.source)}</span><strong title={task.title}>{task.title}</strong></div><em className={task.status}>{taskStatusLabel(task.status)}</em></header>
+                      <header><div><span className={`taskSourceTag source-${task.source}`}>{taskSourceLabel(task.source)}</span><strong title={task.title}>{displayTaskTitle(task.title)}</strong></div><em className={task.status}>{taskStatusLabel(task.status)}</em></header>
                       {taskIsActive ? <div className="taskQueueProgress"><span style={{ width: `${task.progress_percent}%` }} /></div> : <div className={`taskQueueStateLine ${task.status}`}><span>{task.status === "failed" || task.status === "partial" ? "任务没有全部完成" : task.status === "cancelled" ? "任务已停止，可按需继续" : task.status === "paused" ? "任务已暂停，可继续预制" : "结果已写入成果中心"}</span><strong>{task.status === "succeeded" || task.status === "completed" ? "100%" : task.status === "failed" || task.status === "partial" ? "待处理" : task.status === "paused" ? "暂停" : "已取消"}</strong></div>}
                       <div className="taskQueueMeta"><span>{task.error ?? latestEvent?.message ?? "等待任务事件"}</span><strong>{taskIsActive ? `${task.progress_percent}%` : formatHistoryTime(task.updated_at)}</strong></div>
                       {task.error && <div className="taskQueueError"><AlertCircle size={14} strokeWidth={1.9} /><span>{task.error}</span></div>}
