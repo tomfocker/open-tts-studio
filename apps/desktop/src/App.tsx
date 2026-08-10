@@ -6570,6 +6570,7 @@ export function App() {
         }
         setBilibiliHistoryItems((items) => items.filter((item) => item.id !== result.bilibili_history_id));
         setSelectedTaskResultIds((ids) => ids.filter((id) => id !== result.id));
+        if (selectedTaskResultId === result.id) setSelectedTaskResultId(null);
         setTaskCenterMessage(`已移除下载记录：${result.file_name}；本地 MP4 文件仍保留。`);
       } catch (err) {
         setTaskCenterError(err instanceof Error ? err.message : "移除 B 站下载记录失败");
@@ -6655,8 +6656,10 @@ export function App() {
       audioAssetRef.current?.pause();
       await deleteAudioAsset(result.asset.asset_id);
       setAudioAssets((current) => current.filter((asset) => asset.asset_id !== result.asset?.asset_id));
+      setSelectedTaskResultIds((ids) => ids.filter((id) => id !== result.id));
+      if (selectedTaskResultId === result.id) setSelectedTaskResultId(null);
       setTaskCenterMessage(`已删除本地文件：${result.file_name}`);
-      await loadAudioAssets();
+      await Promise.all([loadTaskSummaries(), loadAudioAssets()]);
     } catch (err) {
       setTaskCenterError(err instanceof Error ? err.message : "删除本地文件失败");
     } finally {
@@ -6743,8 +6746,11 @@ export function App() {
       setAudioAssets((assets) => assets.filter((asset) => !audioResults.some((result) => result.asset?.asset_id === asset.asset_id)));
       setBilibiliHistoryItems((items) => items.filter((item) => !historyResults.some((result) => result.bilibili_history_id === item.id)));
       setSelectedTaskResultIds([]);
+      if (selectedTaskResultId && selectedTaskResults.some((result) => result.id === selectedTaskResultId)) {
+        setSelectedTaskResultId(null);
+      }
       setTaskCenterMessage(`已完成清理：${warning}。`);
-      await loadAudioAssets();
+      await Promise.all([loadTaskSummaries(), loadAudioAssets()]);
     } catch (err) {
       setTaskCenterError(err instanceof Error ? err.message : "批量清理失败");
     } finally {
