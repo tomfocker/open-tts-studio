@@ -11660,7 +11660,7 @@ summary:focus-visible {
 .taskQueueSummary > div.attention strong { color: #b16843; }
 .taskQueueSummary > button { border: 0; border-radius: 8px; padding: 0 10px; color: var(--accent-dark); background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 720; }
 .taskQueueSummary > button:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.taskCenterDashboardSummary { padding: 12px 14px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) auto; gap: 8px; }
+.taskCenterDashboardSummary { padding: 12px 14px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)) auto; gap: 8px; }
 .taskCenterDashboardSummary > button { min-width: 0; border: 1px solid transparent; border-radius: 9px; padding: 9px 11px; color: var(--muted); background: color-mix(in srgb, var(--panel) 74%, transparent); cursor: pointer; display: grid; gap: 3px; text-align: left; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
 .taskCenterDashboardSummary > button:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); transform: translateY(-1px); }
 .taskCenterDashboardSummary > button.active { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
@@ -11778,7 +11778,7 @@ summary:focus-visible {
   .taskCenterDrawer .taskQueueHeader { padding: 13px 14px 11px; }
   .taskCenterDrawer .taskQueueHeader strong { font-size: 18px; }
   .taskCenterDrawer .taskQueueHeader span { font-size: 11px; }
-  .taskCenterDashboardSummary { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; padding: 8px 10px; }
+  .taskCenterDashboardSummary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; padding: 8px 10px; }
   .taskCenterDashboardSummary > button { min-height: 52px; padding: 6px 4px; place-items: center; text-align: center; }
   .taskCenterDashboardSummary > button span { font-size: 9px; white-space: nowrap; }
   .taskCenterDashboardSummary > button strong { font-size: 17px; }

@@ -10208,6 +10208,7 @@ export function App() {
               <button type="button" className={taskCenterStatusFilter === "failed" ? "attention active" : failedTaskCount > 0 ? "attention" : ""} aria-pressed={taskCenterStatusFilter === "failed"} onClick={() => setTaskCenterStatusFilter("failed")}><span>失败</span><strong>{failedTaskCount}</strong></button>
               <button type="button" className={cancelledTaskCount > 0 && taskCenterStatusFilter === "cancelled" ? "active" : ""} aria-pressed={taskCenterStatusFilter === "cancelled"} onClick={() => setTaskCenterStatusFilter("cancelled")}><span>已取消</span><strong>{cancelledTaskCount}</strong></button>
               <button type="button" className={taskCenterStatusFilter === "missing" ? "attention active" : missingTaskResultCount > 0 ? "attention" : ""} aria-pressed={taskCenterStatusFilter === "missing"} onClick={() => setTaskCenterStatusFilter("missing")}><span>文件缺失</span><strong>{missingTaskResultCount}</strong></button>
+              <button type="button" className={taskCenterStatusFilter === "attention" ? "attention active" : retryableTaskCount > 0 ? "attention" : ""} aria-pressed={taskCenterStatusFilter === "attention"} onClick={() => setTaskCenterStatusFilter("attention")}><span>待处理</span><strong>{retryableTaskCount}</strong></button>
               <button type="button" className="taskCenterSummaryLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}>查看成果中心<ChevronRight size={15} strokeWidth={1.9} /></button>
             </div>
             <div className="taskCenterFilterBar" aria-label="任务筛选">
