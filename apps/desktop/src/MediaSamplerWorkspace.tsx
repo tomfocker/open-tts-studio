@@ -438,6 +438,10 @@ export function MediaSamplerWorkspace({ onClose, onCreateVoiceFromSample }: Prop
     const timer = window.setInterval(() => void refresh().catch(() => undefined), 2000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    setSelected((current) => current && history.some((entry) => entry.id === current.id && entry.exists) ? current : null);
+    setSelectedJobId((current) => current && jobs.some((job) => job.id === current) ? current : null);
+  }, [history, jobs]);
   useEffect(() => { if (!selected && history[0]) void openHistory(history[0]); }, [history, selected]);
 
   return <div className="mediaSamplerOverlay" role="dialog" aria-modal="true" aria-label="媒体取样工作台">

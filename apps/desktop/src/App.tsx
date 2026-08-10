@@ -3035,6 +3035,12 @@ export function App() {
         .some((value) => value.toLocaleLowerCase().includes(search));
     });
   }, [audioAssets, audioLibrarySearch, audioLibrarySource]);
+  useEffect(() => {
+    setSelectedAudioAssetPath((current) => current && visibleAudioAssets.some((asset) => asset.file_path === current)
+      ? current
+      : visibleAudioAssets[0]?.file_path ?? null
+    );
+  }, [visibleAudioAssets]);
   const selectedAudioAsset = useMemo(
     () => visibleAudioAssets.find((asset) => asset.file_path === selectedAudioAssetPath) ?? visibleAudioAssets[0] ?? null,
     [selectedAudioAssetPath, visibleAudioAssets]
@@ -3234,9 +3240,8 @@ export function App() {
           .filter((voice): voice is VoicePreset => Boolean(voice))
       );
     } catch (err) {
-      setCustomVoices([]);
+      setBackendError(err instanceof Error ? `音色库读取失败：${err.message}` : "音色库读取失败，请稍后重试。");
       if (isBackendConnectionError(err)) {
-        setBackendError("本地后端连接中断，正在自动恢复…");
         void recoverLocalBackend();
       }
     }
@@ -3259,7 +3264,7 @@ export function App() {
     }
   }
 
-  function mergeManagedVoice(voice: VoiceInfo, select = false) {
+  function mergeManagedVoice(voice: VoiceInfo, select = false, preserveDraft = false) {
     const preset = createImportedVoicePreset(voice);
     if (!preset) {
       return;
@@ -3273,7 +3278,11 @@ export function App() {
     managedVoiceIdRef.current = preset.id;
     setManagedVoiceId(preset.id);
     setManagedReferenceId(preferredReferenceId);
-    setVoiceManagerDraft(createVoiceManagerDraft(preset, preferredReferenceId));
+    if (preserveDraft) {
+      setVoiceManagerDraft((draft) => ({ ...draft, name: preset.name }));
+    } else {
+      setVoiceManagerDraft(createVoiceManagerDraft(preset, preferredReferenceId));
+    }
     if (select) {
       selectedVoiceRef.current = preset.id;
       setSelectedVoice(preset.id);
@@ -3524,13 +3533,38 @@ export function App() {
     setVoiceManagerAction("save");
     setVoiceManagerError(null);
     try {
-      const renamedRole = await updateVoice(managedVoice.id, { name: voiceManagerDraft.name.trim() });
-      const updated = managedReference
-        ? await updateVoiceReference(renamedRole.id, managedReference.id, {
+      const roleNameChanged = voiceManagerDraft.name.trim() !== managedVoice.name;
+      const referenceChanged = Boolean(managedReference && (
+        voiceManagerDraft.referenceName.trim() !== managedReference.name
+        || (voiceManagerDraft.referenceText.trim() || "") !== (managedReference.referenceText?.trim() || "")
+      ));
+      const renamedRole = roleNameChanged
+        ? await updateVoice(managedVoice.id, { name: voiceManagerDraft.name.trim() })
+        : null;
+      if (roleNameChanged && !referenceChanged) {
+        mergeManagedVoice(renamedRole!, selectedVoice === renamedRole!.id);
+        setVoiceManagerMessage("角色名称已保存。");
+        return;
+      }
+      let updated: VoiceInfo;
+      if (managedReference && referenceChanged) {
+        try {
+          updated = await updateVoiceReference(renamedRole?.id ?? managedVoice.id, managedReference.id, {
             name: voiceManagerDraft.referenceName.trim(),
             reference_text: voiceManagerDraft.referenceText.trim() || null
-          })
-        : renamedRole;
+          });
+        } catch (referenceError) {
+          if (renamedRole) {
+            mergeManagedVoice(renamedRole, selectedVoice === renamedRole.id, true);
+            throw new Error(`角色名称已保存，但参考片段保存失败：${referenceError instanceof Error ? referenceError.message : "请稍后重试"}`);
+          }
+          throw referenceError;
+        }
+      } else if (renamedRole) {
+        updated = renamedRole;
+      } else {
+        return;
+      }
       mergeManagedVoice(updated, selectedVoice === updated.id);
       setVoiceManagerMessage(managedReference ? "角色名称和当前参考片段已保存。" : "角色名称已保存。");
     } catch (err) {
@@ -4557,8 +4591,8 @@ export function App() {
       const loadedSettings = await fetchAppSettings();
       setAppSettings(loadedSettings);
       setSettingsDraft(createSettingsDraft(loadedSettings));
-    } catch {
-      setAppSettings(null);
+    } catch (err) {
+      setBackendError(err instanceof Error ? `设置读取失败：${err.message}` : "设置读取失败，请稍后重试。");
     }
   }
 
@@ -4596,16 +4630,20 @@ export function App() {
           return next;
         });
       }
-    } catch {
-      setModelInstances([]);
+    } catch (err) {
+      if (settingsOpen) {
+        setSettingsError(err instanceof Error ? `模型状态读取失败：${err.message}` : "模型状态读取失败，请稍后重试。");
+      }
     }
   }
 
   async function loadModelPackages() {
     try {
       setModelPackages(await fetchModelPackages());
-    } catch {
-      setModelPackages([]);
+    } catch (err) {
+      if (settingsOpen) {
+        setSettingsError(err instanceof Error ? `模型包读取失败：${err.message}` : "模型包读取失败，请稍后重试。");
+      }
     }
   }
 
@@ -4698,7 +4736,6 @@ export function App() {
       if (window.desktopBilibiliSampler) {
         setTaskCenterError(err instanceof Error ? err.message : "无法读取 B 站下载历史");
       }
-      setBilibiliHistoryItems([]);
     }
   }
 
