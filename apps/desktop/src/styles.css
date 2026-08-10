@@ -1675,6 +1675,25 @@ summary:focus-visible {
    Fade the clipped edge so a partially visible next tab reads as an affordance
    instead of looking like squeezed or broken text. */
 @media (max-width: 1399px) {
+  .workbenchNav::before {
+    position: absolute;
+    z-index: 2;
+    top: 1px;
+    bottom: 1px;
+    left: 0;
+    width: 34px;
+    border-radius: 12px 0 0 12px;
+    pointer-events: none;
+    content: "";
+    opacity: 0;
+    background: linear-gradient(90deg, var(--panel-strong) 12%, color-mix(in srgb, var(--panel-strong) 78%, transparent) 52%, transparent);
+    transition: opacity var(--motion-fast) ease;
+  }
+
+  .workbenchNav[data-can-scroll-backward="true"]::before {
+    opacity: 1;
+  }
+
   .workbenchNav::after {
     position: absolute;
     z-index: 2;
@@ -2108,7 +2127,8 @@ summary:focus-visible {
   .settingsDialog,
   .settingsFeedback,
   .settingsFeedback.error,
-  .voiceToast {
+  .voiceToast,
+  .globalToast {
     animation: none;
   }
 
@@ -3164,7 +3184,8 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
-.voiceToast {
+.voiceToast,
+.globalToast {
   max-width: min(460px, calc(100vw - 40px));
   min-height: 38px;
   border: 1px solid rgba(71, 153, 100, 0.24);
@@ -3185,7 +3206,8 @@ summary:focus-visible {
   font-weight: 720;
 }
 
-.voiceToast span {
+.voiceToast span,
+.globalToast span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -5090,6 +5112,16 @@ audio {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.globalToast.error {
+  border-color: rgba(184, 78, 78, 0.28);
+  color: #a44242;
+  background: rgba(255, 244, 244, 0.98);
+}
+
+.globalToast + .voiceToast {
+  bottom: 76px;
 }
 .settingsHeaderCopy strong {
   color: #263441;
@@ -10385,6 +10417,7 @@ summary:focus-visible {
 :root[data-accent] .voiceReferenceCardAction,
 :root[data-accent] .voiceNotice,
 :root[data-accent] .voiceToast,
+:root[data-accent] .globalToast:not(.error),
 :root[data-accent] .cloneModeSummary strong,
 :root[data-accent] .pulseBadge,
 :root[data-accent] .phaseStep.done,
@@ -10488,6 +10521,7 @@ summary:focus-visible {
 :root[data-accent] .referenceAudioAdvice,
 :root[data-accent] .voiceNotice,
 :root[data-accent] .voiceToast,
+:root[data-accent] .globalToast:not(.error),
 :root[data-accent] .pulseBadge,
 :root[data-accent] .phaseStep.done,
 :root[data-accent] .resultVoiceSaveSourceIcon,
@@ -11675,11 +11709,18 @@ summary:focus-visible {
   .taskCenterDrawerFooter > span { display: none; }
   .taskCenterDrawerFooter .settingsAction { flex: 1; justify-content: center; }
   .taskQueueEvents > div { grid-template-columns: 48px 70px minmax(0, 1fr); }
-  .voiceToast { right: 12px; bottom: 12px; max-width: calc(100vw - 24px); }
+  .voiceToast,
+  .globalToast { right: 12px; bottom: 12px; max-width: calc(100vw - 24px); }
 }
 
 :root[data-theme="dark"] .assetCenterWorkspace {
   background: linear-gradient(145deg, #1b252e, #11171b);
+}
+
+:root[data-theme="dark"] .globalToast.error {
+  border-color: rgba(239, 130, 130, 0.3);
+  color: #ffc1c1;
+  background: rgba(91, 39, 44, 0.97);
 }
 
 :root[data-theme="dark"] .assetCenterQueueButton.attention,
@@ -11835,7 +11876,8 @@ summary:focus-visible {
   .settingsDialog,
   .settingsFeedback,
   .settingsFeedback.error,
-  .voiceToast {
+  .voiceToast,
+  .globalToast {
     animation: none;
   }
 
@@ -11848,7 +11890,8 @@ summary:focus-visible {
   .settingsOverlay,
   .settingsDialog,
   .settingsFeedback,
-  .voiceToast {
+  .voiceToast,
+  .globalToast {
     transition-duration: 1ms;
   }
 }

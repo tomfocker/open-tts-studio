@@ -2260,6 +2260,7 @@ export function App() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMigrationAction, setSettingsMigrationAction] = useState<"export" | "import" | null>(null);
   const [globalRefreshing, setGlobalRefreshing] = useState(false);
+  const [globalRefreshMessage, setGlobalRefreshMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
   const [appUpdate, setAppUpdate] = useState<AppUpdateState | null>(null);
   const defaultModelAppliedRef = useRef(false);
   const startupPrewarmAttemptedRef = useRef(false);
@@ -3465,6 +3466,7 @@ export function App() {
       return;
     }
     setGlobalRefreshing(true);
+    setGlobalRefreshMessage(null);
     try {
       await Promise.all([
         loadModels(),
@@ -3476,6 +3478,12 @@ export function App() {
         loadTaskSummaries(),
         loadDoubaoState()
       ]);
+      setGlobalRefreshMessage({ tone: "success", text: "状态已同步" });
+    } catch (err) {
+      setGlobalRefreshMessage({
+        tone: "error",
+        text: err instanceof Error ? `部分状态刷新失败：${err.message}` : "部分状态刷新失败，请稍后重试。"
+      });
     } finally {
       setGlobalRefreshing(false);
     }
@@ -4282,9 +4290,14 @@ export function App() {
       });
   }
 
-  function selectWorkspace(workbench: PrimaryWorkspace) {
-    if (settingsOpen) {
-      setSettingsOpen(false);
+  function selectWorkspace(workbench: PrimaryWorkspace, bypassSettingsGuard = false) {
+    if (settingsOpen && !bypassSettingsGuard) {
+      void closeSettings().then((closed) => {
+        if (closed) {
+          selectWorkspace(workbench, true);
+        }
+      });
+      return;
     }
     const shouldRestoreCreationFocus = workbench === "creation" && activeWorkspace !== "creation";
     if (workbench !== "creation") {
@@ -4359,8 +4372,24 @@ export function App() {
     const navigation = workbenchNavRef.current;
     const activeButton = navigation?.querySelector<HTMLButtonElement>(`[data-workbench-id="${activeWorkspace}"]`);
     if (!navigation || !activeButton) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const alignActiveButton = () => {
+      const maxScrollLeft = Math.max(0, navigation.scrollWidth - navigation.clientWidth);
+      if (maxScrollLeft <= 0) return;
+      const desiredScrollLeft = activeButton.offsetLeft - Math.max(0, (navigation.clientWidth - activeButton.offsetWidth) / 2);
+      const buttonStarts = Array.from(navigation.querySelectorAll<HTMLButtonElement>("[data-workbench-id]"))
+        .map((button) => Math.max(0, button.offsetLeft - 5));
+      const targetScrollLeft = buttonStarts.reduce((closest, start) =>
+        Math.abs(start - desiredScrollLeft) < Math.abs(closest - desiredScrollLeft) ? start : closest,
+        buttonStarts[0] ?? 0
+      );
+      if (Math.abs(navigation.scrollLeft - targetScrollLeft) > 1) {
+        navigation.scrollTo({ left: Math.min(maxScrollLeft, targetScrollLeft), behavior: reduceMotion ? "auto" : "smooth" });
+      }
+    };
     const updateIndicator = () => {
       setWorkbenchIndicator({ left: activeButton.offsetLeft, width: activeButton.offsetWidth, ready: true });
+      alignActiveButton();
     };
     const updateScrollState = () => {
       const edgeThreshold = 18;
@@ -4372,11 +4401,7 @@ export function App() {
     };
     updateIndicator();
     updateScrollState();
-    activeButton.scrollIntoView({
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-      block: "nearest",
-      inline: "nearest"
-    });
+    alignActiveButton();
     const scrollFrame = window.requestAnimationFrame(updateScrollState);
     const scrollSettleTimer = window.setTimeout(updateScrollState, 360);
     const observer = new ResizeObserver(updateIndicator);
@@ -5504,9 +5529,9 @@ export function App() {
     setSettingsOpen(true);
   }
 
-  async function closeSettings() {
+  async function closeSettings(): Promise<boolean> {
     if (settingsSaving || settingsMigrationAction) {
-      return;
+      return false;
     }
     if (settingsDirty || globalLlmDirty) {
       const confirmed = await requestConfirmation({
@@ -5516,12 +5541,13 @@ export function App() {
         tone: "danger"
       });
       if (!confirmed) {
-        return;
+        return false;
       }
       setSettingsDraft(createSettingsDraft(appSettings));
       setGlobalLlmSettings(savedGlobalLlmSettings);
     }
     setSettingsOpen(false);
+    return true;
   }
 
   function restoreSettingsDraft() {
@@ -7584,6 +7610,14 @@ export function App() {
     const timer = window.setTimeout(() => setVoiceMessage(null), 5600);
     return () => window.clearTimeout(timer);
   }, [voiceMessage]);
+
+  useEffect(() => {
+    if (!globalRefreshMessage) {
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setGlobalRefreshMessage(null), 3600);
+    return () => window.clearTimeout(timer);
+  }, [globalRefreshMessage]);
 
   useEffect(() => {
     const sampler = window.desktopBilibiliSampler;
@@ -11360,6 +11394,12 @@ export function App() {
           onCancel={() => settleConfirmation(false)}
           onConfirm={() => settleConfirmation(true)}
         />
+      )}
+      {globalRefreshMessage && (
+        <div className={`globalToast ${globalRefreshMessage.tone === "error" ? "error" : ""}`} role={globalRefreshMessage.tone === "error" ? "alert" : "status"} aria-live={globalRefreshMessage.tone === "error" ? "assertive" : "polite"}>
+          {globalRefreshMessage.tone === "error" ? <AlertCircle size={16} strokeWidth={1.9} /> : <CheckCircle2 size={16} strokeWidth={1.9} />}
+          <span>{globalRefreshMessage.text}</span>
+        </div>
       )}
       {voiceMessage && (
         <div className="voiceToast" role="status" aria-live="polite">
