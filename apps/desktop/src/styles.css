@@ -1677,7 +1677,7 @@ summary:focus-visible {
     top: 1px;
     right: 0;
     bottom: 1px;
-    width: 54px;
+    width: 44px;
     border-radius: 0 12px 12px 0;
     pointer-events: none;
     content: "";
@@ -11986,4 +11986,68 @@ summary:focus-visible {
   background: var(--dw-panel-subtle);
   box-shadow: none;
   opacity: 1;
+}
+
+/* Navigation edge cues follow the actual scroll state. A permanent right
+   fade made the last workspace look clipped even after it was fully visible;
+   the matching left cue now appears only when there is content to reveal. */
+@media (max-width: 1399px) {
+  .workbenchNav::before,
+  .workbenchNav::after {
+    opacity: 0;
+    transition: opacity 180ms ease;
+  }
+
+  .workbenchNav::before {
+    position: absolute;
+    z-index: 2;
+    top: 1px;
+    bottom: 1px;
+    width: 44px;
+    right: auto;
+    left: 1px;
+    border-radius: 12px 0 0 12px;
+    pointer-events: none;
+    content: "";
+    background: linear-gradient(270deg, transparent 0%, color-mix(in srgb, var(--panel-strong) 84%, transparent) 24%, var(--panel-strong) 56%);
+  }
+
+  .workbenchNav[data-can-scroll-backward="true"]::before,
+  .workbenchNav[data-can-scroll-forward="true"]::after {
+    opacity: 1;
+  }
+}
+
+/* Light mode gets a deliberate material separation for the cloud workspace;
+   the former translucent white stack read as one washed-out surface. */
+:root:not([data-theme="dark"]) .doubaoWorkspace {
+  --dw-bg: #e1eaf0;
+  --dw-bg-soft: #d6e2ea;
+  --dw-panel: rgba(239, 245, 249, 0.94);
+  --dw-panel-solid: rgba(250, 253, 255, 0.98);
+  --dw-panel-subtle: rgba(215, 227, 236, 0.9);
+  --dw-text-soft: #476073;
+  --dw-muted: #607789;
+  --dw-line: rgba(80, 104, 124, 0.24);
+  --dw-line-strong: rgba(80, 104, 124, 0.34);
+  background:
+    radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.66), transparent 36%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.32), rgba(204, 218, 228, 0.5)),
+    var(--dw-bg);
+}
+
+:root:not([data-theme="dark"]) .doubaoModeStage.landing {
+  border: 1px solid rgba(80, 104, 124, 0.18);
+  border-radius: 15px;
+  background:
+    radial-gradient(circle at 50% 8%, rgba(255, 255, 255, 0.7), transparent 42%),
+    linear-gradient(180deg, rgba(234, 242, 247, 0.94), rgba(218, 229, 237, 0.9));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), inset 0 -12px 28px rgba(126, 145, 164, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workbenchNav::before,
+  .workbenchNav::after {
+    transition-duration: 1ms;
+  }
 }

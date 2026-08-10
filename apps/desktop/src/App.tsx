@@ -4183,9 +4183,11 @@ export function App() {
       setWorkbenchIndicator({ left: activeButton.offsetLeft, width: activeButton.offsetWidth, ready: true });
     };
     const updateScrollState = () => {
+      const edgeThreshold = 18;
+      const maxScrollLeft = Math.max(0, navigation.scrollWidth - navigation.clientWidth);
       setWorkbenchNavScrollState({
-        canScrollBackward: navigation.scrollLeft > 1,
-        canScrollForward: navigation.scrollLeft + navigation.clientWidth < navigation.scrollWidth - 1
+        canScrollBackward: navigation.scrollLeft > edgeThreshold,
+        canScrollForward: navigation.scrollLeft < maxScrollLeft - edgeThreshold
       });
     };
     updateIndicator();
@@ -4195,6 +4197,8 @@ export function App() {
       block: "nearest",
       inline: "nearest"
     });
+    const scrollFrame = window.requestAnimationFrame(updateScrollState);
+    const scrollSettleTimer = window.setTimeout(updateScrollState, 360);
     const observer = new ResizeObserver(updateIndicator);
     observer.observe(navigation);
     observer.observe(activeButton);
@@ -4202,6 +4206,8 @@ export function App() {
     const scrollStateObserver = new ResizeObserver(updateScrollState);
     scrollStateObserver.observe(navigation);
     return () => {
+      window.cancelAnimationFrame(scrollFrame);
+      window.clearTimeout(scrollSettleTimer);
       observer.disconnect();
       scrollStateObserver.disconnect();
       navigation.removeEventListener("scroll", updateScrollState);
@@ -7846,6 +7852,8 @@ export function App() {
             ref={workbenchNavRef}
             role="group"
             aria-label="功能工作台"
+            data-can-scroll-backward={workbenchNavScrollState.canScrollBackward ? "true" : "false"}
+            data-can-scroll-forward={workbenchNavScrollState.canScrollForward ? "true" : "false"}
             style={{ "--workbench-indicator-x": `${workbenchIndicator.left}px`, "--workbench-indicator-width": `${workbenchIndicator.width}px`, "--workbench-indicator-opacity": workbenchIndicator.ready ? 1 : 0 } as CSSProperties}
           >
             <span className="workbenchNavIndicator" aria-hidden="true" />
