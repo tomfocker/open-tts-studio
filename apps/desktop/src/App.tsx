@@ -2204,6 +2204,7 @@ export function App() {
   const [remoteTasks, setRemoteTasks] = useState<TaskSummary[]>([]);
   const [ebookPrefetchTasks, setEbookPrefetchTasks] = useState<DoubaoPrefetchTask[]>([]);
   const [taskCenterAction, setTaskCenterAction] = useState<string | null>(null);
+  const [taskCenterRefreshing, setTaskCenterRefreshing] = useState(false);
   const [taskCenterError, setTaskCenterError] = useState<string | null>(null);
   const [taskCenterMessage, setTaskCenterMessage] = useState<string | null>(null);
   const [ebookInspectorSummary, setEbookInspectorSummary] = useState<DoubaoPrefetchTaskSummary | null>(null);
@@ -4662,6 +4663,26 @@ export function App() {
         setTaskCenterError(err instanceof Error ? err.message : "无法读取 B 站下载历史");
       }
       setBilibiliHistoryItems([]);
+    }
+  }
+
+  async function refreshTaskCenter() {
+    if (taskCenterRefreshing) {
+      return;
+    }
+    setTaskCenterRefreshing(true);
+    setTaskCenterError(null);
+    setTaskCenterMessage(null);
+    try {
+      await Promise.all([
+        loadTaskSummaries(),
+        loadBatchProjects(),
+        loadAudioAssets(),
+        loadBilibiliHistory()
+      ]);
+      setTaskCenterMessage("成果与任务已刷新。");
+    } finally {
+      setTaskCenterRefreshing(false);
     }
   }
 
@@ -7798,21 +7819,15 @@ export function App() {
             </div>
           </div>
           <div className="assetCenterHeaderActions">
-            <button type="button" className="pathPickButton" disabled={taskCenterAction !== null || audioLibraryLoading} onClick={() => {
-              void loadTaskSummaries();
-              void loadBatchProjects();
-              void loadAudioAssets();
-              void loadBilibiliHistory();
-            }}>
-              <RefreshCw size={16} strokeWidth={1.9} />
+            <button type="button" className="pathPickButton" disabled={taskCenterAction !== null || taskCenterRefreshing || audioLibraryLoading} onClick={() => void refreshTaskCenter()}>
+              <RefreshCw className={taskCenterRefreshing ? "spin" : undefined} size={16} strokeWidth={1.9} />
               <span>刷新</span>
             </button>
             <button type="button" className={retryableTaskCount > 0 || missingTaskResultCount > 0 ? "assetCenterQueueButton attention" : "assetCenterQueueButton"} title={activeTaskCount + retryableTaskCount + missingTaskResultCount > 0 ? `${activeTaskCount + retryableTaskCount + missingTaskResultCount} 项任务待处理` : "任务队列"} onClick={() => {
               setTaskCenterError(null);
               setTaskCenterMessage(null);
               setTaskHistoryClearConfirmOpen(false);
-              void loadTaskSummaries();
-              void loadBatchProjects();
+              void refreshTaskCenter();
               setTaskCenterOpen(true);
             }}>
               <Gauge size={16} strokeWidth={1.9} />
@@ -9954,7 +9969,7 @@ export function App() {
                 <option value="batch">批量任务（旁白 / 电子书）</option>
                 {taskCenterSources.map(({ source, count }) => <option key={source} value={source}>{taskSourceLabel(source)}（{count}）</option>)}
               </select>
-               <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => { void loadTaskSummaries(); void loadBatchProjects(); void loadAudioAssets(); void loadBilibiliHistory(); }}><RefreshCw size={15} strokeWidth={1.9} /><span>刷新</span></button>
+               <button type="button" className="pathPickButton" disabled={taskCenterAction !== null || taskCenterRefreshing} onClick={() => void refreshTaskCenter()}><RefreshCw className={taskCenterRefreshing ? "spin" : undefined} size={15} strokeWidth={1.9} /><span>{taskCenterRefreshing ? "刷新中" : "刷新"}</span></button>
             </div>
             <div className="taskCenterFilterMeta"><span>显示 {visibleTaskCenterTasks.length} / {taskCenterTasks.length} 项任务</span><span>失败任务会保留最近事件和日志入口，方便定位问题。</span></div>
             <div className="taskQueueBody">
