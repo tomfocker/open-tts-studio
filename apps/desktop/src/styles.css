@@ -1600,6 +1600,18 @@ summary:focus-visible {
   font-weight: 760;
 }
 
+.brandMark strong > .brandNameFull,
+.brandMark strong > .brandNameCompact {
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+}
+
+.brandMark strong > .brandNameCompact {
+  display: none;
+}
+
 .brandMark span {
   margin-top: 3px;
   color: var(--muted);
@@ -2128,7 +2140,8 @@ summary:focus-visible {
   .settingsFeedback,
   .settingsFeedback.error,
   .voiceToast,
-  .globalToast {
+  .globalToast,
+  .spin {
     animation: none;
   }
 
@@ -9093,6 +9106,14 @@ audio {
 
   .brandMark strong {
     font-size: 20px;
+  }
+
+  .brandMark strong > .brandNameFull {
+    display: none;
+  }
+
+  .brandMark strong > .brandNameCompact {
+    display: block;
   }
 
   .voiceGrid,

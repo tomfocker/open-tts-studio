@@ -302,7 +302,18 @@ function taskStatusLabel(status: string): string {
     failed: "失败",
     cancelled: "已取消",
     cancelling: "取消中"
-  }[status] || status;
+  }[status] || "未知状态";
+}
+
+function compactTaskId(taskId: string): string {
+  const raw = String(taskId || "").trim();
+  const id = raw.includes(":") ? raw.split(":").pop() || raw : raw;
+  if (!id) return "任务编号";
+  return id.length > 14 ? `任务 ${id.slice(0, 8)}…${id.slice(-4)}` : `任务 ${id}`;
+}
+
+function cacheStatusLabel(status: unknown): string {
+  return taskStatusLabel(typeof status === "string" ? status : "");
 }
 
 export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConfirmation }: DoubaoWorkspaceProps) {
@@ -1057,7 +1068,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
         setCacheChapterPreview({
           title: chapter.title,
           content: detail.index.content || detail.index.segments?.map((segment) => segment.text || "").filter(Boolean).join("\n") || "暂无正文索引",
-          detail: `${metadata?.completedSegments || 0}/${metadata?.totalSegments || 0} 段 · ${metadata?.status || "未知状态"}`
+          detail: `${metadata?.completedSegments || 0}/${metadata?.totalSegments || 0} 段 · ${cacheStatusLabel(metadata?.status)}`
         });
       }
       return;
@@ -1080,7 +1091,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
       setCacheChapterPreview({
         title,
         content: detail.index.content || detail.index.segments?.map((segment) => segment.text || "").filter(Boolean).join("\n") || "暂无正文索引",
-        detail: `${detail.index.metadata?.completedSegments || 0}/${detail.index.metadata?.totalSegments || 0} 段 · ${detail.index.metadata?.status || "未知状态"}`
+        detail: `${detail.index.metadata?.completedSegments || 0}/${detail.index.metadata?.totalSegments || 0} 段 · ${cacheStatusLabel(detail.index.metadata?.status)}`
       });
     }
   }
@@ -1731,7 +1742,7 @@ export function DoubaoWorkspace({ onClose, initialTab = "synthesis", requestConf
                   const progress = prefetchProgress(task);
                   return (
                     <article key={task.taskId} className={`doubaoTaskCard ${task.status}`}>
-                      <div className="doubaoTaskHeader"><div><strong>{bookName(task.bookInfo)}</strong><span>{task.taskId}</span></div><span className={`doubaoStatusPill ${task.status}`}>{taskStatusLabel(task.status)}</span></div>
+                      <div className="doubaoTaskHeader"><div><strong>{bookName(task.bookInfo)}</strong><span title={task.taskId}>{compactTaskId(task.taskId)}</span></div><span className={`doubaoStatusPill ${task.status}`}>{taskStatusLabel(task.status)}</span></div>
                       <div className="doubaoProgress" role="progressbar" aria-label={`预制任务进度：${bookName(task.bookInfo)}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.max(0, Math.min(100, progress.percent))}><span style={{ width: `${progress.percent}%` }} /></div>
                       <div className="doubaoTaskMeta"><span>{progress.completed} / {progress.total} 章</span><span>{progress.failed ? `${progress.failed} 章失败` : "无失败章节"}</span><span>{formatDate(task.updatedAt)}</span></div>
                       {task.chapters?.find((chapter) => chapter.error)?.error && <div className="doubaoCardError">{task.chapters.find((chapter) => chapter.error)?.error}</div>}

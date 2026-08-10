@@ -1522,7 +1522,29 @@ function taskStatusLabel(status: string) {
   if (status === "partial") {
     return "部分完成";
   }
-  return status || "未知";
+  return "未知状态";
+}
+
+function ebookChapterStatusLabel(status: string | null | undefined) {
+  switch (status) {
+    case "queued":
+    case "pending":
+      return "等待中";
+    case "running":
+    case "processing":
+      return "生成中";
+    case "succeeded":
+    case "completed":
+      return "已完成";
+    case "failed":
+      return "失败";
+    case "cancelled":
+      return "已取消";
+    case "partial":
+      return "部分完成";
+    default:
+      return "未知状态";
+  }
 }
 
 function taskHasMissingResult(task: Pick<TaskSummary, "source" | "stage" | "results">) {
@@ -8127,7 +8149,7 @@ export function App() {
                         <div className="ebookInspectorChapterList" aria-label="电子书章节">
                           {ebookInspectorSummary.chapters.map((chapter) => <button type="button" key={chapter.chapterId} className={chapter.chapterId === selectedEbookChapter?.chapterId ? "active" : ""} onClick={() => setEbookInspectorChapterId(chapter.chapterId)}><span>第 {chapter.chapterIndex + 1} 章</span><strong title={chapter.chapterTitle}>{chapter.chapterTitle}</strong><em>{chapter.segments.filter((segment) => segment.exists).length}/{chapter.segments.length || chapter.totalSegments || 0}</em></button>)}
                         </div>
-                        {selectedEbookChapter ? <div className="ebookInspectorChapterDetail"><header><div><strong>{selectedEbookChapter.chapterTitle}</strong><span>{selectedEbookChapter.status} · {selectedEbookChapter.segments.length} 段</span></div><button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onOpenEbookDirectory(selectedEbookChapter?.directoryPath, "本章")}><FolderOpen size={14} strokeWidth={1.9} />本章目录</button></header>{selectedEbookChapter.segments.length ? <div className="ebookInspectorSegments">{selectedEbookChapter.segments.map((segment, index) => <article key={segment.segmentId || index}><div><span>段落 {index + 1}</span><p>{segment.text || "（无文本）"}</p></div>{segment.exists && segment.audioUrl ? <audio controls preload="none" src={resolveTaskResultUrl(segment.audioUrl)} /> : <small>{segment.error || "音频尚未生成"}</small>}</article>)}</div> : <div className="assetInspectorPreviewEmpty"><FileText size={21} /><span>这个章节还没有可预览的分段成果。</span></div>}</div> : null}
+                        {selectedEbookChapter ? <div className="ebookInspectorChapterDetail"><header><div><strong>{selectedEbookChapter.chapterTitle}</strong><span>{ebookChapterStatusLabel(selectedEbookChapter.status)} · {selectedEbookChapter.segments.length} 段</span></div><button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onOpenEbookDirectory(selectedEbookChapter?.directoryPath, "本章")}><FolderOpen size={14} strokeWidth={1.9} />本章目录</button></header>{selectedEbookChapter.segments.length ? <div className="ebookInspectorSegments">{selectedEbookChapter.segments.map((segment, index) => <article key={segment.segmentId || index}><div><span>段落 {index + 1}</span><p>{segment.text || "（无文本）"}</p></div>{segment.exists && segment.audioUrl ? <audio controls preload="none" src={resolveTaskResultUrl(segment.audioUrl)} /> : <small>{segment.error || "音频尚未生成"}</small>}</article>)}</div> : <div className="assetInspectorPreviewEmpty"><FileText size={21} /><span>这个章节还没有可预览的分段成果。</span></div>}</div> : null}
                       </> : null}
                     </div>
                   ) : selectedIsAudio && selected.url && selected.exists ? <audio controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : selectedIsVideo && selected.url && selected.exists ? <video controls preload="metadata" src={resolveTaskResultUrl(selected.url)} /> : <div className="assetInspectorPreviewEmpty">{taskResultIcon(selected.kind)}<span>{selected.exists ? selected.text || "此成果可通过下方操作打开或导出。" : "原始文件已不存在，可从任务记录中确认来源。"}</span></div>}
@@ -8231,7 +8253,7 @@ export function App() {
             <Waves size={18} strokeWidth={2} />
           </div>
           <div>
-            <strong title="OpenTTS Studio">OpenTTS Studio</strong>
+            <strong className="brandName" title="OpenTTS Studio"><span className="brandNameFull">OpenTTS Studio</span><span className="brandNameCompact" aria-hidden="true">OpenTTS</span></strong>
             <span>Local Voice Workstation</span>
           </div>
         </div>

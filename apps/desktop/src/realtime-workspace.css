@@ -226,3 +226,9 @@
 :root[data-theme="dark"] .realtimeMessage strong {
   color: var(--muted);
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .realtimeWorkspace .realtimeLiveDot.active {
+    animation: none;
+  }
+}
