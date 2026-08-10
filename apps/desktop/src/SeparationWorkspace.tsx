@@ -107,6 +107,7 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
   > | null>(null);
   const browserFileRef = useRef<HTMLInputElement | null>(null);
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null, [jobs, selectedJobId]);
+  const actionBusy = pendingAction !== null;
 
   const refreshJobs = async (quiet = false) => {
     try {
@@ -253,15 +254,15 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
         <div className="enhancementBody">
           <section className="enhancementSetup">
             <div className="enhancementSectionHeading"><FileAudio size={17} /><span><strong>输入媒体</strong><small>仅在本机受控目录暂存</small></span></div>
-            <button className="enhancementPicker" type="button" onClick={selectMedia} disabled={pendingAction === "select"}>
+            <button className="enhancementPicker" type="button" onClick={selectMedia} disabled={actionBusy}>
               {pendingAction === "select" ? <Loader2 className="spin" size={22} /> : <Upload size={22} />}
               <span>{media?.fileName || "选择音频或视频"}</span>
               <small>{media ? formatBytes(media.fileSizeBytes) : "支持常见音频、视频格式"}</small>
             </button>
             <input ref={browserFileRef} className="enhancementHiddenInput" type="file" accept="audio/*,video/*" aria-label="选择音频分轨素材" onChange={(event) => void onMediaPicked(event)} />
 
-            <fieldset className="enhancementModels"><legend>分轨模型</legend>{MODEL_OPTIONS.map((option) => <label key={option.id} className={model === option.id ? "active" : ""}><input type="radio" name="audio-separation-model" checked={model === option.id} onChange={() => setModel(option.id)} /><span><strong>{option.name}</strong><small>{option.detail}</small></span></label>)}</fieldset>
-            <button className="enhancementPrimaryButton" type="button" onClick={() => void start()} disabled={pendingAction === "start" || !media || selectedModelReady === false}>{pendingAction === "start" ? <Loader2 className="spin" size={16} /> : <Waves size={16} />}开始分轨</button>
+            <fieldset className="enhancementModels" disabled={actionBusy}><legend>分轨模型</legend>{MODEL_OPTIONS.map((option) => <label key={option.id} className={model === option.id ? "active" : ""}><input type="radio" name="audio-separation-model" checked={model === option.id} onChange={() => setModel(option.id)} /><span><strong>{option.name}</strong><small>{option.detail}</small></span></label>)}</fieldset>
+            <button className="enhancementPrimaryButton" type="button" onClick={() => void start()} disabled={actionBusy || !media || selectedModelReady === false}>{pendingAction === "start" ? <Loader2 className="spin" size={16} /> : <Waves size={16} />}开始分轨</button>
             <p className="enhancementNote">每次会生成独立的人声和伴奏 WAV。模型会与 TTS、ASR 串行使用 GPU，音频不会上传。</p>
             {selectedModelReady === false && <p className="enhancementNote error">当前选择尚未就绪：{readiness?.audio_separation_runtime_installed ? "缺少对应 MDX-Net 权重或参数文件。" : "缺少 audio-separation-runtime 专用 Python 运行时。"}</p>}
           </section>
@@ -273,11 +274,11 @@ export function SeparationWorkspace({ onClose }: SeparationWorkspaceProps) {
               {selectedJob.error && <div className="enhancementFeedback error"><AlertCircle size={16} /><span>{selectedJob.error}</span></div>}
               {selectedJob.warnings.map((warning) => <div key={warning} className="enhancementFeedback warning"><AlertCircle size={16} /><span>{warning}</span></div>)}
               {selectedJob.outputs.length ? <div className="enhancementOutputs">{selectedJob.outputs.map((output) => <article key={output.stem}><div className="enhancementOutputHeader"><div><strong>{stemLabel(output.stem)}</strong><small>{outputFileName(output.file_path)}</small><small>{output.sample_rate / 1000} kHz · {formatTime(output.duration_seconds)} · {selectedJob.model_display_name}</small></div><button type="button" className="enhancementRevealButton" onClick={() => void revealOutput(output.file_path)} title={output.file_path}><FolderOpen size={14} />定位文件</button></div><audio controls preload="metadata" src={toAudioUrl(output.audio_url)} /></article>)}</div> : isActive(selectedJob) ? <div className="enhancementEmptyState"><Loader2 className="spin" size={30} /><strong>{selectedJob.status === "queued" ? "正在等待本地 GPU 槽位" : "正在分离人声与伴奏"}</strong><span>处理时会自动避免与 TTS、ASR 同时占用显存。</span></div> : <div className="enhancementEmptyState"><Volume2 size={31} /><strong>{selectedJob.status === "cancelled" ? "任务已取消" : "本次处理未完成"}</strong><span>检查本地 MDX-Net 模型与分轨运行时后可重试。</span></div>}
-              <div className="enhancementActions">{isActive(selectedJob) && <button className="danger" type="button" onClick={() => void cancel()} disabled={pendingAction === "cancel"}>{pendingAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Square size={14} />}取消</button>}{(selectedJob.status === "failed" || selectedJob.status === "cancelled") && <button type="button" onClick={() => void retry()} disabled={pendingAction === "retry"}>{pendingAction === "retry" ? <Loader2 className="spin" size={15} /> : <RotateCw size={15} />}重试</button>}</div>
+              <div className="enhancementActions">{isActive(selectedJob) && <button className="danger" type="button" onClick={() => void cancel()} disabled={actionBusy}>{pendingAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Square size={14} />}取消</button>}{(selectedJob.status === "failed" || selectedJob.status === "cancelled") && <button type="button" onClick={() => void retry()} disabled={actionBusy}>{pendingAction === "retry" ? <Loader2 className="spin" size={15} /> : <RotateCw size={15} />}重试</button>}</div>
             </> : <div className="enhancementEmptyState"><Waves size={32} /><strong>还没有音频分轨任务</strong><span>导入一条素材，选择分轨侧重后即可在本机生成两条音轨。</span><div className="enhancementEmptySteps" aria-label="开始音频分轨的步骤"><span className={media ? "ready" : ""}><Upload size={14} /><b>素材</b><em>{media ? "已选择" : "先选择"}</em></span><span className={selectedModelReady === true ? "ready" : ""}><CheckCircle2 size={14} /><b>模型</b><em>{selectedModelReady === true ? "已就绪" : "待检查"}</em></span><span className={media && selectedModelReady === true ? "ready" : ""}><Waves size={14} /><b>生成</b><em>{media && selectedModelReady === true ? "可以开始" : "等待前两步"}</em></span></div></div>}
           </section>
 
-          <aside className="enhancementHistory"><div className="enhancementSectionHeading"><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div><div>{jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} onClick={() => setSelectedJobId(job.id)}><span className={`enhancementHistoryDot ${job.status}`} /><span><strong title={job.source_file_name}>{job.source_file_name}</strong><small>{job.model_display_name} · {statusLabel(job.status)}</small></span></button>)}{!jobs.length && <p>完成、失败和取消的记录会保留在本机。</p>}</div></aside>
+          <aside className="enhancementHistory"><div className="enhancementSectionHeading"><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div><div>{jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} disabled={actionBusy} onClick={() => setSelectedJobId(job.id)}><span className={`enhancementHistoryDot ${job.status}`} /><span><strong title={job.source_file_name}>{job.source_file_name}</strong><small>{job.model_display_name} · {statusLabel(job.status)}</small></span></button>)}{!jobs.length && <p>完成、失败和取消的记录会保留在本机。</p>}</div></aside>
         </div>
 
         {(message || error) && <footer role={error ? "alert" : "status"} aria-live={error ? "assertive" : "polite"} className={`enhancementFooter ${error ? "error" : ""}`}>{error ? <AlertCircle size={16} /> : <CheckCircle2 size={16} />}<span>{error || message}</span></footer>}

@@ -117,6 +117,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
     () => jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null,
     [jobs, selectedJobId]
   );
+  const actionBusy = pendingAction !== null;
 
   const refreshJobs = async (quiet = false) => {
     try {
@@ -354,14 +355,14 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
         <div className="transcriptionBody">
           <section className="transcriptionSetup" aria-label="创建转写任务">
             <div className="transcriptionSectionHeading"><div><Upload size={17} /><span><strong>选择媒体</strong><small>音频或视频仅在本机处理</small></span></div></div>
-            <button className="transcriptionPicker" type="button" disabled={pendingAction === "select"} onClick={() => void selectMedia()}>
+            <button className="transcriptionPicker" type="button" disabled={actionBusy} onClick={() => void selectMedia()}>
               {pendingAction === "select" ? <Loader2 className="spin" size={20} /> : media ? <Film size={20} /> : <Upload size={20} />}
               <span>{media ? media.fileName : "选择本地音频或视频"}</span>
               <small>{media ? formatBytes(media.fileSizeBytes) : "MP4、MOV、MKV、MP3、WAV 等"}</small>
             </button>
             <input ref={browserFileRef} className="transcriptionHiddenInput" type="file" accept="audio/*,video/*" aria-label="选择转写媒体文件" onChange={(event) => void onBrowserMediaPicked(event)} />
 
-            <fieldset className="transcriptionFormatPicker">
+            <fieldset className="transcriptionFormatPicker" disabled={actionBusy}>
               <legend>导出类型</legend>
               <label className={outputFormat === "txt" ? "active" : ""}>
                 <input type="radio" name="transcription-format" value="txt" checked={outputFormat === "txt"} onChange={() => setOutputFormat("txt")} />
@@ -375,7 +376,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
 
             <label className="transcriptionBackendField">
               <span>识别引擎</span>
-              <select value={backend} disabled={outputFormat === "srt"} onChange={(event) => setBackend(event.target.value as TranscriptionBackend)}>
+              <select value={backend} disabled={actionBusy || outputFormat === "srt"} onChange={(event) => setBackend(event.target.value as TranscriptionBackend)}>
                 <option value="sensevoice">SenseVoiceSmall · 快速文本</option>
                 <option value="qwen3">Qwen3-ASR · 本地高精度</option>
               </select>
@@ -383,7 +384,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
               {selectedBackendReady === false && <small className="transcriptionBackendUnavailable"><AlertCircle size={13} />{backend === "qwen3" ? "Qwen3-ASR 的本地模型、运行时或引擎尚未就绪，请先在设置中检查模型目录。" : "SenseVoiceSmall 的本地模型或运行时尚未就绪，请先在设置中检查模型目录。"}</small>}
             </label>
 
-            <button className="transcriptionPrimaryButton" type="button" disabled={!media || pendingAction === "start" || selectedBackendReady === false} onClick={() => void start()}>
+            <button className="transcriptionPrimaryButton" type="button" disabled={!media || actionBusy || selectedBackendReady === false} onClick={() => void start()}>
               {pendingAction === "start" ? <Loader2 className="spin" size={17} /> : <FileAudio size={17} />}
               <span>{pendingAction === "start" ? "正在创建" : "开始本地转写"}</span>
             </button>
@@ -392,7 +393,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
           <section className="transcriptionResult" aria-live="polite">
             <div className="transcriptionSectionHeading">
               <div><FileText size={17} /><span><strong>转写结果</strong><small>{selectedJob ? selectedJob.source_file_name : "选择媒体后创建任务"}</small></span></div>
-              <button type="button" className="transcriptionIconButton" title="刷新任务" aria-label="刷新转写任务" onClick={() => void refreshJobs()}><RefreshCw size={16} /></button>
+              <button type="button" className="transcriptionIconButton" title="刷新任务" aria-label="刷新转写任务" disabled={actionBusy} onClick={() => void refreshJobs()}><RefreshCw size={16} /></button>
             </div>
 
             {selectedJob ? (
@@ -427,8 +428,8 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
                     )}
                     {selectedJob.segments.length > 0 && <div className="transcriptionCuePreview">{selectedJob.segments.slice(0, 6).map((segment) => <span key={segment.id}><code>{formatTime(segment.start_seconds)}</code>{segment.text}</span>)}{selectedJob.segments.length > 6 && <small>另有 {selectedJob.segments.length - 6} 条字幕</small>}</div>}
                     <div className="transcriptionActions">
-                      <button type="button" onClick={() => void exportResult("txt")} disabled={pendingAction === "export-txt"}>{pendingAction === "export-txt" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}导出 TXT</button>
-                      {selectedJob.segments.length > 0 && <button className="primary" type="button" onClick={() => void exportResult("srt")} disabled={pendingAction === "export-srt"}>{pendingAction === "export-srt" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}导出 SRT</button>}
+                      <button type="button" onClick={() => void exportResult("txt")} disabled={actionBusy}>{pendingAction === "export-txt" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}导出 TXT</button>
+                      {selectedJob.segments.length > 0 && <button className="primary" type="button" onClick={() => void exportResult("srt")} disabled={actionBusy}>{pendingAction === "export-srt" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}导出 SRT</button>}
                     </div>
                   </>
                 ) : isActive(selectedJob) ? (
@@ -437,8 +438,8 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
                   <div className="transcriptionEmptyState"><AlertCircle size={27} /><strong>{selectedJob.status === "cancelled" ? "任务已取消" : "本次转写未完成"}</strong><span>可检查本地模型安装后重试。</span></div>
                 )}
                 <div className="transcriptionActions secondary">
-                  {isActive(selectedJob) && <button type="button" className="danger" disabled={pendingAction === "cancel"} onClick={() => void cancel()}>{pendingAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Square size={14} />}取消任务</button>}
-                  {(selectedJob.status === "failed" || selectedJob.status === "cancelled") && <button type="button" disabled={pendingAction === "retry"} onClick={() => void retry()}>{pendingAction === "retry" ? <Loader2 className="spin" size={15} /> : <RotateCw size={15} />}{selectedJob.backend === "qwen3" ? "按当前 Qwen 配置重试" : "按当前配置重试"}</button>}
+                  {isActive(selectedJob) && <button type="button" className="danger" disabled={actionBusy} onClick={() => void cancel()}>{pendingAction === "cancel" ? <Loader2 className="spin" size={15} /> : <Square size={14} />}取消任务</button>}
+                  {(selectedJob.status === "failed" || selectedJob.status === "cancelled") && <button type="button" disabled={actionBusy} onClick={() => void retry()}>{pendingAction === "retry" ? <Loader2 className="spin" size={15} /> : <RotateCw size={15} />}{selectedJob.backend === "qwen3" ? "按当前 Qwen 配置重试" : "按当前配置重试"}</button>}
                 </div>
               </>
             ) : <div className="transcriptionEmptyState"><FileAudio size={30} /><strong>还没有转写任务</strong><span>选择真实音频或视频后即可在本机生成文本或字幕。</span></div>}
@@ -447,7 +448,7 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
           <aside className="transcriptionHistory" aria-label="最近转写任务">
             <div className="transcriptionSectionHeading"><div><Clock3 size={17} /><span><strong>最近任务</strong><small>{jobs.length} 条记录</small></span></div></div>
             <div className="transcriptionHistoryList">
-              {jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} onClick={() => setSelectedJobId(job.id)}><span className={`transcriptionHistoryDot ${job.status}`} /><span><strong title={job.source_file_name}>{job.source_file_name}</strong><small>{job.output_format.toUpperCase()} · {statusLabel(job.status)}</small></span></button>)}
+              {jobs.map((job) => <button type="button" key={job.id} className={job.id === selectedJob?.id ? "active" : ""} aria-pressed={job.id === selectedJob?.id} disabled={actionBusy} onClick={() => setSelectedJobId(job.id)}><span className={`transcriptionHistoryDot ${job.status}`} /><span><strong title={job.source_file_name}>{job.source_file_name}</strong><small>{job.output_format.toUpperCase()} · {statusLabel(job.status)}</small></span></button>)}
               {!jobs.length && <div className="transcriptionHistoryEmpty">最近完成、失败和取消的任务会保留在本机。</div>}
             </div>
           </aside>
