@@ -3717,8 +3717,21 @@
   grid-column: 1 / -1;
   justify-self: start;
   min-width: auto;
-  padding: 6px 10px;
+  padding: 6px 11px;
+  border: 1px solid color-mix(in srgb, var(--dw-accent) 38%, var(--dw-line));
+  color: var(--dw-accent-strong);
+  background: color-mix(in srgb, var(--dw-accent) 14%, var(--dw-panel-solid));
+  box-shadow: var(--dw-inner);
   font-size: 10px;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.doubaoModeCards.landing .doubaoModeCard:hover .doubaoModeCardState,
+.doubaoModeCards.landing .doubaoModeCard:focus-visible .doubaoModeCardState {
+  border-color: color-mix(in srgb, var(--dw-accent) 62%, var(--dw-line));
+  color: var(--dw-text);
+  background: color-mix(in srgb, var(--dw-accent) 24%, var(--dw-panel-solid));
+  transform: translateX(2px);
 }
 
 .doubaoModeCards.compact {

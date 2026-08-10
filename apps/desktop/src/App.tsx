@@ -10126,7 +10126,7 @@ export function App() {
                 <option value="batch">批量任务（旁白 / 电子书）</option>
                 {taskCenterSources.map(({ source, count }) => <option key={source} value={source}>{taskSourceLabel(source)}（{count}）</option>)}
               </select>
-               <button type="button" className="pathPickButton" disabled={taskCenterAction !== null || taskCenterRefreshing} onClick={() => void refreshTaskCenter()}><RefreshCw className={taskCenterRefreshing ? "spin" : undefined} size={15} strokeWidth={1.9} /><span>{taskCenterRefreshing ? "刷新中" : "刷新"}</span></button>
+               <button type="button" className="pathPickButton" aria-label={taskCenterRefreshing ? "正在刷新任务" : "刷新任务"} disabled={taskCenterAction !== null || taskCenterRefreshing} onClick={() => void refreshTaskCenter()}><RefreshCw className={taskCenterRefreshing ? "spin" : undefined} size={15} strokeWidth={1.9} /><span>{taskCenterRefreshing ? "刷新中" : "刷新"}</span></button>
             </div>
             <div className="taskCenterFilterMeta"><span>显示 {visibleTaskCenterTasks.length} / {taskCenterTasks.length} 项任务</span>{taskCenterFiltersActive ? <button className="taskQueueLink taskCenterClearFilters" type="button" onClick={() => { setTaskCenterTaskSearch(""); setTaskCenterStatusFilter("all"); setTaskCenterTaskSourceFilter("all"); }}>清除筛选</button> : <span>失败任务会保留最近事件和日志入口，方便定位问题。</span>}</div>
             <div className="taskQueueBody">

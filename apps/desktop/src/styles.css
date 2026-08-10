@@ -11724,13 +11724,20 @@ summary:focus-visible {
   .taskQueueDrawer { width: 100%; }
   .taskQueueSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .taskQueueSummary > button { grid-column: 1 / -1; min-height: 34px; justify-content: center; }
-  .taskCenterDashboardSummary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .taskCenterDashboardSummary .taskCenterSummaryLink { grid-column: 1 / -1; min-height: 32px; }
-  .taskCenterFilterBar { grid-template-columns: 1fr 1fr; }
+  .taskCenterDrawer .taskQueueHeader { padding: 13px 14px 11px; }
+  .taskCenterDrawer .taskQueueHeader strong { font-size: 18px; }
+  .taskCenterDrawer .taskQueueHeader span { font-size: 11px; }
+  .taskCenterDashboardSummary { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; padding: 8px 10px; }
+  .taskCenterDashboardSummary > button { min-height: 52px; padding: 6px 4px; place-items: center; text-align: center; }
+  .taskCenterDashboardSummary > button span { font-size: 9px; white-space: nowrap; }
+  .taskCenterDashboardSummary > button strong { font-size: 17px; }
+  .taskCenterDashboardSummary .taskCenterSummaryLink { display: none; }
+  .taskCenterFilterBar { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 34px; gap: 6px; padding: 8px 10px 6px; }
   .taskCenterTaskSearch { grid-column: 1 / -1; }
-  .taskCenterFilterBar .pathPickButton { width: 100%; }
-  .taskCenterFilterMeta { display: grid; gap: 4px; }
-  .taskCenterFilterMeta span:last-child { white-space: normal; }
+  .taskCenterFilterBar .pathPickButton { width: 34px; padding: 0; }
+  .taskCenterFilterBar .pathPickButton span { display: none; }
+  .taskCenterFilterMeta { min-height: 28px; padding: 6px 10px 0; align-items: center; }
+  .taskCenterFilterMeta > span:last-child { display: none; }
   .taskCenterDrawerFooter { flex-wrap: wrap; }
   .taskCenterDrawerFooter > span { display: none; }
   .taskCenterDrawerFooter .settingsAction { flex: 1; justify-content: center; }
