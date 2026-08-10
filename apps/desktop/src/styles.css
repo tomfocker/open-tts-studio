@@ -12047,6 +12047,28 @@ summary:focus-visible {
   }
 }
 
+/* Voice labels are small but always visible in the local rail. Their light
+   preset used to survive the night theme, producing white text on a white
+   pill; route the label surface through the same dark control tokens. */
+:root[data-theme="dark"] .voiceName {
+  color: var(--text);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-control);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 2px 6px rgba(2, 8, 13, 0.18);
+}
+
+:root[data-theme="dark"] .voiceCard.active .voiceName {
+  color: var(--accent-contrast);
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: color-mix(in srgb, var(--accent) 20%, var(--surface-control));
+}
+
+:root[data-theme="dark"] .voiceModelWeightBadge {
+  color: #e0c5f1;
+  border-color: rgba(191, 129, 222, 0.34);
+  background: rgba(92, 54, 112, 0.5);
+}
+
 /* Dark theme parity for the compact local controls. These used to inherit
    the light preset material, which made the left rail look like a pasted-on
    light card in an otherwise coherent night workspace. */
