@@ -129,23 +129,40 @@ def ensure_voxcpm2_asr_detached(voxcpm2_root: Path) -> bool:
 
 
 def _patch_windows_compile_mode(path: Path) -> bool:
-    """Enable CUDA graphs after disabling PyTorch's broken Windows launcher."""
+    """Disable CUDA graphs only for the Windows reference-audio encoder."""
     try:
         source = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
         raise RuntimeError(f"VoxCPM2 model source is not UTF-8: {path}") from exc
 
-    legacy_windows_mode = 'mode="default" if os.name == "nt" else "reduce-overhead"'
+    reduce_overhead_mode = 'mode="reduce-overhead"'
+    windows_safe_mode = 'mode="default" if os.name == "nt" else "reduce-overhead"'
+    feat_encoder_reduce_overhead = (
+        'self.feat_encoder = torch.compile(self.feat_encoder, '
+        + reduce_overhead_mode
+        + ', fullgraph=True)'
+    )
+    feat_encoder_windows_safe = (
+        'self.feat_encoder = torch.compile(self.feat_encoder, '
+        + windows_safe_mode
+        + ', fullgraph=True)'
+    )
     if WINDOWS_COMPILE_PATCH_MARKER in source:
-        # Upgrade workspaces patched by the earlier conservative fallback.
-        # Their static launcher is already disabled by the service manager, so
-        # retaining ``default`` would leave both ordinary and realtime Vox
-        # needlessly slower on every single decode step.
-        if legacy_windows_mode not in source:
+        # Normalize an unreleased all-default draft back to reduce-overhead,
+        # then retain the Windows fallback only on the failing encoder path.
+        normalized = source.replace(windows_safe_mode, reduce_overhead_mode)
+        if feat_encoder_reduce_overhead not in normalized:
+            raise RuntimeError("Unsupported VoxCPM2 Windows compile patch layout.")
+        normalized = normalized.replace(
+            feat_encoder_reduce_overhead,
+            feat_encoder_windows_safe,
+            1,
+        )
+        if normalized == source:
             return False
-        _write_atomically(path, source.replace(legacy_windows_mode, 'mode="reduce-overhead"'))
+        _write_atomically(path, normalized)
         return True
-    if "import os" not in source or 'mode="reduce-overhead"' not in source:
+    if "import os" not in source or feat_encoder_reduce_overhead not in source:
         raise RuntimeError(
             "Unsupported VoxCPM2 torch.compile layout; refusing to start without the Windows safety patch."
         )
@@ -161,21 +178,23 @@ def _patch_windows_compile_mode(path: Path) -> bool:
         + source[optimize.end() :]
     )
     source = source.replace(
-        'mode="reduce-overhead"',
-        'mode="reduce-overhead"',
+        feat_encoder_reduce_overhead,
+        feat_encoder_windows_safe,
+        1,
     )
     _write_atomically(path, source)
     return True
 
 
 def ensure_voxcpm2_windows_compile_safe(voxcpm2_root: Path) -> bool:
-    """Patch the local VoxCPM source to keep ``torch.compile`` fast and reliable on Windows.
+    """Patch local VoxCPM sources to keep ``torch.compile`` reliable on Windows.
 
     The upstream package already opts into TorchInductor and runs one warm-up
     inference while the normal Vox HTTP service starts. Its original
     static CUDA launcher can overflow while resolving 64-bit CUDA handles.
-    The worker disables that launcher before Torch imports, allowing the
-    upstream ``reduce-overhead`` CUDA-graph mode to stay enabled.
+    Reference-audio requests can also fail in the feature encoder's CUDA Graph
+    thread-local state, so only that encoder uses ``default`` on Windows. The
+    repeated language-model and decoder steps retain ``reduce-overhead``.
     """
     if os.name != "nt":
         return False
