@@ -23,9 +23,10 @@ class VoxCpm2ServiceManager:
         settings: Settings | None = None,
         popen: Callable[..., subprocess.Popen] = subprocess.Popen,
         http_client=httpx,
-        startup_timeout_seconds: float = 240.0,
+        startup_timeout_seconds: float = 600.0,
         timer_factory: Callable[[float, Callable[[], None]], threading.Timer] = threading.Timer,
         now_factory: Callable[[], float] = time.time,
+        monotonic_factory: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self.settings = settings or get_settings()
@@ -34,6 +35,7 @@ class VoxCpm2ServiceManager:
         self.startup_timeout_seconds = startup_timeout_seconds
         self.timer_factory = timer_factory
         self.now_factory = now_factory
+        self.monotonic_factory = monotonic_factory
         self.sleep = sleep
         self.process: subprocess.Popen | None = None
         self.started_at: float | None = None
@@ -108,8 +110,8 @@ class VoxCpm2ServiceManager:
         healthy = self.is_healthy()
         if not healthy and (self.process is None or self.process.poll() is not None):
             self.start()
-        deadline = time.monotonic() + self.startup_timeout_seconds
-        while time.monotonic() < deadline:
+        deadline = self.monotonic_factory() + self.startup_timeout_seconds
+        while self.monotonic_factory() < deadline:
             if self.is_ready():
                 return
             if self.process is None:
@@ -117,7 +119,7 @@ class VoxCpm2ServiceManager:
             if self.process is not None and self.process.poll() is not None:
                 raise RuntimeError("VoxCPM2 服务在模型预热期间异常退出。")
             self.sleep(0.8)
-        raise TimeoutError("VoxCPM2 模型预热超时：服务已启动，但 TTS/ASR 权重未完成加载。请查看模型日志。")
+        raise TimeoutError("VoxCPM2 模型预热超时：服务已启动，但 TTS 模型仍未完成加载。请查看模型日志。")
 
     def start(self) -> None:
         if self.process is not None and self.process.poll() is None:

@@ -99,6 +99,19 @@ class WarmingVoxHttpClient(FakeHttpClient):
         return FakeHttpResponse(payload={"status": "ok", "models_loaded": {"all_ready": ready}})
 
 
+class SlowWarmingVoxHttpClient(FakeHttpClient):
+    def __init__(self, now, ready_at: float):
+        super().__init__()
+        self.now = now
+        self.ready_at = ready_at
+
+    def get(self, url: str, timeout: float):
+        self.get_calls.append({"url": url, "timeout": timeout})
+        return FakeHttpResponse(
+            payload={"status": "ok", "models_loaded": {"all_ready": self.now() >= self.ready_at}}
+        )
+
+
 class FakeProcess:
     def __init__(self):
         self.returncode = None
@@ -251,6 +264,24 @@ def test_voxcpm2_waits_for_background_preload_before_accepting_generation(tmp_pa
 
     assert len(client.get_calls) >= 2
     assert manager.process is not None
+
+
+def test_voxcpm2_allows_first_compile_to_finish_after_old_four_minute_cutoff(tmp_path: Path):
+    elapsed = [0.0]
+    client = SlowWarmingVoxHttpClient(lambda: elapsed[0], ready_at=300.0)
+    manager = VoxCpm2ServiceManager(
+        settings=Settings(voxcpm2_root=tmp_path),
+        http_client=client,
+        monotonic_factory=lambda: elapsed[0],
+        sleep=lambda seconds: elapsed.__setitem__(0, elapsed[0] + seconds),
+    )
+    manager.process = FakeProcess()
+
+    manager.ensure_started()
+
+    assert manager.startup_timeout_seconds == 600.0
+    assert elapsed[0] >= 300.0
+    assert manager.is_ready()
 
 
 def test_voxcpm2_managed_service_releases_after_idle_timeout(tmp_path: Path):
