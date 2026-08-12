@@ -59,7 +59,6 @@ import {
   cancelBatchProject,
   cancelSpeechJob,
   checkModelInstance,
-  clearSpeechJobHistory,
   createSpeechJob,
   createVoiceReference,
   createVoice,
@@ -2297,6 +2296,8 @@ export function App() {
   const [ebookInspectorError, setEbookInspectorError] = useState<string | null>(null);
   const [ebookInspectorChapterId, setEbookInspectorChapterId] = useState<string | null>(null);
   const [taskHistoryClearConfirmOpen, setTaskHistoryClearConfirmOpen] = useState(false);
+  const [taskHistoryClearTargetIds, setTaskHistoryClearTargetIds] = useState<string[]>([]);
+  const [taskHistoryClearTargetLabel, setTaskHistoryClearTargetLabel] = useState("全部已结束");
   const [audioLibraryOpen, setAudioLibraryOpen] = useState(false);
   const [monitorPanelOpen, setMonitorPanelOpen] = useState(false);
   const [audioAssets, setAudioAssets] = useState<AudioAsset[]>([]);
@@ -3122,12 +3123,22 @@ export function App() {
     || taskCenterStatusFilter !== "all"
     || taskCenterTaskSourceFilter !== "all"
   );
-  const clearableSpeechTaskCount = useMemo(
+  const clearableSpeechTasks = useMemo(
     () => remoteTasks.filter(
-      (task) => task.source === "speech" && ["succeeded", "failed", "cancelled"].includes(task.status)
-    ).length,
+      (task) => ["speech", "realtime"].includes(task.source)
+        && ["succeeded", "failed", "cancelled"].includes(task.status)
+    ),
     [remoteTasks]
   );
+  const visibleClearableSpeechTasks = useMemo(
+    () => visibleTaskCenterTasks.filter(
+      (task) => ["speech", "realtime"].includes(task.source)
+        && ["succeeded", "failed", "cancelled"].includes(task.status)
+    ),
+    [visibleTaskCenterTasks]
+  );
+  const taskHistoryClearCandidates = taskCenterFiltersActive ? visibleClearableSpeechTasks : clearableSpeechTasks;
+  const taskHistoryClearScopeLabel = taskCenterFiltersActive ? "当前筛选" : "全部已结束";
   const visibleAudioAssets = useMemo(() => {
     const search = audioLibrarySearch.trim().toLocaleLowerCase();
     return audioAssets.filter((asset) => {
@@ -3597,9 +3608,6 @@ export function App() {
   }
 
   async function closeVoiceManager() {
-    if (voiceManagerAction) {
-      return;
-    }
     if (voiceManagerDirty) {
       const confirmed = await requestConfirmation({
         title: "放弃音色修改？",
@@ -6683,21 +6691,87 @@ export function App() {
     }
   }
 
+  function openTaskHistoryClearConfirm() {
+    const targetIds = taskHistoryClearCandidates.map((task) => task.id);
+    if (targetIds.length === 0) {
+      setTaskCenterMessage(taskCenterFiltersActive ? "当前筛选中没有可清理的已结束单句任务。" : "没有可清理的已结束单句任务。");
+      return;
+    }
+    setTaskCenterError(null);
+    setTaskCenterMessage(null);
+    setTaskHistoryClearTargetIds(targetIds);
+    setTaskHistoryClearTargetLabel(taskCenterFiltersActive ? "当前筛选中的" : "全部");
+    setTaskHistoryClearConfirmOpen(true);
+  }
+
+  function closeTaskHistoryClearConfirm() {
+    setTaskHistoryClearConfirmOpen(false);
+    setTaskHistoryClearTargetIds([]);
+    setTaskHistoryClearTargetLabel("全部已结束");
+  }
+
+  function closeTaskCenter() {
+    closeTaskHistoryClearConfirm();
+    setTaskCenterOpen(false);
+  }
+
   async function onClearSpeechHistory() {
+    const targetIds = [...taskHistoryClearTargetIds];
+    if (targetIds.length === 0) {
+      closeTaskHistoryClearConfirm();
+      return;
+    }
     setTaskCenterAction("clear-history");
     setTaskCenterError(null);
     setTaskCenterMessage(null);
+    const removedIds: string[] = [];
+    let removedLogs = 0;
+    let failed = 0;
     try {
-      const result = await clearSpeechJobHistory();
-      setTaskHistoryClearConfirmOpen(false);
+      for (const taskId of targetIds) {
+        try {
+          const result = await deleteSpeechJobHistoryRecord(taskId);
+          removedIds.push(taskId);
+          removedLogs += result.removed_logs;
+        } catch {
+          failed += 1;
+        }
+      }
+      const removedIdSet = new Set(removedIds);
+      setRemoteTasks((tasks) => tasks.filter((task) => !removedIdSet.has(task.id)));
+      closeTaskHistoryClearConfirm();
       await loadTaskSummaries();
       setTaskCenterMessage(
-        result.removed_jobs > 0
-          ? `已清理 ${result.removed_jobs} 条单句生成记录和 ${result.removed_logs} 份诊断日志；生成音频仍保留在输出目录。`
-          : "没有可清理的已结束单句任务；进行中的任务已保留。"
+        failed > 0
+          ? `已清理 ${removedIds.length} 条记录和 ${removedLogs} 份诊断日志，另有 ${failed} 条未能清理；生成音频仍保留。`
+          : `已清理 ${removedIds.length} 条记录和 ${removedLogs} 份诊断日志；生成音频仍保留在输出目录。`
       );
     } catch (err) {
       setTaskCenterError(err instanceof Error ? err.message : "清理生成历史失败");
+    } finally {
+      setTaskCenterAction(null);
+    }
+  }
+
+  async function onDeleteTaskHistoryRecord(task: TaskSummary) {
+    if (!await requestConfirmation({
+      title: "删除任务记录？",
+      message: `将删除“${task.title}”的任务记录和诊断日志，生成音频仍会保留。`,
+      confirmLabel: "删除记录",
+      tone: "danger"
+    })) {
+      return;
+    }
+    setTaskCenterAction(`delete-history-${task.id}`);
+    setTaskCenterError(null);
+    setTaskCenterMessage(null);
+    try {
+      const result = await deleteSpeechJobHistoryRecord(task.id);
+      setRemoteTasks((tasks) => tasks.filter((item) => item.id !== task.id));
+      await loadTaskSummaries();
+      setTaskCenterMessage(`已删除任务记录${result.removed_logs ? "和诊断日志" : ""}；生成音频仍保留。`);
+    } catch (err) {
+      setTaskCenterError(err instanceof Error ? err.message : "删除任务记录失败");
     } finally {
       setTaskCenterAction(null);
     }
@@ -7354,10 +7428,10 @@ export function App() {
               setRealtimeEntryConfirmOpen(false);
               break;
             case "task-history-confirm":
-              setTaskHistoryClearConfirmOpen(false);
+              closeTaskHistoryClearConfirm();
               break;
             case "task-center":
-              setTaskCenterOpen(false);
+              closeTaskCenter();
               break;
             case "audio-library":
               setAudioLibraryOpen(false);
@@ -10297,7 +10371,7 @@ export function App() {
       {taskCenterOpen && (
         <div className="taskQueueOverlay" role="dialog" aria-modal="true" aria-label="任务队列" onMouseDown={(event) => {
           if (event.target === event.currentTarget) {
-            setTaskCenterOpen(false);
+            closeTaskCenter();
           }
         }}>
           <aside className="taskQueueDrawer taskCenterDrawer">
@@ -10306,7 +10380,7 @@ export function App() {
                 <strong>任务中心</strong>
                 <span>{taskCenterTasks.length > 0 ? `共 ${taskCenterTasks.length} 项任务，状态和结果统一在这里管理` : "任务状态、失败原因和产出文件会集中显示在这里"}</span>
               </div>
-              <button type="button" className="modalClose" title="关闭任务中心" aria-label="关闭任务中心" onClick={() => setTaskCenterOpen(false)}><X size={18} strokeWidth={2} /></button>
+              <button type="button" className="modalClose" title="关闭任务中心" aria-label="关闭任务中心" onClick={closeTaskCenter}><X size={18} strokeWidth={2} /></button>
             </header>
             <div className="taskCenterDashboardSummary" aria-label="任务统计">
               <button type="button" className={taskCenterStatusFilter === "active" ? "active" : ""} aria-pressed={taskCenterStatusFilter === "active"} onClick={() => setTaskCenterStatusFilter("active")}><span>进行中</span><strong>{activeTaskCount}</strong></button>
@@ -10315,7 +10389,7 @@ export function App() {
               <button type="button" className={cancelledTaskCount > 0 && taskCenterStatusFilter === "cancelled" ? "active" : ""} aria-pressed={taskCenterStatusFilter === "cancelled"} onClick={() => setTaskCenterStatusFilter("cancelled")}><span>已取消</span><strong>{cancelledTaskCount}</strong></button>
               <button type="button" className={taskCenterStatusFilter === "missing" ? "attention active" : missingTaskResultCount > 0 ? "attention" : ""} aria-pressed={taskCenterStatusFilter === "missing"} onClick={() => setTaskCenterStatusFilter("missing")}><span>文件缺失</span><strong>{missingTaskResultCount}</strong></button>
               <button type="button" className={taskCenterStatusFilter === "attention" ? "attention active" : retryableTaskCount > 0 ? "attention" : ""} aria-pressed={taskCenterStatusFilter === "attention"} onClick={() => setTaskCenterStatusFilter("attention")}><span>待处理</span><strong>{retryableTaskCount}</strong></button>
-              <button type="button" className="taskCenterSummaryLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}>查看成果中心<ChevronRight size={15} strokeWidth={1.9} /></button>
+              <button type="button" className="taskCenterSummaryLink" onClick={() => { closeTaskCenter(); openAudioLibrary(); }}>查看成果中心<ChevronRight size={15} strokeWidth={1.9} /></button>
             </div>
             <div className="taskCenterFilterBar" aria-label="任务筛选">
               <div className="taskCenterTaskSearch"><Search size={15} strokeWidth={1.9} /><input value={taskCenterTaskSearch} aria-label="搜索任务、错误或最近事件" placeholder="搜索任务、错误或最近事件" onChange={(event) => setTaskCenterTaskSearch(event.target.value)} />{taskCenterTaskSearch && <button type="button" className="taskCenterSearchClear" aria-label="清除任务搜索" title="清除搜索" onClick={() => setTaskCenterTaskSearch("")}><X size={14} strokeWidth={2} /></button>}</div>
@@ -10340,8 +10414,8 @@ export function App() {
               {taskHistoryClearConfirmOpen && (
                 <div className="taskHistoryClearConfirm taskCenterInlineConfirm" role="alertdialog" aria-label="确认清理生成历史">
                   <Trash2 size={19} strokeWidth={1.8} />
-                  <div><strong>清理 {clearableSpeechTaskCount} 条已结束的单句生成记录？</strong><span>只删除任务记录和诊断日志，输出目录里的音频文件会保留。</span></div>
-                   <span className="taskHistoryClearActions"><button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => setTaskHistoryClearConfirmOpen(false)}>取消</button><button type="button" className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onClearSpeechHistory()}>{taskCenterAction === "clear-history" ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>确认清理</span></button></span>
+                  <div><strong>清理{taskHistoryClearTargetLabel} {taskHistoryClearTargetIds.length} 条已结束单句任务？</strong><span>删除范围已锁定为确认时显示的任务；只删除记录和诊断日志，输出音频会保留。</span></div>
+                   <span className="taskHistoryClearActions"><button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={closeTaskHistoryClearConfirm}>取消</button><button type="button" className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onClearSpeechHistory()}>{taskCenterAction === "clear-history" ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>确认清理</span></button></span>
                 </div>
               )}
               {(taskCenterError || taskCenterMessage) && <div role={taskCenterError ? "alert" : "status"} aria-live={taskCenterError ? "assertive" : "polite"} className={taskCenterError ? "settingsFeedback error" : "settingsFeedback"}>{taskCenterError ? <AlertCircle size={15} strokeWidth={1.9} /> : <CheckCircle2 size={15} strokeWidth={1.9} />}<span>{taskCenterError ?? taskCenterMessage}</span></div>}
@@ -10357,6 +10431,8 @@ export function App() {
                   const missingResultCount = (task.results ?? []).filter((result) => !result.exists).length;
                   const canClearMissing = missingResultCount > 0 && (["speech", "realtime"].includes(task.source) || (task.source === "batch_project" && task.id.startsWith("project:") && (task.results ?? []).some((result) => !result.exists && result.id.includes(":segment:"))));
                   const isClearingMissing = taskCenterAction === `clear-missing-${task.id}`;
+                  const canDeleteHistory = ["speech", "realtime"].includes(task.source) && ["succeeded", "failed", "cancelled"].includes(task.status);
+                  const isDeletingHistory = taskCenterAction === `delete-history-${task.id}`;
                   const retryLabel = task.source === "batch_project" && task.status === "cancelled" ? "继续" : "重试";
                   const taskIsActive = ["queued", "running", "cancelling"].includes(task.status);
                   return (
@@ -10372,12 +10448,13 @@ export function App() {
                         </details>
                       )}
                       <div className="taskQueueActions">
-                        {(task.results?.length ?? 0) > 0 && <button type="button" className="taskQueueLink" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(task.results?.[0]?.id ?? null); }}>查看成果 <ChevronRight size={14} strokeWidth={1.9} /></button>}
+                        {(task.results?.length ?? 0) > 0 && <button type="button" className="taskQueueLink" onClick={() => { closeTaskCenter(); openAudioLibrary(task.results?.[0]?.id ?? null); }}>查看成果 <ChevronRight size={14} strokeWidth={1.9} /></button>}
                         <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void copyTaskDiagnostics(task)}><Copy size={15} strokeWidth={1.9} /><span>复制诊断</span></button>
                         {task.log_file && <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void openTaskLog(task)}><FileText size={15} strokeWidth={1.9} /><span>打开日志</span></button>}
                         {task.cancelable && <button type="button" className="pathPickButton runtimeStopButton" disabled={taskCenterAction !== null} onClick={() => void onCancelTask(task)}>{isCancelling ? <Loader2 className="spin" size={15} /> : <Pause size={15} strokeWidth={1.9} />}<span>{isCancelling ? "取消中" : "取消"}</span></button>}
                         {task.retryable && <button type="button" className="pathPickButton" disabled={taskCenterAction !== null} onClick={() => void onRetryTask(task)}>{isRetrying ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{isRetrying ? `${retryLabel}中` : retryLabel}</span></button>}
                         {canClearMissing && <button type="button" className="pathPickButton taskQueueMissingAction" title={`清理 ${missingResultCount} 条缺失记录`} disabled={taskCenterAction !== null} onClick={() => void onClearMissingTaskRecords(task)}>{isClearingMissing ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>{isClearingMissing ? "清理中" : "清理缺失"}</span></button>}
+                        {canDeleteHistory && <button type="button" className="pathPickButton taskQueueDeleteAction" title="删除任务记录，保留生成音频" disabled={taskCenterAction !== null} onClick={() => void onDeleteTaskHistoryRecord(task)}>{isDeletingHistory ? <Loader2 className="spin" size={15} /> : <Trash2 size={15} strokeWidth={1.9} />}<span>{isDeletingHistory ? "删除中" : "删除记录"}</span></button>}
                       </div>
                     </article>
                   );
@@ -10387,7 +10464,7 @@ export function App() {
                 <i /><i /><i />
               </span>
             </div>
-            <footer className="taskCenterDrawerFooter"><button type="button" className="secondaryAction settingsAction" disabled={taskCenterAction !== null || clearableSpeechTaskCount === 0} onClick={() => { setTaskCenterError(null); setTaskCenterMessage(null); setTaskHistoryClearConfirmOpen(true); }}><Trash2 size={15} strokeWidth={1.9} /><span>清理已结束记录</span></button><button type="button" className="secondaryAction settingsAction" disabled={taskCenterAction !== null || retryableManageTaskCount === 0} onClick={() => void onRetryAllManageableTasks()}>{taskCenterAction === "retry-all" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{retryableManageTaskCount > 0 ? `批量重试 ${retryableManageTaskCount} 项` : "批量重试"}</span></button><span /><button type="button" className="secondaryAction settingsAction" onClick={() => { setTaskCenterOpen(false); openAudioLibrary(); }}><Library size={15} strokeWidth={1.9} /><span>成果中心</span></button><button type="button" className="primaryAction settingsAction" onClick={() => setTaskCenterOpen(false)}><X size={15} strokeWidth={1.9} /><span>关闭</span></button></footer>
+            <footer className="taskCenterDrawerFooter"><button type="button" className="secondaryAction settingsAction" disabled={taskCenterAction !== null || taskHistoryClearCandidates.length === 0} onClick={openTaskHistoryClearConfirm}><Trash2 size={15} strokeWidth={1.9} /><span>{`清理${taskHistoryClearScopeLabel} ${taskHistoryClearCandidates.length} 项`}</span></button><button type="button" className="secondaryAction settingsAction" disabled={taskCenterAction !== null || retryableManageTaskCount === 0} onClick={() => void onRetryAllManageableTasks()}>{taskCenterAction === "retry-all" ? <Loader2 className="spin" size={15} /> : <RefreshCw size={15} strokeWidth={1.9} />}<span>{retryableManageTaskCount > 0 ? `批量重试 ${retryableManageTaskCount} 项` : "批量重试"}</span></button><span /><button type="button" className="secondaryAction settingsAction" onClick={() => { closeTaskCenter(); openAudioLibrary(); }}><Library size={15} strokeWidth={1.9} /><span>成果中心</span></button><button type="button" className="primaryAction settingsAction" onClick={closeTaskCenter}><X size={15} strokeWidth={1.9} /><span>关闭</span></button></footer>
           </aside>
         </div>
       )}

@@ -11822,6 +11822,8 @@ summary:focus-visible {
 .taskQueueActions .pathPickButton { height: 32px; font-size: 11px; }
 .taskQueueActions .taskQueueMissingAction { color: #a04d4d; background: color-mix(in srgb, #b16843 10%, var(--panel)); }
 .taskQueueActions .taskQueueMissingAction:hover { color: #8f3e3e; background: color-mix(in srgb, #b16843 16%, var(--panel)); }
+.taskQueueActions .taskQueueDeleteAction { color: #a04d4d; background: color-mix(in srgb, #b16843 10%, var(--panel)); }
+.taskQueueActions .taskQueueDeleteAction:hover { color: #8f3e3e; background: color-mix(in srgb, #b16843 16%, var(--panel)); }
 .taskQueueLink { margin-right: auto; border: 0; padding: 0 3px; color: var(--accent-dark); background: transparent; cursor: pointer; display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 720; }
 .taskCenterInlineConfirm { margin: 0; }
 .taskCenterDrawerFooter { min-height: 52px; padding: 8px 14px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
@@ -12156,6 +12158,27 @@ summary:focus-visible {
     width: min(1400px, 100%);
     max-width: 100%;
   }
+}
+
+/* Keep the voice-library close target above its independently scrolling body. */
+.settingsDialog.voiceManagerDialog > .voiceManagerHeader {
+  position: relative;
+  z-index: 5;
+  isolation: isolate;
+}
+
+.settingsDialog.voiceManagerDialog > .voiceManagerHeader .modalClose {
+  -webkit-app-region: no-drag;
+  position: relative;
+  z-index: 6;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  pointer-events: auto;
+  cursor: pointer;
+  touch-action: manipulation;
 }
 
 /* The overview cards remain useful on narrow windows: give each card a
