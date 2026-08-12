@@ -156,6 +156,7 @@ def release_conflicting_runtimes(
     settings: Settings,
     *,
     preserve_realtime_pair: bool = False,
+    preserve_model_ids: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Release OpenTTS-managed GPU models before loading another one.
 
@@ -190,12 +191,23 @@ def release_conflicting_runtimes(
         (model_id, worker)
         for model_id, worker in workers.items()
         if model_id != target_model_id
+        and model_id not in preserve_model_ids
         and not is_managed_realtime_peer(model_id, worker)
         and (worker.get("loaded", False) or worker.get("managed", False))
     ]
+    preserved_workers = [
+        (model_id, worker)
+        for model_id, worker in workers.items()
+        if model_id != target_model_id
+        and model_id in preserve_model_ids
+        and (worker.get("loaded", False) or worker.get("managed", False))
+    ]
+    for model_id, worker in preserved_workers:
+        if worker.get("active_requests", 0) > 0:
+            raise RuntimeError(f"{model_id} 正在生成，暂不能启动 {target_model_id}。")
     if target_model_id != "voxcpm2_streaming" and (
         streaming_worker.get("loaded", False) or streaming_worker.get("managed", False)
-    ) and not is_managed_realtime_peer("voxcpm2_streaming", streaming_worker):
+    ) and "voxcpm2_streaming" not in preserve_model_ids and not is_managed_realtime_peer("voxcpm2_streaming", streaming_worker):
         conflicts.append(("voxcpm2_streaming", streaming_worker))
     for model_id, worker in conflicts:
         if worker.get("active_requests", 0) > 0:

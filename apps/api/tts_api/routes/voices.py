@@ -389,7 +389,14 @@ def recognize_reference_audio(reference: VoiceReference) -> str:
         # cannot remove reference transcription.
         with local_gpu_generation_lock:
             transcriber = get_local_transcriber(settings)
-            release_conflicting_runtimes(transcriber.runtime_model_id, settings)
+            # Short reference transcription fits beside ordinary VoxCPM2 on
+            # supported GPUs. Keep both resident while the shared generation
+            # lock guarantees that ASR and TTS never execute concurrently.
+            release_conflicting_runtimes(
+                transcriber.runtime_model_id,
+                settings,
+                preserve_model_ids=frozenset({"voxcpm2"}),
+            )
             return transcriber.transcribe_path(Path(reference.reference_audio), language="zh")
     except FileNotFoundError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

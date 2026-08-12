@@ -2242,7 +2242,7 @@ export function App() {
   const [cloneMode, setCloneMode] = useState<CloneMode>("可控克隆");
   const [input, setInput] = useState("你好，这是 IndexTTS2 的本地桌面软件测试。");
   const [controlPromptDrafts, setControlPromptDrafts] = useState<Record<string, string>>({});
-  const [referenceText, setReferenceText] = useState("你好，这是参考音频的原始文本。");
+  const [referenceText, setReferenceText] = useState("");
   const [cfg, setCfg] = useState(2);
   const [steps, setSteps] = useState(10);
   const [indexTemperature, setIndexTemperature] = useState(0.8);
@@ -2566,6 +2566,13 @@ export function App() {
     () => availableVoices.find((voice) => voice.id === selectedVoice) ?? availableVoices[0] ?? voicePresets[0],
     [availableVoices, selectedVoice]
   );
+  const hasSelectedVoice = selectedVoice !== "custom" && availableVoices.some((voice) => voice.id === selectedVoice);
+  const selectedVoiceReference = hasSelectedVoice
+    ? selectedVoiceInfo.references.find((reference) => reference.id === selectedVoiceInfo.activeReferenceId)
+      ?? selectedVoiceInfo.references[0]
+      ?? null
+    : null;
+  const selectedVoiceRecognitionKey = selectedVoiceReference ? `${selectedVoiceInfo.id}:${selectedVoiceReference.id}` : "";
   const managedVoice = useMemo(
     () => visibleManagedVoices.find((voice) => voice.id === managedVoiceId) ?? visibleManagedVoices[0] ?? null,
     [visibleManagedVoices, managedVoiceId]
@@ -2637,7 +2644,7 @@ export function App() {
   }, [localModels, modelInstances]);
   const supportedCloneModeKey = supportedCloneModes.join("|");
   const needsReferenceAudio = cloneModeNeedsVoice(cloneMode);
-  const effectiveReferenceText = referenceText.trim() || selectedVoiceInfo.referenceText || "";
+  const effectiveReferenceText = referenceText.trim();
   const needsExtremeReferenceText = cloneModeNeedsReferenceText(cloneMode);
   const showControlPrompt = supportsControlPrompt(selectedModelInfo, cloneMode);
   const controlPromptContextKey = `${selectedModel}:${cloneMode}`;
@@ -2646,10 +2653,25 @@ export function App() {
   const setControlPrompt = (value: string) => {
     setControlPromptDrafts((drafts) => ({ ...drafts, [controlPromptContextKey]: value }));
   };
-  // 音色库是角色资产，不是某一种生成模式的临时参数。音色设计模式虽然
-  // 不会把参考音频提交给 TTS，也仍应让用户看见、管理并预先选择已有音色。
-  // 之前把整个列表随 needsReferenceAudio 隐藏，导致“1 个音色”与“没有
-  // 可用音色”同时出现，误导用户认为导入数据丢失。
+  const selectCloneMode = (mode: CloneMode) => {
+    setCloneMode(mode);
+    if (mode === "音色设计") {
+      selectedVoiceRef.current = "custom";
+      setSelectedVoice("custom");
+      setReferenceText("");
+    }
+  };
+  const selectVoiceForClone = (voice: VoicePreset) => {
+    selectedVoiceRef.current = voice.id;
+    setSelectedVoice(voice.id);
+    setReferenceText(voice.referenceText ?? "");
+    if (cloneMode === "音色设计") {
+      const nextMode = supportedCloneModes.includes("可控克隆") ? "可控克隆" : supportedCloneModes[0];
+      setCloneMode(nextMode);
+    }
+  };
+  // 音色库是角色资产，不是某一种生成模式的临时参数。音色设计模式仍可
+  // 查看和管理角色；选择角色时则明确切回克隆模式，避免两种输入来源并存。
   const showVoiceLibrary = true;
   const showCfgSteps = selectedModel === "voxcpm2";
   const showIndexSampling = selectedModel === "indextts2";
@@ -2675,13 +2697,13 @@ export function App() {
     ? Math.max(0, referenceAudioEditor.trimEndSeconds - referenceAudioEditor.trimStartSeconds)
     : 0;
   const doubaoUsable = doubaoStatus?.status === "ready" && (doubaoStatus.cookies.valid ?? 0) > 0;
-  const currentVoiceName = isDoubao ? selectedDoubaoVoice?.name ?? "未选择音色" : selectedVoiceInfo.name;
+  const currentVoiceName = isDoubao ? selectedDoubaoVoice?.name ?? "未选择音色" : hasSelectedVoice ? selectedVoiceInfo.name : "未选择角色";
   const canGenerate =
     input.trim().length > 0 &&
     !loading &&
     (!modelWarmupBusy || isDoubao) &&
     (isDoubao ? doubaoUsable && Boolean(selectedDoubaoVoice) : isModelInstanceUsable(selectedModelInstance)) &&
-    (!needsReferenceAudio || Boolean(selectedVoiceInfo.referenceAudio)) &&
+    (!needsReferenceAudio || (hasSelectedVoice && Boolean(selectedVoiceInfo.referenceAudio))) &&
     (!needsExtremeReferenceText || effectiveReferenceText.trim().length > 0);
   const audioUrl = result ? toAudioUrl(result.audio_url) : "";
   const progress = playbackDuration > 0 ? Math.min((playbackTime / playbackDuration) * 100, 100) : 0;
@@ -3442,7 +3464,9 @@ export function App() {
     })();
 
     voiceRecognitionRequestsRef.current.set(requestKey, recognition);
-    queueModelWarmup(selectedModelRef.current);
+    if (selectedModelRef.current !== "voxcpm2") {
+      queueModelWarmup(selectedModelRef.current);
+    }
   }
 
   function stopVoiceManagerPreview() {
@@ -3711,7 +3735,7 @@ export function App() {
       durationSeconds: 0,
       trimStartSeconds: 0,
       trimEndSeconds: 0,
-      autoRecognize: false,
+      autoRecognize: target.kind !== "trim",
       target
     });
     void decodeWaveformPeaks(new Uint8Array(audioBytes).buffer)
@@ -4057,12 +4081,15 @@ export function App() {
     setVoiceManagerAction("recognize");
     setVoiceManagerError(null);
     setVoiceManagerMessage(null);
-    pendingModelWarmupRef.current = selectedModelRef.current;
-    setModelWarmupState({
-      modelId: selectedModelRef.current,
-      status: "waiting",
-      message: "正在识别参考音频，完成后会恢复并预热当前模型。"
-    });
+    const shouldRestoreModel = selectedModelRef.current !== "voxcpm2";
+    if (shouldRestoreModel) {
+      pendingModelWarmupRef.current = selectedModelRef.current;
+      setModelWarmupState({
+        modelId: selectedModelRef.current,
+        status: "waiting",
+        message: "正在识别参考音频，完成后会恢复并预热当前模型。"
+      });
+    }
     try {
       const result = await recognizeVoiceReferenceClip(managedVoice.id, managedReference.id);
       setVoiceManagerDraft((draft) => ({ ...draft, referenceText: result.text }));
@@ -4074,7 +4101,9 @@ export function App() {
       setVoiceManagerError(err instanceof Error ? err.message : "参考音频识别失败");
     } finally {
       setVoiceManagerAction(null);
-      queueModelWarmup(selectedModelRef.current);
+      if (shouldRestoreModel) {
+        queueModelWarmup(selectedModelRef.current);
+      }
     }
   }
 
@@ -4263,6 +4292,30 @@ export function App() {
     setRealtimeEntryConfirmOpen(false);
     releaseRealtimeRuntimeReservation();
     setGenerationWorkspace("single");
+  }
+
+  async function onRecognizeSelectedVoiceReference() {
+    if (!hasSelectedVoice || !selectedVoiceReference?.referenceAudio) {
+      setError("当前角色没有可识别的参考音频。");
+      return;
+    }
+    const requestKey = `${selectedVoiceInfo.id}:${selectedVoiceReference.id}`;
+    setRecognizingVoiceIds((ids) => [...new Set([...ids, requestKey])]);
+    setError(null);
+    setVoiceMessage("正在识别当前角色的参考原文…");
+    try {
+      const result = await recognizeVoiceReferenceClip(selectedVoiceInfo.id, selectedVoiceReference.id);
+      const updated = await updateVoiceReference(selectedVoiceInfo.id, selectedVoiceReference.id, {
+        reference_text: result.text
+      });
+      applyRecognizedVoice(updated);
+      setReferenceText(result.text);
+      setVoiceMessage("参考原文已识别并保存，请核对后生成。");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "参考音频识别失败");
+    } finally {
+      setRecognizingVoiceIds((ids) => ids.filter((id) => id !== requestKey));
+    }
   }
 
   function selectVoiceAvatar(index: number) {
@@ -6236,9 +6289,9 @@ export function App() {
 
   function createCurrentSpeechOptions(): GenerateSpeechOptions {
     return {
-      voice: supportsRequestCapability(selectedModelInfo, "voice") ? selectedVoice : undefined,
+      voice: supportsRequestCapability(selectedModelInfo, "voice") && hasSelectedVoice ? selectedVoice : undefined,
       referenceAudio: needsReferenceAudio && supportsRequestCapability(selectedModelInfo, "reference_audio")
-        ? selectedVoiceInfo.referenceAudio
+        ? hasSelectedVoice ? selectedVoiceInfo.referenceAudio : undefined
         : undefined,
       referenceText: supportsRequestCapability(selectedModelInfo, "reference_text")
         && (needsExtremeReferenceText || selectedModel === "gptsovits")
@@ -7676,10 +7729,8 @@ export function App() {
   }, [audioUrl]);
 
   useEffect(() => {
-    if (selectedVoiceInfo.referenceText && !referenceText.trim()) {
-      setReferenceText(selectedVoiceInfo.referenceText);
-    }
-  }, [selectedVoiceInfo.id]);
+    setReferenceText(hasSelectedVoice ? selectedVoiceInfo.referenceText ?? "" : "");
+  }, [hasSelectedVoice, selectedVoiceInfo.id, selectedVoiceInfo.referenceText]);
 
   useEffect(() => {
     const importedVoice = customVoices.find((voice) => voice.id === selectedVoice);
@@ -7803,6 +7854,15 @@ export function App() {
       setCloneMode(supportedCloneModes[0]);
     }
   }, [cloneMode, supportedCloneModeKey]);
+
+  useEffect(() => {
+    if (cloneMode !== "音色设计" || selectedVoice === "custom") {
+      return;
+    }
+    selectedVoiceRef.current = "custom";
+    setSelectedVoice("custom");
+    setReferenceText("");
+  }, [cloneMode, selectedVoice]);
 
   useEffect(() => {
     if (modelSwitchLocked) {
@@ -8585,14 +8645,9 @@ export function App() {
                   <button
                     key={voice.id}
                     type="button"
-                    className={voice.id === selectedVoice ? "voiceCard active" : "voiceCard"}
-                    aria-pressed={voice.id === selectedVoice}
-                    onClick={() => {
-                      setSelectedVoice(voice.id);
-                      if (voice.modelBinding) {
-                        setReferenceText(voice.referenceText ?? "");
-                      }
-                    }}
+                    className={voice.id === selectedVoice && cloneMode !== "音色设计" ? "voiceCard active" : "voiceCard"}
+                    aria-pressed={voice.id === selectedVoice && cloneMode !== "音色设计"}
+                    onClick={() => selectVoiceForClone(voice)}
                     title={voiceQualityById[voice.id]?.warnings[0] ?? `${voice.name} · ${voice.subtitle}`}
                     >
                     <span className="voiceAvatar hasImage" style={{ "--avatar-bg": voice.background, ...voiceAvatarStyle(voice, voiceAvatars) } as CSSProperties} aria-hidden="true" />
@@ -8626,7 +8681,7 @@ export function App() {
                     type="button"
                     className={mode === cloneMode ? "segment active" : "segment"}
                     aria-pressed={mode === cloneMode}
-                    onClick={() => setCloneMode(mode)}
+                    onClick={() => selectCloneMode(mode)}
                   >
                     {mode}
                   </button>
@@ -8714,15 +8769,28 @@ export function App() {
               </div>
             )}
             {needsExtremeReferenceText && (
-              <textarea
-                className="controlPrompt referencePrompt"
-                value={referenceText}
-                onChange={(event) => setReferenceText(event.target.value)}
-                placeholder="参考音频对应原文"
-                aria-label="参考音频对应原文"
-              />
+              <div className="referencePromptField">
+                <textarea
+                  className="controlPrompt referencePrompt"
+                  value={referenceText}
+                  onChange={(event) => setReferenceText(event.target.value)}
+                  placeholder="参考音频对应原文"
+                  aria-label="参考音频对应原文"
+                />
+                <button
+                  className="referencePromptRecognizeButton"
+                  type="button"
+                  disabled={!hasSelectedVoice || !selectedVoiceReference?.referenceAudio || recognizingVoiceIds.includes(selectedVoiceRecognitionKey)}
+                  onClick={() => void onRecognizeSelectedVoiceReference()}
+                >
+                  {recognizingVoiceIds.includes(selectedVoiceRecognitionKey)
+                    ? <Loader2 className="spin" size={15} />
+                    : <Wand2 size={15} strokeWidth={1.9} />}
+                  <span>{recognizingVoiceIds.includes(selectedVoiceRecognitionKey) ? "正在识别" : "识别参考原文"}</span>
+                </button>
+              </div>
             )}
-            {selectedModel === "voxcpm2" && cloneMode === "可控克隆" && (
+            {selectedModel === "voxcpm2" && cloneMode === "可控克隆" && hasSelectedVoice && (
               <div className="cloneModeWarning">
                 <AlertCircle size={17} strokeWidth={1.9} />
                 <div>
@@ -8730,7 +8798,7 @@ export function App() {
                   <span>
                     当前正在克隆「{selectedVoiceInfo.name}」。控制文字只能调表达，不能可靠地把男声改成女声；想由描述决定音色，请改用音色设计。
                   </span>
-                  <button type="button" onClick={() => setCloneMode("音色设计")} disabled={loading}>
+                  <button type="button" onClick={() => selectCloneMode("音色设计")} disabled={loading}>
                     切换到音色设计
                   </button>
                 </div>

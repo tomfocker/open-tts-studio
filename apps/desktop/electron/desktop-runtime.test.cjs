@@ -666,8 +666,12 @@ test("terminateProcessTree uses taskkill on Windows", () => {
 
   terminateProcessTree(processHandle, {
     platform: "win32",
-    execFile: (file, args) => calls.push([file, args])
+    execFileSync: (file, args, options) => calls.push([file, args, options])
   });
 
-  assert.deepEqual(calls, [["taskkill", ["/PID", "1234", "/T", "/F"]]]);
+  assert.deepEqual(calls, [[
+    "taskkill",
+    ["/PID", "1234", "/T", "/F"],
+    { windowsHide: true, stdio: "ignore" }
+  ]]);
 });

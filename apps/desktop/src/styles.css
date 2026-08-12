@@ -3594,6 +3594,38 @@ summary:focus-visible {
   min-height: 68px;
 }
 
+.referencePromptField {
+  display: grid;
+  gap: 8px;
+}
+
+.referencePromptRecognizeButton {
+  min-height: 38px;
+  border: 1px solid rgba(70, 111, 91, 0.2);
+  border-radius: 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #456b58;
+  background: rgba(247, 251, 249, 0.76);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 760;
+  cursor: pointer;
+}
+
+.referencePromptRecognizeButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+:root[data-theme="dark"] .referencePromptRecognizeButton {
+  border-color: rgba(126, 185, 146, 0.24);
+  color: #b8d7c1;
+  background: rgba(41, 58, 49, 0.72);
+}
+
 .paramsPanel {
   padding: 14px;
   display: grid;

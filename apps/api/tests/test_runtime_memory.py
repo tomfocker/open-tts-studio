@@ -52,6 +52,51 @@ def test_release_conflicting_runtimes_rejects_external_gpu_service(monkeypatch):
         runtime_memory.release_conflicting_runtimes("indextts2", Settings())
 
 
+def test_reference_asr_can_preserve_an_external_voxcpm2_service(monkeypatch):
+    monkeypatch.setattr(runtime_memory, "resolve_runtime_settings", lambda settings: settings)
+    monkeypatch.setattr(
+        runtime_memory,
+        "runtime_workers",
+        lambda settings, detect_external: {
+            "indextts2": {"loaded": False, "managed": False, "active_requests": 0},
+            "voxcpm2": {"loaded": True, "managed": False, "active_requests": 0},
+            "gptsovits": {"loaded": False, "managed": False, "active_requests": 0},
+            "sensevoice": {"loaded": False, "managed": False, "active_requests": 0},
+        },
+    )
+    monkeypatch.setattr(runtime_memory, "get_whispera_streaming_status", lambda _settings: {"loaded": False, "managed": False})
+
+    released = runtime_memory.release_conflicting_runtimes(
+        "sensevoice",
+        Settings(),
+        preserve_model_ids=frozenset({"voxcpm2"}),
+    )
+
+    assert released == []
+
+
+def test_reference_asr_rejects_a_busy_preserved_voxcpm2_service(monkeypatch):
+    monkeypatch.setattr(runtime_memory, "resolve_runtime_settings", lambda settings: settings)
+    monkeypatch.setattr(
+        runtime_memory,
+        "runtime_workers",
+        lambda settings, detect_external: {
+            "indextts2": {"loaded": False, "managed": False, "active_requests": 0},
+            "voxcpm2": {"loaded": True, "managed": False, "active_requests": 1},
+            "gptsovits": {"loaded": False, "managed": False, "active_requests": 0},
+            "sensevoice": {"loaded": False, "managed": False, "active_requests": 0},
+        },
+    )
+    monkeypatch.setattr(runtime_memory, "get_whispera_streaming_status", lambda _settings: {"loaded": False, "managed": False})
+
+    with pytest.raises(RuntimeError, match="voxcpm2 正在生成"):
+        runtime_memory.release_conflicting_runtimes(
+            "sensevoice",
+            Settings(),
+            preserve_model_ids=frozenset({"voxcpm2"}),
+        )
+
+
 def test_release_conflicting_runtimes_rejects_an_external_whispera_worker(monkeypatch):
     monkeypatch.setattr(runtime_memory, "resolve_runtime_settings", lambda settings: settings)
     monkeypatch.setattr(

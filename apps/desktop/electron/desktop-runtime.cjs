@@ -730,9 +730,18 @@ function terminateProcessTree(processHandle, options = {}) {
     return;
   }
   const platform = options.platform || process.platform;
-  const execFile = options.execFile || childProcess.execFile;
+  const execFileSync = options.execFileSync || childProcess.execFileSync;
   if (platform === "win32") {
-    execFile("taskkill", ["/PID", String(processHandle.pid), "/T", "/F"], () => {});
+    try {
+      // Electron can exit immediately after before-quit. Wait for taskkill so
+      // model grandchildren cannot survive an update as unmanaged services.
+      execFileSync("taskkill", ["/PID", String(processHandle.pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "ignore"
+      });
+    } catch {
+      // The process may already have exited between the health check and quit.
+    }
     return;
   }
   processHandle.kill();

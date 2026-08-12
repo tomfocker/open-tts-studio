@@ -373,7 +373,11 @@ def test_voice_reference_recognition_returns_editable_transcript(tmp_path: Path,
             return "自动识别出的参考音频原文。"
 
     monkeypatch.setattr(voice_routes, "get_local_transcriber", lambda _settings: FakeSenseVoice(_settings))
-    monkeypatch.setattr(voice_routes, "release_conflicting_runtimes", lambda model_id, _settings: captured.update(released=model_id) or [])
+    monkeypatch.setattr(
+        voice_routes,
+        "release_conflicting_runtimes",
+        lambda model_id, _settings, **kwargs: captured.update(released=(model_id, kwargs)) or [],
+    )
     client = TestClient(app)
     created = client.post(
         "/v1/tts/voices",
@@ -384,7 +388,7 @@ def test_voice_reference_recognition_returns_editable_transcript(tmp_path: Path,
 
     assert response.status_code == 200
     assert response.json() == {"voice_id": created["id"], "text": "自动识别出的参考音频原文。"}
-    assert captured["released"] == "sensevoice"
+    assert captured["released"] == ("sensevoice", {"preserve_model_ids": frozenset({"voxcpm2"})})
     assert captured["reference_audio"] == created["reference_audio"]
 
 
