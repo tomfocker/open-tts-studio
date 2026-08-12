@@ -444,6 +444,92 @@
   background: color-mix(in srgb, var(--panel) 64%, var(--panel-strong));
 }
 
+.transcriptionTextResultHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+}
+
+.transcriptionTextResultHeader > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.transcriptionTextResultHeader strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.transcriptionTextResultHeader span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.transcriptionTextReset {
+  flex: 0 0 auto;
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--panel-strong);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+
+.transcriptionTextReset:hover,
+.transcriptionTextReset:focus-visible {
+  color: var(--accent-dark);
+  border-color: var(--accent);
+}
+
+.transcriptionTextReset:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 1px;
+}
+
+.transcriptionTextEditor {
+  width: 100%;
+  min-height: 150px;
+  max-height: 360px;
+  resize: vertical;
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font: 13px/1.8 "Segoe UI", sans-serif;
+  white-space: pre-wrap;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.transcriptionTextEditor:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.transcriptionTextEditor::placeholder {
+  color: var(--muted);
+}
+
+.transcriptionExportHint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .transcriptionTextResult pre {
   margin: 0;
   color: var(--text);

@@ -150,3 +150,25 @@ def test_patch_switches_both_vox_models_to_the_windows_safe_compile_mode(tmp_pat
         assert 'mode="reduce-overhead"' in patched
 
     assert ensure_voxcpm2_windows_compile_safe(tmp_path) is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the TorchInductor workaround applies only to Windows")
+def test_patch_upgrades_the_legacy_windows_compile_mode(tmp_path: Path):
+    model_root = tmp_path / "src" / "voxcpm" / "model"
+    model_root.mkdir(parents=True)
+    legacy_windows_mode = 'mode="default" if os.name == "nt" else "reduce-overhead"'
+    previously_patched = LEGACY_COMPILE_MODEL.replace(
+        "        if disable:\n",
+        f"        # {WINDOWS_COMPILE_PATCH_MARKER}\n        if disable:\n",
+    ).replace('mode="reduce-overhead"', legacy_windows_mode)
+    for name in ("voxcpm.py", "voxcpm2.py"):
+        (model_root / name).write_text(previously_patched, encoding="utf-8")
+
+    assert ensure_voxcpm2_windows_compile_safe(tmp_path) is True
+    for name in ("voxcpm.py", "voxcpm2.py"):
+        upgraded = (model_root / name).read_text(encoding="utf-8")
+        compile(upgraded, str(model_root / name), "exec")
+        assert legacy_windows_mode not in upgraded
+        assert 'mode="reduce-overhead"' in upgraded
+
+    assert ensure_voxcpm2_windows_compile_safe(tmp_path) is False

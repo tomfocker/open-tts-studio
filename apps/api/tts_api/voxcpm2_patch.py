@@ -143,7 +143,7 @@ def _patch_windows_compile_mode(path: Path) -> bool:
         # needlessly slower on every single decode step.
         if legacy_windows_mode not in source:
             return False
-        _write_atomically(source.replace(legacy_windows_mode, 'mode="reduce-overhead"'), path)
+        _write_atomically(path, source.replace(legacy_windows_mode, 'mode="reduce-overhead"'))
         return True
     if "import os" not in source or 'mode="reduce-overhead"' not in source:
         raise RuntimeError(

@@ -8304,7 +8304,14 @@ export function App() {
 
     const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const transitionDocument = document as ThemeTransitionDocument;
-    if (!prefersReducedMotion && transitionDocument.startViewTransition) {
+    // Electron 31 exposes View Transitions, but its renderer can hold the old
+    // snapshot for a noticeable moment while capturing a large workstation
+    // surface. The theme state has already changed by then, so the control
+    // looks unresponsive. Keep the richer circular reveal for regular browser
+    // previews and use the immediate, lightweight icon motion in the desktop
+    // shell where responsiveness matters more.
+    const canUseViewTransition = typeof navigator === "undefined" || !/\bElectron\//.test(navigator.userAgent);
+    if (!prefersReducedMotion && canUseViewTransition && transitionDocument.startViewTransition) {
       try {
         const transition = transitionDocument.startViewTransition(applyTheme);
         void transition.ready.then(() => {

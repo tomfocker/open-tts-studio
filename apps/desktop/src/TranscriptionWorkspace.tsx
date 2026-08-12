@@ -419,7 +419,28 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
                       <label className="transcriptionTranslateControl"><select value={transformTargetLanguage} onChange={(event) => setTransformTargetLanguage(event.target.value)}><option>英文</option><option>日文</option><option>韩文</option></select><button type="button" onClick={() => void transformSelectedText("translate")} disabled={transformBusy !== null || !displayedText.trim()}>{transformBusy === "translate" ? <Loader2 className="spin" size={14} /> : <Download size={14} />}翻译</button></label>
                     </div>
                     {transformError && <div className="transcriptionFeedback error"><AlertCircle size={15} /><span>{transformError}</span></div>}
-                    <article className="transcriptionTextResult"><pre>{displayedText || "未识别到文本。"}</pre></article>
+                    <article className="transcriptionTextResult">
+                      <header className="transcriptionTextResultHeader">
+                        <div><strong>可编辑转写文本</strong><span>{displayedText.length.toLocaleString()} 字 · 修改仅作用于本次导出</span></div>
+                        {editedText !== null && (
+                          <button type="button" className="transcriptionTextReset" onClick={() => { setEditedText(null); setTransformResult(null); setTransformError(null); }}>
+                            <RotateCw size={13} strokeWidth={1.9} />
+                            <span>恢复识别结果</span>
+                          </button>
+                        )}
+                      </header>
+                      <textarea
+                        className="transcriptionTextEditor"
+                        value={displayedText}
+                        aria-label="可编辑转写文本"
+                        placeholder="未识别到文本。"
+                        onChange={(event) => {
+                          setEditedText(event.target.value);
+                          setTransformResult(null);
+                          setTransformError(null);
+                        }}
+                      />
+                    </article>
                     {transformResult && (
                       <div className="transcriptionTransformPreview">
                         <header><div><strong>{transformResult.operation === "proofread" ? "校对结果" : transformResult.operation === "summarize" ? "摘要结果" : `${transformResult.target_language}翻译`}</strong><small>{transformResult.model}</small></div><div><button type="button" onClick={() => void transformSelectedText(transformResult.operation)} disabled={transformBusy !== null}>重新生成</button><button type="button" className="primary" onClick={() => { setEditedText(transformResult.text); setTransformResult(null); setTransformError(null); }}>采用结果</button></div></header>
@@ -428,9 +449,10 @@ export function TranscriptionWorkspace({ onClose }: TranscriptionWorkspaceProps)
                     )}
                     {selectedJob.segments.length > 0 && <div className="transcriptionCuePreview">{selectedJob.segments.slice(0, 6).map((segment) => <span key={segment.id}><code>{formatTime(segment.start_seconds)}</code>{segment.text}</span>)}{selectedJob.segments.length > 6 && <small>另有 {selectedJob.segments.length - 6} 条字幕</small>}</div>}
                     <div className="transcriptionActions">
-                      <button type="button" onClick={() => void exportResult("txt")} disabled={actionBusy}>{pendingAction === "export-txt" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}导出 TXT</button>
+                      <button type="button" onClick={() => void exportResult("txt")} disabled={actionBusy || !displayedText.trim()}>{pendingAction === "export-txt" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}导出 TXT</button>
                       {selectedJob.segments.length > 0 && <button className="primary" type="button" onClick={() => void exportResult("srt")} disabled={actionBusy}>{pendingAction === "export-srt" ? <Loader2 className="spin" size={15} /> : <Download size={15} />}导出 SRT</button>}
                     </div>
+                    {editedText !== null && selectedJob.segments.length > 0 && <small className="transcriptionExportHint">手工修改会写入 TXT；SRT 会保留原始分段与时间轴。</small>}
                   </>
                 ) : isActive(selectedJob) ? (
                   <div className="transcriptionEmptyState"><Loader2 className="spin" size={28} /><strong>{selectedJob.status === "queued" ? "正在等待本地模型" : "正在识别媒体音轨"}</strong><span>不会上传到外部服务。</span></div>
